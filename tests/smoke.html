@@ -29,15 +29,26 @@
   frame.addEventListener("load",function(){
     var w=frame.contentWindow;
     try{
-      result(same(w.parseDimensionString("38 x 76 x 30 cm"),[38,76,30]),"compact dimensions");
-      result(same(w.parseLabeledDimensions("Width: 38 cm Depth: 76 cm Height: 30 cm"),[38,76,30]),"IKEA labeled dimensions");
-      var info=w.ikeaUrlInfo("https://www.ikea.com/ma/en/p/sockerbit-storage-box-with-lid-white-40522088/");
+      var api=w.StorageFitTest;
+      result(!!api,"smoke-test API is exposed only for the test page");
+      result(same(api.parseDimensionString("38 x 76 x 30 cm"),[38,76,30]),"compact dimensions");
+      result(same(api.parseLabeledDimensions("Width: 38 cm Depth: 76 cm Height: 30 cm"),[38,76,30]),"IKEA labeled dimensions");
+      var info=api.ikeaUrlInfo("https://www.ikea.com/ma/en/p/sockerbit-storage-box-with-lid-white-40522088/");
       result(info.sku==="405.220.88","IKEA article number",info.sku||"missing");
-      result(same(w.normalizeProductDimensions([380,760,300],"mm"),[38,76,30]),"unit conversion mm to cm");
-      result(w.safeUrl("javascript:alert(1)")==="","unsafe URL rejection");
+      result(same(api.normalizeProductDimensions([380,760,300],"mm"),[38,76,30]),"unit conversion mm to cm");
+      result(api.safeUrl("javascript:alert(1)")==="","unsafe URL rejection");
       var valid={storages:[{id:"s",name:"Drawer",w:67,d:26,h:13,obstacles:[]}],boxes:[{id:"b",name:"Box",w:10,d:10,h:5}],savedPlans:[]};
-      result(w.validateBackupState(valid)==="","backup validation accepts valid state");
-      result(w.validateBackupState({storages:"bad",boxes:[]})!=="","backup validation rejects invalid state");
+      result(api.validateBackupState(valid)==="","backup validation accepts valid state");
+      result(api.validateBackupState({storages:"bad",boxes:[]})!=="","backup validation rejects invalid state");
+
+      var base={x:0,y:0,z:0,w:20,d:20,h:10};
+      var touching={x:2,y:2,z:10,w:10,d:10,h:5};
+      var colliding={x:2,y:2,z:9,w:10,d:10,h:5};
+      var overhang={x:15,y:2,z:10,w:10,d:10,h:5};
+      result(api.overlap3D(base,touching,0)===false,"stacked faces may touch vertically");
+      result(api.overlap3D(base,colliding,0)===true,"3D overlap detects vertical penetration");
+      result(api.footprintContains(base,touching)===true,"full-footprint support accepted");
+      result(api.footprintContains(base,overhang)===false,"overhanging stack rejected");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{
