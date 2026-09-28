@@ -409,6 +409,7 @@ function validateBackupState(candidate){
     if(ids.has(`b:${b.id}`))return "Duplicate item ID found.";
     ids.add(`b:${b.id}`);
     if(!isFiniteNonNegative(b.w)||!isFiniteNonNegative(b.d)||!isFiniteNonNegative(b.h))return `Item “${b.name||b.id}” has invalid dimensions.`;
+    if(b.maxStackLevel!=null&&(!Number.isInteger(Number(b.maxStackLevel))||Number(b.maxStackLevel)<1||Number(b.maxStackLevel)>9))return `Item “${b.name||b.id}” has an invalid maximum stack level.`;
   }
   return "";
 }
@@ -874,7 +875,7 @@ function applyImportedProduct(p,targetId=null){
       w:imported.w,d:imported.d,h:imported.h,
       price:imported.price,currency:imported.currency,
       sku:imported.sku,url:imported.url,image:imported.image,retailer:imported.retailer,ownedQty:0,
-      uprightOnly:true,canBeStacked:false,canSupportStack:false
+      uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:false,canSupportStack:false,maxStackLevel:null
     };
     state.boxes.push(item);state.selectedTypes[id]=true;state.itemLimits[id]=null;
   }
@@ -1997,11 +1998,11 @@ function findLayouts(){
   for(const layout of found.values()){
     const sig=countSignature(layout);
     if(!grouped.has(sig)) grouped.set(sig,[]);
-    const variants=grouped.get(sig);
-    if(variants.length<4) variants.push(layout);
+    grouped.get(sig).push(layout);
   }
+  for(const variants of grouped.values())variants.sort((a,b)=>compareLayoutsForGoal(a,b,W,D));
 
-  layouts=[...grouped.values()].flat();
+  layouts=[...grouped.values()].flatMap(variants=>variants.slice(0,4));
   layouts.sort((a,b)=>compareLayoutsForGoal(a,b,W,D) || countSignature(a).localeCompare(countSignature(b)));
 
   if(layouts.length>LAYOUT_LIMIT){
@@ -2048,6 +2049,10 @@ function proposalTags(layout,W,D,H=currentUsableSize()?.H||1){
   if(state.optimizeGoal==="cost" && layouts.length){
     const cheapest=layouts.reduce((best,l)=>comparePurchaseCost(l,best,W,D)<0?l:best,layouts[0]);
     if(comparePurchaseCost(layout,cheapest,W,D)===0)tags.push("Least to buy");
+  }
+  if(layout.some(p=>boxById(p.typeId)?.frontPriority) && layouts.length){
+    const easiest=Math.min(...layouts.map(l=>accessPenalty(l,D)));
+    if(Math.abs(accessPenalty(layout,D)-easiest)<1e-9)tags.push("Easy reach");
   }
   if(layoutUsesStacking(layout)) tags.push("Uses stacking");
   return tags.slice(0,3);
@@ -2377,7 +2382,9 @@ $("resetEdit").addEventListener("click",()=>{
 $("rotateItem").addEventListener("click",()=>{
   const layout=selectedManualLayout(),sz=currentUsableSize();
   if(!editMode||!layout||!sz||selectedEditItem<0){setEditStatus("Select a box first.",true);return}
-  const p=layout[selectedEditItem],old={w:p.w,d:p.d};
+  const p=layout[selectedEditItem],type=boxById(p.typeId);
+  if(type?.floorRotationLocked){setEditStatus("This item keeps its floor orientation.",true);return}
+  const old={w:p.w,d:p.d};
   p.w=old.d;p.d=old.w;
   if(!editItemValid(layout,selectedEditItem,sz.W,sz.D)){
     p.w=old.w;p.d=old.d;setEditStatus("That rotation would collide or leave the storage.",true);
@@ -2856,6 +2863,10 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     ensureHomeHierarchy,
     purchaseBreakdown,
     aggregateRequiredCounts,
+    orientations,
+    placementStackLevel,
+    accessPenalty,
+    compareAccess,
     overlap3D,
     footprintContains
   };
