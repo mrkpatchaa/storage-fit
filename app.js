@@ -1325,6 +1325,16 @@ function downloadJson(filename,data){
   a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),500);
 }
+function printablePlacementLabels(layout,itemLookup=boxById){
+  return (layout||[]).map((p,index)=>{
+    const purpose=placementLabel(p);if(!purpose)return null;
+    const item=itemLookup(p.typeId);
+    return {
+      index:index+1,purpose,itemName:item?.name||p.typeId,
+      w:Number(p.w)||0,d:Number(p.d)||0,h:Number(p.h)||0,z:Number(p.z)||0
+    };
+  }).filter(Boolean);
+}
 function buildPrintSheet(){
   const layout=layouts[selectedLayout],s=storage();if(!layout||!s)return false;
   const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0,W=s.w-2*c,D=s.d-2*c,H=s.h-2*c;
@@ -1341,6 +1351,20 @@ function buildPrintSheet(){
     <table><thead><tr><th>Item</th><th>Use</th><th>Owned</th><th>Buy</th><th>Unit price</th><th>Subtotal</th></tr></thead>
     <tbody>${rows.map(r=>`<tr><td>${esc(r.name)}${r.sku?` · ${esc(r.sku)}`:""}${r.url&&r.buyQty?`<br><a href="${esc(r.url)}">${esc(r.url)}</a>`:""}</td><td>${r.qty}</td><td>${r.ownedUsed}</td><td>${r.buyQty}</td><td>${r.buyQty&&r.price>0?money(r.price,r.currency):"—"}</td><td>${r.buyQty&&r.price>0?money(r.subtotal,r.currency):r.buyQty?"—":"✓"}</td></tr>`).join("")}</tbody></table>
     <div class="printtotal">Additional purchase estimate: ${esc(totalsText(layout))}</div>
+  </div>`;
+  return true;
+}
+function buildLabelPrintSheet(){
+  const layout=layouts[selectedLayout],s=storage();if(!layout||!s)return false;
+  const labels=printablePlacementLabels(layout);if(!labels.length)return false;
+  $("printSheet").innerHTML=`<div class="labelsheet">
+    <div class="labelsheethead"><h1>${esc(s.name)} — Organizer labels</h1><div class="printmeta">${labels.length} label${labels.length===1?"":"s"} · ${esc(state.unit)}</div></div>
+    <div class="labelgrid">${labels.map(x=>`<article class="labelcard">
+      <div class="labelpurpose">${esc(x.purpose)}</div>
+      <div class="labelitem">${esc(x.itemName)}</div>
+      <div class="labelmeta">Placement #${x.index} · ${fmt(x.w)} × ${fmt(x.d)} × ${fmt(x.h)} ${esc(state.unit)}${x.z>0?` · stacked at z ${fmt(x.z)} ${esc(state.unit)}`:""}</div>
+      <div class="labelstorage">${esc(s.name)}</div>
+    </article>`).join("")}</div>
   </div>`;
   return true;
 }
@@ -2648,6 +2672,9 @@ function renderDetail(W,D,H){
   $("detailSubtitle").textContent=`${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)} utilization · ${layout.length} item${layout.length===1?"":"s"}${stackedCount?` · ${stackedCount} stacked`:""}.`;
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.view===detailView));
   $("reset3d").disabled=detailView!=="iso";
+  const printableLabels=printablePlacementLabels(layout);
+  $("printLabelsBtn").disabled=printableLabels.length===0;
+  $("printLabelsBtn").title=printableLabels.length?`Print ${printableLabels.length} organizer label${printableLabels.length===1?"":"s"}`:"Add purpose labels to placements first";
   $("editLayoutBtn").textContent=editMode?"Editing":"Edit layout";
   $("editBar").classList.toggle("active",editMode);
   const labelInput=$("placementLabel"),selectedPlacement=selectedEditItem>=0?layout[selectedEditItem]:null;
@@ -3157,6 +3184,10 @@ $("printPlanBtn").addEventListener("click",()=>{
   if(!buildPrintSheet())return;
   window.print();
 });
+$("printLabelsBtn").addEventListener("click",()=>{
+  if(!buildLabelPrintSheet()){alert("Add a purpose label to at least one placement first.");return}
+  window.print();
+});
 $("exportPlanBtn").addEventListener("click",()=>{
   const payload=currentExportPayload(),s=storage();if(!payload||!s)return;
   downloadJson(`${slugify(s.name)}-layout-${selectedLayout+1}.json`,payload);
@@ -3536,6 +3567,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     repeatStorageNames,
     canonicalPlanLayout,
     labeledPlacements,
+    printablePlacementLabels,
     itemPlanningSnapshot,
     itemPlanningSignature,
     validatePlanLayoutAgainst,
