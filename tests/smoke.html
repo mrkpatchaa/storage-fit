@@ -217,6 +217,21 @@
       result(api.snapValue(1.24,0.5)===1&&api.snapValue(1.26,0.5)===1.5,"manual edit snapping rounds to the configured step");
       result(api.snapValue(0.037,0.01)===0.04,"manual edit snapping preserves fine precision");
       result(api.clampSnappedValue(9.9,0,9,0.5)===9&&api.clampSnappedValue(-1,0,9,0.5)===0,"manual edit snapping respects storage bounds");
+      result(api.defaultConstraintMeasure("cm")===1&&api.defaultConstraintMeasure("mm")===10&&api.defaultConstraintMeasure("in")===0.4,"constraint templates use practical unit-aware defaults");
+      var constraintSeq=0,constraintIds=function(prefix){constraintSeq+=1;return prefix+"-"+constraintSeq};
+      var templateStorage={w:100,d:50,h:20};
+      var runners=api.constraintTemplateZones("side-runners",templateStorage,{width:5,height:8},constraintIds);
+      result(runners.length===2&&runners[0].x===0&&runners[0].w===5&&runners[1].x===95&&runners[1].w===5,"side-runner template creates mirrored full-depth rails");
+      result(runners.every(function(x){return x.d===50&&x.h===8})&&runners[0].id!==runners[1].id,"side-runner template preserves height and generates fresh IDs");
+      var clampedRunners=api.constraintTemplateZones("side-runners",templateStorage,{width:80,height:50},constraintIds);
+      result(clampedRunners[0].w===50&&clampedRunners[0].h===20,"side-runner template clamps width and height to storage bounds");
+      var rear=api.constraintTemplateZones("rear-strip",templateStorage,{depth:7,height:10},constraintIds);
+      result(rear.length===1&&rear[0].x===0&&rear[0].y===43&&rear[0].w===100&&rear[0].d===7,"rear obstruction template anchors to the inside back edge");
+      var front=api.constraintTemplateZones("front-strip",templateStorage,{depth:6,height:4},constraintIds);
+      result(front.length===1&&front[0].x===0&&front[0].y===0&&front[0].w===100&&front[0].d===6,"front lip template anchors to the inside front edge");
+      var corners=api.constraintTemplateZones("corner-posts",templateStorage,{width:4,depth:3,height:12},constraintIds);
+      result(corners.length===4&&corners.some(function(x){return x.x===96&&x.y===47})&&corners.every(function(x){return x.w===4&&x.d===3&&x.h===12}),"corner template creates four symmetric editable notches");
+      result(api.constraintTemplateZones("unknown",templateStorage,{},constraintIds).length===0,"unknown constraint template produces no geometry");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{

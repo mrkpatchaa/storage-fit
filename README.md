@@ -562,3 +562,70 @@ Share payloads are validated before encoding and again by the viewer. Damaged or
 To avoid unreliable oversized URLs, Storage Fit limits generated share links to approximately 12,000 characters. Very large plans should use the existing JSON **Export** instead.
 
 CI syntax-checks both `app.js` and the standalone `share.js` viewer.
+
+
+## Furniture constraint templates
+
+Blocked zones can now be created from common furniture patterns instead of entering every rectangle manually.
+
+The **Blocked zones** section includes four templates:
+
+### Side runners · pair
+
+Creates mirrored left/right full-depth runner zones.
+
+You enter:
+- runner width from each side;
+- runner height.
+
+Useful for drawer slides, side rails, or side hardware that consumes usable width.
+
+### Rear obstruction · full width
+
+Creates one full-width blocked strip anchored to the inside back edge.
+
+You enter:
+- obstruction depth;
+- obstruction height.
+
+Useful for rear pipes, back lips, cable channels, drawer backs, or other full-width rear interference.
+
+### Front lip / track · full width
+
+Creates one full-width blocked strip anchored to the inside front edge.
+
+You enter:
+- lip/track depth;
+- obstruction height.
+
+Useful for sliding-door tracks, drawer-front hardware, or a raised front lip.
+
+### Corner posts / notches · four
+
+Creates four symmetric corner blocked zones.
+
+You enter:
+- corner width;
+- corner depth;
+- corner height.
+
+Useful when a drawer or cabinet has repeated corner posts, clips, or molded notches.
+
+### Safety and editing
+
+Templates clamp generated dimensions to the selected storage space. For example, each side runner can use at most half the storage width.
+
+Every generated rectangle is a normal blocked zone:
+- it receives its own fresh ID;
+- it can be renamed or edited immediately;
+- it participates in optimizer collision checks;
+- it appears in Top / Front / Side / 3D views;
+- it survives unit conversion, cloning, backups, and recovery;
+- it becomes part of saved-plan structural health, so adding or changing a template can correctly mark an older plan Review or Invalid.
+
+Template defaults are unit-aware:
+- cm → 1 cm
+- mm → 10 mm
+- in → 0.4 in
+
+No state migration is required because templates generate the same blocked-zone records the app already understands.
