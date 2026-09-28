@@ -1061,7 +1061,9 @@ function projectTotalsText(summary){
   return summary.purchaseUnits===0?"Nothing to buy":moneyTotalsText(summary.totals,summary.missing);
 }
 function projectRemainingText(summary){
-  return summary.remainingUnits===0?"Ready to receive / install":moneyTotalsText(summary.remainingTotals,summary.remainingMissing);
+  if(summary.purchaseUnits===0)return "Ready to install";
+  if(summary.remainingUnits===0)return "All purchased";
+  return moneyTotalsText(summary.remainingTotals,summary.remainingMissing);
 }
 function setShoppingBought(itemId,value){
   state.shoppingBought=state.shoppingBought||{};
@@ -1083,7 +1085,7 @@ function renderHomeProcurement(){
   $("receivePurchasesBtn").disabled=summary.boughtUnits<=0;
   $("receivePurchasesBtn").textContent=summary.boughtUnits?`Receive ${summary.boughtUnits} purchased`:"Receive purchases";
 
-  const ready=summary.remainingUnits===0;
+  const ready=summary.purchaseUnits===0;
   $("homeProcurementSummary").innerHTML=`
     <div class="projectstat"><div class="k">Chosen spaces</div><div class="v">${summary.plans.length}</div></div>
     <div class="projectstat"><div class="k">Organizers required</div><div class="v">${summary.totalRequired}</div></div>
@@ -2096,6 +2098,13 @@ $("savePlanBtn").addEventListener("click",()=>{
   renderSavedPlans();updateSavePlanButton();
 });
 
+$("receivePurchasesBtn").addEventListener("click",()=>{
+  const received=receiveMarkedPurchases();
+  if(!received)return;
+  const btn=$("receivePurchasesBtn");
+  btn.textContent=`Received ${received} ✓`;
+  renderAll();
+});
 $("exportHomeShoppingBtn").addEventListener("click",()=>{
   const payload=homeShoppingExportPayload();
   if(!payload.chosenPlans.length)return;
@@ -2319,7 +2328,10 @@ $("deleteStorage").addEventListener("click",()=>{
   save();renderAll()
 });
 $("deleteBox").addEventListener("click",()=>{
-  if(!editingBox)return;state.boxes=state.boxes.filter(x=>x.id!==editingBox);delete state.selectedTypes[editingBox];delete state.itemLimits[editingBox];
+  if(!editingBox)return;
+  const usedBySaved=state.savedPlans.some(p=>(p.layout||[]).some(q=>q.typeId===editingBox));
+  if(usedBySaved){alert("This item is used by a saved plan. Remove or replace it in saved plans before deleting it.");return}
+  state.boxes=state.boxes.filter(x=>x.id!==editingBox);delete state.selectedTypes[editingBox];delete state.itemLimits[editingBox];delete state.shoppingBought[editingBox];
   editingBox=state.boxes[0]?.id||"";save();renderAll()
 });
 
@@ -2335,6 +2347,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     safeUrl,
     validateBackupState,
     normalizeChosenPlanSelections,
+    normalizeShoppingBought,
     ensureHomeHierarchy,
     purchaseBreakdown,
     aggregateRequiredCounts,
