@@ -368,6 +368,7 @@ function renderAll(){
   renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();loadBoxEditor();renderSavedPlans();renderInstallDashboard();renderHomeProcurement();renderBackupStats();resetResults();
 }
 function plannedStorageIds(){return new Set((state.savedPlans||[]).map(p=>p.storageId))}
+function installedStorageIds(){return new Set(Object.keys(state.installedPlanIds||{}))}
 function renderHierarchy(){
   const roomSelect=$("roomSelect"),furnitureSelect=$("furnitureSelect"),storageFurniture=$("storageFurniture");
   const room=roomById(state.selectedRoom)||state.rooms[0];
@@ -386,15 +387,16 @@ function renderHierarchy(){
   const furnitureOptions=state.rooms.flatMap(r=>state.furniture.filter(f=>f.roomId===r.id).map(f=>`<option value="${f.id}">${esc(r.name)} → ${esc(f.name)}</option>`)).join("");
   storageFurniture.innerHTML=furnitureOptions;
 
-  const planned=plannedStorageIds(),allCount=state.storages.length,plannedCount=state.storages.filter(s=>planned.has(s.id)).length;
-  $("homeProgress").textContent=allCount?`${plannedCount}/${allCount} planned`:"No storage yet";
+  const planned=plannedStorageIds(),installed=installedStorageIds(),allCount=state.storages.length;
+  const plannedCount=state.storages.filter(s=>planned.has(s.id)).length,installedCount=state.storages.filter(s=>installed.has(s.id)).length;
+  $("homeProgress").textContent=allCount?`${plannedCount}/${allCount} planned · ${installedCount} installed`:"No storage yet";
 
   const currentSpaces=state.storages.filter(s=>s.furnitureId===state.selectedFurniture);
   if(!currentSpaces.some(s=>s.id===editingStorage))editingStorage=currentSpaces[0]?.id||"";
-  const currentPlanned=currentSpaces.filter(s=>planned.has(s.id)).length;
-  const pct=currentSpaces.length?Math.round(currentPlanned/currentSpaces.length*100):0;
+  const currentPlanned=currentSpaces.filter(s=>planned.has(s.id)).length,currentInstalled=currentSpaces.filter(s=>installed.has(s.id)).length;
+  const pct=currentSpaces.length?Math.round(currentInstalled/currentSpaces.length*100):0;
   $("furnitureProgress").innerHTML=currentSpaces.length
-    ? `${currentPlanned} of ${currentSpaces.length} storage space${currentSpaces.length===1?"":"s"} has a saved plan.<div class="progressbar"><span style="width:${pct}%"></span></div>`
+    ? `${currentPlanned} of ${currentSpaces.length} planned · ${currentInstalled} installed.<div class="progressbar"><span style="width:${pct}%"></span></div>`
     : "No storage spaces in this furniture yet.";
 
   $("deleteRoom").disabled=state.rooms.length<=1;
