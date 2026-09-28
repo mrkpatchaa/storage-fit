@@ -691,12 +691,30 @@ function resetResults(){
   const n=selectedBoxes().length;$("searchNote").textContent=n?`${n} item type${n===1?"":"s"} selected.`:"Select at least one item type.";
 }
 
-function orientations(item,uprightOnly){
+function orientations(item,forceUpright=state.uprightOnly){
+  const uprightOnly=forceUpright || item.uprightOnly!==false;
   const raw=uprightOnly?[[item.w,item.d,item.h],[item.d,item.w,item.h]]:
     [[item.w,item.d,item.h],[item.w,item.h,item.d],[item.d,item.w,item.h],[item.d,item.h,item.w],[item.h,item.w,item.d],[item.h,item.d,item.w]];
   const seen=new Set();return raw.filter(o=>{const k=o.join("|");if(seen.has(k))return false;seen.add(k);return true});
 }
 function overlap(a,b,gap=0){return !(a.x+a.w+gap<=b.x || b.x+b.w+gap<=a.x || a.y+a.d+gap<=b.y || b.y+b.d+gap<=a.y)}
+function zOverlap(a,b){const az=Number(a.z)||0,bz=Number(b.z)||0;return !(az+a.h<=bz+1e-9 || bz+b.h<=az+1e-9)}
+function overlap3D(a,b,gap=0){return overlap(a,b,gap)&&zOverlap(a,b)}
+function footprintContains(base,p){
+  return p.x>=base.x-1e-9&&p.y>=base.y-1e-9&&p.x+p.w<=base.x+base.w+1e-9&&p.y+p.d<=base.y+base.d+1e-9;
+}
+function supportingBaseFor(p,placed){
+  const z=Number(p.z)||0;if(z<=1e-9)return null;
+  return placed.find(base=>{
+    const rule=boxById(base.typeId);
+    return !!rule?.canSupportStack && Math.abs((Number(base.z)||0)+base.h-z)<=1e-9 && footprintContains(base,p);
+  })||null;
+}
+function placementSupported(p,placed,type){
+  const z=Number(p.z)||0;
+  if(z<=1e-9)return true;
+  return !!state.enableStacking && !!type?.canBeStacked && !!supportingBaseFor(p,placed);
+}
 function rawObstacles(){
   return storage()?.obstacles||[];
 }
@@ -705,7 +723,7 @@ function usableObstacles(){
   const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0;
   const W=S.w-2*c,D=S.d-2*c,H=S.h-2*c;
   return (S.obstacles||[]).map(o=>({
-    id:o.id,name:o.name||"Blocked zone",
+    id:o.id,name:o.name||"Blocked zone",z:0,
     x:Math.max(0,(Number(o.x)||0)-c),
     y:Math.max(0,(Number(o.y)||0)-c),
     w:Math.max(0,Math.min(Number(o.w)||0,W-Math.max(0,(Number(o.x)||0)-c))),
@@ -747,15 +765,39 @@ function candidatePoints(placed){
   const out=[];for(const y of [...ys].sort((a,b)=>a-b))for(const x of [...xs].sort((a,b)=>a-b))out.push([x,y]);return out;
 }
 function canonicalLayout(placed){
-  return placed.slice().sort((a,b)=>a.typeId.localeCompare(b.typeId)||a.x-b.x||a.y-b.y||a.w-b.w||a.d-b.d)
-    .map(p=>`${p.typeId}:${round6(p.x)},${round6(p.y)},${round6(p.w)},${round6(p.d)},${round6(p.h)}`).join(";");
+  return placed.slice().sort((a,b)=>a.typeId.localeCompare(b.typeId)||((a.z||0)-(b.z||0))||a.x-b.x||a.y-b.y||a.w-b.w||a.d-b.d)
+    .map(p=>`${p.typeId}:${round6(p.x)},${round6(p.y)},${round6(p.z||0)},${round6(p.w)},${round6(p.d)},${round6(p.h)}`).join(";");
 }
-function occupiedArea(layout){return layout.reduce((s,p)=>s+p.w*p.d,0)}
-function utilization(layout,W,D){return occupiedArea(layout)/Math.max(1e-9,freeFloorArea(W,D,usableObstacles()))}
+function occupiedArea(layout){return layout.filter(p=>(Number(p.z)||0)<=1e-9).reduce((s,p)=>s+p.w*p.d,0)}
+function occupiedVolume(layout){return layout.reduce((s,p)=>s+p.w*p.d*p.h,0)}
+function usableVolume(W,D,H,obstacles=usableObstacles()){
+  const xs=[0,W],ys=[0,D],zs=[0,H];
+  for(const o of obstacles){
+    xs.push(Math.max(0,o.x),Math.min(W,o.x+o.w));
+    ys.push(Math.max(0,o.y),Math.min(D,o.y+o.d));
+    zs.push(0,Math.min(H,o.h));
+  }
+  const X=[...new Set(xs)].sort((a,b)=>a-b),Y=[...new Set(ys)].sort((a,b)=>a-b),Z=[...new Set(zs)].sort((a,b)=>a-b);
+  let free=0;
+  for(let xi=0;xi<X.length-1;xi++)for(let yi=0;yi<Y.length-1;yi++)for(let zi=0;zi<Z.length-1;zi++){
+    const x1=X[xi],x2=X[xi+1],y1=Y[yi],y2=Y[yi+1],z1=Z[zi],z2=Z[zi+1];
+    if(x2<=x1||y2<=y1||z2<=z1)continue;
+    const mx=(x1+x2)/2,my=(y1+y2)/2,mz=(z1+z2)/2;
+    if(!obstacles.some(o=>mx>=o.x&&mx<o.x+o.w&&my>=o.y&&my<o.y+o.d&&mz>=0&&mz<o.h))free+=(x2-x1)*(y2-y1)*(z2-z1);
+  }
+  return Math.max(0,free);
+}
+function layoutUsesStacking(layout){return layout.some(p=>(Number(p.z)||0)>1e-9)}
+function utilization(layout,W,D,H=currentUsableSize()?.H||1){
+  if(state.enableStacking||layoutUsesStacking(layout))return occupiedVolume(layout)/Math.max(1e-9,usableVolume(W,D,H));
+  return occupiedArea(layout)/Math.max(1e-9,freeFloorArea(W,D,usableObstacles()));
+}
+function utilizationNoun(layout){return (state.enableStacking||layoutUsesStacking(layout))?"usable volume":"usable floor"}
 function forbiddenRects(layout,W,D){
   const gap=Math.max(0,state.fitTolerance||0);
   const rects=[];
   for(const p of layout){
+    if((Number(p.z)||0)>1e-9)continue;
     rects.push({
       x:Math.max(0,p.x-gap),y:Math.max(0,p.y-gap),
       w:Math.min(W,p.x+p.w+gap)-Math.max(0,p.x-gap),
@@ -845,6 +887,50 @@ function countSignature(layout){
   const c={};for(const p of layout)c[p.typeId]=(c[p.typeId]||0)+1;
   return Object.keys(c).sort().map(k=>`${k}:${c[k]}`).join("|");
 }
+function validPlacement(p,placed,type,W,D,H,obstacles,gap){
+  const z=Number(p.z)||0;
+  if(p.x<gap-1e-9||p.y<gap-1e-9||p.x+p.w+gap>W+1e-9||p.y+p.d+gap>D+1e-9||z<0||z+p.h>H+1e-9)return false;
+  if(obstacles.some(o=>overlap3D(p,o,gap)))return false;
+  if(placed.some(q=>overlap3D(p,q,gap)))return false;
+  return placementSupported(p,placed,type);
+}
+function candidatePlacementsFor(placed,type,o,W,D,H,obstacles,gap){
+  const out=[],seen=new Set();
+  const push=p=>{
+    const key=`${round6(p.x)}|${round6(p.y)}|${round6(p.z||0)}`;
+    if(seen.has(key)||!validPlacement(p,placed,type,W,D,H,obstacles,gap))return;
+    seen.add(key);out.push(p);
+  };
+
+  const floorPlaced=placed.filter(p=>(Number(p.z)||0)<=1e-9);
+  for(const [x,y] of candidatePointsFor(floorPlaced,obstacles,o[0],o[1],gap)){
+    push({typeId:type.id,name:type.name,x:round6(x),y:round6(y),z:0,w:o[0],d:o[1],h:o[2]});
+  }
+
+  if(state.enableStacking&&type.canBeStacked){
+    for(const base of placed){
+      const baseRule=boxById(base.typeId);
+      if(!baseRule?.canSupportStack)continue;
+      const z=round6((Number(base.z)||0)+base.h);
+      if(z+o[2]>H+1e-9||o[0]>base.w+1e-9||o[1]>base.d+1e-9)continue;
+      const xs=new Set([base.x,round6(base.x+base.w-o[0])]);
+      const ys=new Set([base.y,round6(base.y+base.d-o[1])]);
+      for(const q of placed){
+        if(Math.abs((Number(q.z)||0)-z)>1e-9)continue;
+        if(q.x>=base.x-1e-9&&q.y>=base.y-1e-9&&q.x+q.w<=base.x+base.w+1e-9&&q.y+q.d<=base.y+base.d+1e-9){
+          xs.add(round6(q.x+q.w+gap));ys.add(round6(q.y+q.d+gap));
+          xs.add(round6(q.x-o[0]-gap));ys.add(round6(q.y-o[1]-gap));
+        }
+      }
+      for(const y of [...ys])for(const x of [...xs]){
+        const p={typeId:type.id,name:type.name,x:round6(x),y:round6(y),z,w:o[0],d:o[1],h:o[2]};
+        if(footprintContains(base,p))push(p);
+      }
+    }
+  }
+  return out;
+}
+
 function canPlaceAny(placed,types,W,D){
   const points=candidatePoints(placed);
   for(const t of types) for(const o of t.oris) for(const [x,y] of points){
@@ -868,7 +954,7 @@ function findLayouts(){
   const types=selected.map(b=>({
     ...b,
     max:(Number.isFinite(state.itemLimits?.[b.id]) && state.itemLimits[b.id]>0) ? state.itemLimits[b.id] : null,
-    oris:orientations(b,state.uprightOnly).filter(o=>o[0]+2*gap<=W&&o[1]+2*gap<=D&&o[2]+gap<=H)
+    oris:orientations(b,state.uprightOnly).filter(o=>o[0]+2*gap<=W&&o[1]+2*gap<=D&&o[2]<=H+1e-9)
   })).filter(t=>t.oris.length);
 
   const rejected=selected.filter(b=>!types.some(t=>t.id===b.id));
@@ -893,11 +979,7 @@ function findLayouts(){
       const used=counts[t.id]||0;
       if(t.max!==null && used>=t.max) continue;
       for(const o of t.oris){
-        const points=candidatePointsFor(placed,obstacles,o[0],o[1],gap);
-        for(const [x,y] of points){
-          if(x<gap-1e-9||y<gap-1e-9||x+o[0]+gap>W+1e-9||y+o[1]+gap>D+1e-9||o[2]+gap>H+1e-9)continue;
-          const p={typeId:t.id,name:t.name,x:round6(x),y:round6(y),z:0,w:o[0],d:o[1],h:o[2]};
-          if(placed.some(q=>overlap(p,q,gap))||obstacles.some(ob=>overlap(p,ob,gap)))continue;
+        for(const p of candidatePlacementsFor(placed,t,o,W,D,H,obstacles,gap)){
           extended=true;
           recurse([...placed,p],{...counts,[t.id]:used+1});
           if(found.size>=LAYOUT_LIMIT*4){truncated=true;return}
@@ -938,7 +1020,7 @@ function findLayouts(){
   if(rejected.length){
     showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${rejected.map(x=>x.name).join(", ")} cannot fit at all and was excluded.${truncated?" Results are capped.":""}`,"warn");
   }else{
-    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${obstacles.length?`${obstacles.length} blocked zone${obstacles.length===1?"":"s"} avoided. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?"Results are capped to keep the browser responsive.":""}`,"good");
+    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${state.enableStacking?"Stacking rules enabled. ":""}${obstacles.length?`${obstacles.length} blocked zone${obstacles.length===1?"":"s"} avoided. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?"Results are capped to keep the browser responsive.":""}`,"good");
   }
   selectedLayout=0;selectedGap=-1;currentGaps=[];
   editMode=false;
