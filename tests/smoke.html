@@ -245,6 +245,23 @@
       result(JSON.stringify(mirrorTwice)===JSON.stringify(mirrorSource),"mirroring twice on the same axis restores the exact layout");
       result(api.footprintContains(mirrorX[0],mirrorX[1])===true,"mirroring a stacked pair preserves full-footprint support geometry");
       result(api.mirrorLayoutGeometry(mirrorSource,100,50,"diagonal").length===0,"unknown mirror axis is rejected safely");
+      var history=api.makeEditHistory([{typeId:"b1",x:0,y:0,z:0,w:5,d:5,h:5,label:""}]);
+      result(history.entries.length===1&&history.index===0,"manual edit history starts with one baseline snapshot");
+      history=api.appendEditHistoryState(history,[{typeId:"b1",x:1,y:0,z:0,w:5,d:5,h:5,label:""}],"Move");
+      history=api.appendEditHistoryState(history,[{typeId:"b1",x:2,y:0,z:0,w:5,d:5,h:5,label:""}],"Nudge");
+      result(history.entries.length===3&&history.index===2,"manual edit history appends successful mutations");
+      var undoStep=api.stepEditHistoryState(history,-1);
+      result(undoStep.moved&&undoStep.layout[0].x===1&&undoStep.history.index===1,"undo restores the previous exact layout snapshot");
+      var redoStep=api.stepEditHistoryState(undoStep.history,1);
+      result(redoStep.moved&&redoStep.layout[0].x===2&&redoStep.history.index===2,"redo restores the next exact layout snapshot");
+      var branched=api.appendEditHistoryState(undoStep.history,[{typeId:"b1",x:9,y:0,z:0,w:5,d:5,h:5,label:""}],"Branch");
+      result(branched.entries.length===3&&branched.entries[2].layout[0].x===9,"new edit after undo discards the old redo branch");
+      result(api.stepEditHistoryState(branched,1).moved===false,"redo is unavailable after branching from an undone state");
+      var deduped=api.appendEditHistoryState(branched,[{typeId:"b1",x:9,y:0,z:0,w:5,d:5,h:5,label:""}],"Duplicate snapshot");
+      result(deduped.entries.length===branched.entries.length,"identical snapshots do not create duplicate undo steps");
+      var capped=api.makeEditHistory([{x:0}]);
+      for(var hi=1;hi<=5;hi++)capped=api.appendEditHistoryState(capped,[{x:hi}],"Edit "+hi,3);
+      result(capped.entries.length===3&&capped.entries[capped.index].layout[0].x===5,"manual edit history respects its bounded capacity");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{

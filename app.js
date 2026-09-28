@@ -8,6 +8,7 @@ const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
 const SHARE_LINK_LIMIT = 12000;
+const EDIT_HISTORY_LIMIT = 60;
 
 let state = loadState();
 ensureHomeHierarchy(state);
@@ -19,6 +20,7 @@ let detailView = "front";
 let editMode = false;
 let selectedEditItem = -1;
 let editOriginalLayout = null;
+let editHistory = {entries:[],index:-1};
 let topDrag = null;
 let currentGaps = [];
 let selectedGap = -1;
@@ -2655,6 +2657,7 @@ function renderDetail(W,D,H){
   $("editSnapStep").value=String(round6(normalizeSnapStep(state.editSnapStep)));
   $("editSnapUnit").textContent=state.unit;
   $("editShowGrid").checked=state.editShowGrid!==false;
+  updateEditHistoryControls();
   const selectedType=selectedPlacement?boxById(selectedPlacement.typeId):null;
   $("moveItemFloor").disabled=!editMode||!selectedPlacement||(Number(selectedPlacement.z)||0)<=1e-9;
   $("stackItem").disabled=!editMode||!selectedPlacement||!state.enableStacking||!selectedType?.canBeStacked;
@@ -2726,7 +2729,10 @@ function renderGapList(W,D,H){
     if(!editItemValid(layout,idx,W,D)){
       layout.pop();setEditStatus("That saved item no longer fits after applying tolerance.",true);return;
     }
+    const wasEditing=editMode;
     selectedEditItem=idx;editMode=true;editOriginalLayout=editOriginalLayout||layout.slice(0,-1).map(q=>({...q}));
+    if(!wasEditing||editHistory.index<0)resetEditHistory(editOriginalLayout);
+    recordEditHistory("Add item");
     selectedGap=-1;detailView="top";
     setEditStatus(`${b.name} added. You can drag or rotate it.`);
     renderDetail(W,D,H);
@@ -2741,6 +2747,45 @@ function currentUsableSize(){
   return {W:S.w-2*c,D:S.d-2*c,H:S.h-2*c};
 }
 function selectedManualLayout(){return layouts[selectedLayout]}
+function cloneLayoutSnapshot(layout){return (layout||[]).map(p=>({...p}))}
+function editHistoryKey(layout){return JSON.stringify(cloneLayoutSnapshot(layout))}
+function makeEditHistory(layout){return {entries:[{layout:cloneLayoutSnapshot(layout),label:"Start"}],index:0}}
+function appendEditHistoryState(history,layout,label="",limit=EDIT_HISTORY_LIMIT){
+  const base=history&&Array.isArray(history.entries)?history:{entries:[],index:-1};
+  const current=base.entries[base.index]?.layout;
+  if(current&&editHistoryKey(current)===editHistoryKey(layout))return base;
+  let entries=base.entries.slice(0,Math.max(0,base.index+1));
+  entries.push({layout:cloneLayoutSnapshot(layout),label:String(label||"Edit").slice(0,80)});
+  const cap=Math.max(2,Math.floor(Number(limit)||EDIT_HISTORY_LIMIT));
+  if(entries.length>cap)entries=entries.slice(entries.length-cap);
+  return {entries,index:entries.length-1};
+}
+function stepEditHistoryState(history,delta){
+  const base=history&&Array.isArray(history.entries)?history:{entries:[],index:-1};
+  const next=base.index+(delta<0?-1:1);
+  if(next<0||next>=base.entries.length)return {history:base,layout:null,label:"",moved:false};
+  return {history:{entries:base.entries,index:next},layout:cloneLayoutSnapshot(base.entries[next].layout),label:base.entries[next].label||"Edit",moved:true};
+}
+function updateEditHistoryControls(){
+  const undo=$("undoEdit"),redo=$("redoEdit");if(!undo||!redo)return;
+  undo.disabled=!editMode||editHistory.index<=0;
+  redo.disabled=!editMode||editHistory.index<0||editHistory.index>=editHistory.entries.length-1;
+}
+function resetEditHistory(layout){editHistory=makeEditHistory(layout);updateEditHistoryControls()}
+function recordEditHistory(label){
+  if(!editMode)return;
+  editHistory=appendEditHistoryState(editHistory,selectedManualLayout(),label);updateEditHistoryControls();
+}
+function moveEditHistory(delta){
+  if(!editMode)return false;
+  const fromLabel=editHistory.entries[editHistory.index]?.label||"Edit",step=stepEditHistoryState(editHistory,delta);
+  if(!step.moved)return false;
+  editHistory=step.history;layouts[selectedLayout]=step.layout;
+  if(selectedEditItem>=step.layout.length)selectedEditItem=-1;
+  selectedGap=-1;topDrag=null;updateSavePlanButton();updateEditHistoryControls();
+  setEditStatus((delta<0?"Undo: "+fromLabel:"Redo: "+step.label)+".");
+  refreshCurrentDetail();return true;
+}
 function mirrorLayoutGeometry(layout,W,D,axis){
   const width=Math.max(0,Number(W)||0),depth=Math.max(0,Number(D)||0);
   if(!Array.isArray(layout)||!["x","y"].includes(axis))return [];
@@ -2761,7 +2806,7 @@ function mirrorCurrentLayout(axis){
     return false;
   }
   layouts[selectedLayout]=mirrored;
-  selectedGap=-1;updateSavePlanButton();
+  selectedGap=-1;updateSavePlanButton();recordEditHistory(axis==="x"?"Mirror left ↔ right":"Mirror front ↔ back");
   setEditStatus(axis==="x"?"Mirrored left ↔ right.":"Mirrored front ↔ back.");
   refreshCurrentDetail();return true;
 }
@@ -2828,7 +2873,7 @@ function relocateSelectedPlacement(target){
   for(const q of manualRelocationCandidates(layout,selectedEditItem,target,sz.W,sz.D,sz.H)){
     p.x=q.x;p.y=q.y;p.z=Number(q.z)||0;
     if(editItemValid(layout,selectedEditItem,sz.W,sz.D)){
-      selectedGap=-1;updateSavePlanButton();
+      selectedGap=-1;updateSavePlanButton();recordEditHistory(target==="stack"?"Stack item":"Move item to floor");
       setEditStatus(target==="stack"?`Stacked at level ${placementStackLevel(p,layout.filter((_,i)=>i!==selectedEditItem))}.`:"Moved to floor.");
       refreshCurrentDetail();return true;
     }
@@ -2846,7 +2891,7 @@ function nudgeSelectedPlacement(dx,dy){
   if(!editItemValid(layout,selectedEditItem,sz.W,sz.D)){
     p.x=old.x;p.y=old.y;setEditStatus("Nudge rejected: collision, bounds, or stack support.",true);refreshCurrentDetail();return false;
   }
-  selectedGap=-1;updateSavePlanButton();setEditStatus(`Moved to ${fmt(p.x)}, ${fmt(p.y)} ${state.unit}.`);refreshCurrentDetail();return true;
+  selectedGap=-1;updateSavePlanButton();recordEditHistory("Nudge item");setEditStatus(`Moved to ${fmt(p.x)}, ${fmt(p.y)} ${state.unit}.`);refreshCurrentDetail();return true;
 }
 function refreshCurrentDetail(){
   const sz=currentUsableSize();if(sz&&layouts.length)renderDetail(sz.W,sz.D,sz.H);
@@ -2862,6 +2907,7 @@ $("editLayoutBtn").addEventListener("click",()=>{
   if(!editMode){
     editMode=true;
     editOriginalLayout=selectedManualLayout().map(p=>({...p}));
+    resetEditHistory(editOriginalLayout);
     selectedEditItem=-1;
     detailView="top";
     setEditStatus("Click a box, drag it, use Arrow keys to nudge, or change its floor/stack level.");
@@ -2876,6 +2922,7 @@ $("placementLabel").addEventListener("input",()=>{
   updateSavePlanButton();
   const sz=currentUsableSize();if(sz)renderDetail(sz.W,sz.D,sz.H);
 });
+$("placementLabel").addEventListener("change",()=>recordEditHistory("Edit label"));
 $("placementLabel").addEventListener("keydown",e=>{
   if(e.key==="Enter"){e.preventDefault();$("placementLabel").blur()}
 });
@@ -2891,10 +2938,19 @@ $("moveItemFloor").addEventListener("click",()=>relocateSelectedPlacement("floor
 $("stackItem").addEventListener("click",()=>relocateSelectedPlacement("stack"));
 $("mirrorLayoutX").addEventListener("click",()=>mirrorCurrentLayout("x"));
 $("mirrorLayoutY").addEventListener("click",()=>mirrorCurrentLayout("y"));
+$("undoEdit").addEventListener("click",()=>moveEditHistory(-1));
+$("redoEdit").addEventListener("click",()=>moveEditHistory(1));
 
 document.addEventListener("keydown",e=>{
-  if(!editMode||detailView!=="top"||selectedEditItem<0)return;
-  if(e.target?.closest?.("input,textarea,select,button"))return;
+  if(!editMode)return;
+  const interactive=e.target?.closest?.("input,textarea,select,button"),key=String(e.key||"").toLowerCase(),mod=e.metaKey||e.ctrlKey;
+  if(!interactive&&mod&&key==="z"){
+    e.preventDefault();moveEditHistory(e.shiftKey?1:-1);return;
+  }
+  if(!interactive&&mod&&key==="y"){
+    e.preventDefault();moveEditHistory(1);return;
+  }
+  if(interactive||detailView!=="top"||selectedEditItem<0)return;
   const dir={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];
   if(!dir)return;
   const step=normalizeSnapStep(state.editSnapStep)*(e.shiftKey?5:1);
@@ -2907,7 +2963,7 @@ $("doneEdit").addEventListener("click",()=>{
   if(sz&&invalidEditIndices(layout,sz.W,sz.D).size){
     setEditStatus("Resolve collisions before finishing.",true);return;
   }
-  editMode=false;selectedEditItem=-1;editOriginalLayout=null;
+  editMode=false;selectedEditItem=-1;editOriginalLayout=null;editHistory={entries:[],index:-1};updateEditHistoryControls();
   setEditStatus("Layout saved locally in this proposal.");
   refreshCurrentDetail();
 });
@@ -2915,7 +2971,7 @@ $("doneEdit").addEventListener("click",()=>{
 $("resetEdit").addEventListener("click",()=>{
   if(!editMode||!editOriginalLayout)return;
   layouts[selectedLayout]=editOriginalLayout.map(p=>({...p}));
-  selectedEditItem=-1;selectedGap=-1;setEditStatus("Proposal restored.");refreshCurrentDetail();
+  selectedEditItem=-1;selectedGap=-1;recordEditHistory("Reset proposal");setEditStatus("Proposal restored.");refreshCurrentDetail();
 });
 
 $("rotateItem").addEventListener("click",()=>{
@@ -2927,7 +2983,7 @@ $("rotateItem").addEventListener("click",()=>{
   p.w=old.d;p.d=old.w;
   if(!editItemValid(layout,selectedEditItem,sz.W,sz.D)){
     p.w=old.w;p.d=old.d;setEditStatus("That rotation would collide or leave the storage.",true);
-  }else {selectedGap=-1;setEditStatus("Rotated.");}
+  }else {selectedGap=-1;recordEditHistory("Rotate item");setEditStatus("Rotated.");}
   refreshCurrentDetail();
 });
 
@@ -2941,7 +2997,7 @@ $("removeItem").addEventListener("click",()=>{
     setEditStatus("Remove the items stacked above this one first.",true);
     refreshCurrentDetail();return;
   }
-  selectedEditItem=-1;selectedGap=-1;setEditStatus("Item removed.");refreshCurrentDetail();
+  selectedEditItem=-1;selectedGap=-1;recordEditHistory("Remove item");setEditStatus("Item removed.");refreshCurrentDetail();
 });
 
 $("duplicateItem").addEventListener("click",()=>{
@@ -2952,7 +3008,7 @@ $("duplicateItem").addEventListener("click",()=>{
   const type=boxById(src.typeId),gap=Math.max(0,state.fitTolerance||0);
   for(const p of candidatePlacementsFor(layout,type,[src.w,src.d,src.h],sz.W,sz.D,sz.H,usableObstacles(),gap)){
     p.label="";
-    layout.push(p);selectedEditItem=layout.length-1;selectedGap=-1;setEditStatus((p.z||0)>0?"Duplicate stacked.":"Duplicate added.");refreshCurrentDetail();return;
+    layout.push(p);selectedEditItem=layout.length-1;selectedGap=-1;recordEditHistory("Duplicate item");setEditStatus((p.z||0)>0?"Duplicate stacked.":"Duplicate added.");refreshCurrentDetail();return;
   }
   setEditStatus("No free position for another copy.",true);
 });
@@ -2994,7 +3050,7 @@ function stopTopDrag(e){
   if(sz&&layout&&!editItemValid(layout,selectedEditItem,sz.W,sz.D)){
     layout[selectedEditItem].x=topDrag.origX;layout[selectedEditItem].y=topDrag.origY;
     setEditStatus("Collision rejected; previous position restored.",true);
-  }else {selectedGap=-1;setEditStatus("Position updated.");}
+  }else {selectedGap=-1;recordEditHistory("Move item");setEditStatus("Position updated.");}
   topDrag=null;refreshCurrentDetail();
 }
 $("detailViz").addEventListener("pointerup",stopTopDrag);
@@ -3440,6 +3496,9 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeSnapStep,
     snapValue,
     clampSnappedValue,
+    makeEditHistory,
+    appendEditHistoryState,
+    stepEditHistoryState,
     mirrorLayoutGeometry,
     base64UrlEncodeUtf8,
     base64UrlDecodeUtf8,
