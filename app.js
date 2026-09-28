@@ -219,6 +219,10 @@ function cloneStorageDefinition(source,{id=null,furnitureId=null,name=null,idFac
     obstacles:(source?.obstacles||[]).map(o=>({
       id:idFactory("o"),name:o.name||"Blocked zone",
       x:Number(o.x)||0,y:Number(o.y)||0,w:Number(o.w)||0,d:Number(o.d)||0,h:Number(o.h)||0
+    })),
+    dividers:(source?.dividers||[]).map(d=>({
+      id:idFactory("d"),orientation:d.orientation==="horizontal"?"horizontal":"vertical",
+      position:Number(d.position)||0,thickness:Math.max(0.01,Number(d.thickness)||0.5),h:Number(d.h)||Number(source?.h)||0
     }))
   };
 }
@@ -256,6 +260,7 @@ function convertAllUnits(from,to){
   for(const s of state.storages){
     s.w=cv(s.w);s.d=cv(s.d);s.h=cv(s.h);
     for(const o of (s.obstacles||[])){o.x=cv(o.x);o.y=cv(o.y);o.w=cv(o.w);o.d=cv(o.d);o.h=cv(o.h)}
+    for(const d of (s.dividers||[])){d.position=cv(d.position);d.thickness=cv(d.thickness);d.h=cv(d.h)}
   }
   for(const b of state.boxes){b.w=cv(b.w);b.d=cv(b.d);b.h=cv(b.h)}
   for(const p of state.savedPlans||[]){
@@ -268,6 +273,7 @@ function convertAllUnits(from,to){
     if(p.storageSnapshot){
       p.storageSnapshot.w=cv(p.storageSnapshot.w);p.storageSnapshot.d=cv(p.storageSnapshot.d);p.storageSnapshot.h=cv(p.storageSnapshot.h);p.storageSnapshot.unit=to;
       for(const o of p.storageSnapshot.obstacles||[]){o.x=cv(o.x);o.y=cv(o.y);o.w=cv(o.w);o.d=cv(o.d);o.h=cv(o.h)}
+      for(const d of p.storageSnapshot.dividers||[]){d.position=cv(d.position);d.thickness=cv(d.thickness);d.h=cv(d.h)}
     }
     p.signature=planSignature(p.storageId,p.layout||[]);
   }
@@ -1035,7 +1041,10 @@ function storageStructureSignature(s){
   const obstacles=(s.obstacles||[]).map(o=>[
     round6(Number(o.x)||0),round6(Number(o.y)||0),round6(Number(o.w)||0),round6(Number(o.d)||0),round6(Number(o.h)||0)
   ]).sort((a,b)=>a.join("|").localeCompare(b.join("|")));
-  return JSON.stringify([round6(Number(s.w)||0),round6(Number(s.d)||0),round6(Number(s.h)||0),obstacles]);
+  const dividers=(s.dividers||[]).map(d=>[
+    d.orientation==="horizontal"?"h":"v",round6(Number(d.position)||0),round6(Number(d.thickness)||0),round6(Number(d.h)||0)
+  ]).sort((a,b)=>a.join("|").localeCompare(b.join("|")));
+  return JSON.stringify([round6(Number(s.w)||0),round6(Number(s.d)||0),round6(Number(s.h)||0),obstacles,dividers]);
 }
 function matchingSiblingStorages(source,storages=state.storages){
   if(!source)return [];
@@ -1099,7 +1108,7 @@ function capturePlanSettings(){
 }
 function captureStorageSnapshot(s){
   return s?JSON.parse(JSON.stringify({
-    id:s.id,name:s.name,furnitureId:s.furnitureId,w:s.w,d:s.d,h:s.h,unit:state.unit,obstacles:s.obstacles||[]
+    id:s.id,name:s.name,furnitureId:s.furnitureId,w:s.w,d:s.d,h:s.h,unit:state.unit,obstacles:s.obstacles||[],dividers:s.dividers||[]
   })):null;
 }
 function planMetrics(plan){
@@ -2495,7 +2504,7 @@ $("fitTolerance").addEventListener("change",()=>{state.fitTolerance=Math.max(0,N
 
 $("addStorage").addEventListener("click",()=>{
   if(!state.selectedFurniture){alert("Add or select a piece of furniture first.");return}
-  const id=uid("s");state.storages.push({id,name:"New storage",w:60,d:40,h:20,furnitureId:state.selectedFurniture,obstacles:[]});
+  const id=uid("s");state.storages.push({id,name:"New storage",w:60,d:40,h:20,furnitureId:state.selectedFurniture,obstacles:[],dividers:[]});
   editingStorage=id;state.selectedStorage=id;save();renderAll();$("storageName").focus();$("storageName").select()
 });
 $("duplicateStorage").addEventListener("click",()=>{
@@ -2597,6 +2606,10 @@ $("saveStorage").addEventListener("click",()=>{
   s.name=$("storageName").value.trim()||"Storage";s.w=Math.max(0,Number($("sw").value)||0);s.d=Math.max(0,Number($("sd").value)||0);s.h=Math.max(0,Number($("sh").value)||0);
   s.furnitureId=$("storageFurniture").value||s.furnitureId||state.selectedFurniture;
   s.obstacles=s.obstacles||[];for(const o of s.obstacles){o.x=Math.min(o.x,s.w);o.y=Math.min(o.y,s.d);o.w=Math.min(o.w,Math.max(0,s.w-o.x));o.d=Math.min(o.d,Math.max(0,s.d-o.y));o.h=Math.min(o.h,s.h)}
+  s.dividers=s.dividers||[];for(const d of s.dividers){
+    d.position=Math.min(Math.max(0,d.position),d.orientation==="horizontal"?s.d:s.w);
+    d.thickness=Math.max(0.01,d.thickness);d.h=Math.min(Math.max(0,d.h),s.h);
+  }
   save();renderAll()
 });
 $("saveBox").addEventListener("click",()=>{
