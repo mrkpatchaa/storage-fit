@@ -14,10 +14,31 @@
   <div class="appgrid">
     <aside class="sidebar">
       <section class="card">
-        <div class="head"><h2>Storage spaces</h2><button class="btn soft" id="addStorage" type="button">+ Add</button></div>
+        <div class="head"><h2>Home structure</h2><span class="badge" id="homeProgress">—</span></div>
+        <div class="homehierarchy">
+          <div class="hierarchyrow">
+            <div class="field"><label for="roomSelect">Room</label><select class="picker" id="roomSelect"></select></div>
+            <div class="hierarchyactions">
+              <button class="btn soft" id="addRoom" type="button">+ Room</button>
+              <button class="btn soft" id="renameRoom" type="button">Rename</button>
+              <button class="btn danger" id="deleteRoom" type="button">Delete</button>
+            </div>
+          </div>
+          <div class="hierarchyrow">
+            <div class="field"><label for="furnitureSelect">Furniture</label><select class="picker" id="furnitureSelect"></select></div>
+            <div class="hierarchyactions">
+              <button class="btn soft" id="addFurniture" type="button">+ Furniture</button>
+              <button class="btn soft" id="renameFurniture" type="button">Rename</button>
+              <button class="btn danger" id="deleteFurniture" type="button">Delete</button>
+            </div>
+          </div>
+        </div>
+        <div class="storagesubhead"><strong>Storage spaces</strong><button class="btn soft" id="addStorage" type="button">+ Add</button></div>
+        <div class="small" id="furnitureProgress" style="margin-bottom:8px"></div>
         <div class="list" id="storageList"></div>
         <div class="editor">
           <div class="field"><label for="storageName">Name</label><input id="storageName"></div>
+          <div class="field" style="margin-top:8px"><label for="storageFurniture">Furniture</label><select class="picker" id="storageFurniture"></select></div>
           <div class="row3" style="margin-top:8px">
             <div class="field"><label for="sw">Width</label><input id="sw" type="number" min="0" step="0.1"></div>
             <div class="field"><label for="sd">Depth</label><input id="sd" type="number" min="0" step="0.1"></div>
