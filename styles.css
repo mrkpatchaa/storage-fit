@@ -71,6 +71,10 @@ h1{font-size:clamp(30px,5vw,48px);line-height:1;letter-spacing:-.045em;margin:0}
   #printSheet .labelitem{font-size:12px;font-weight:750;margin-bottom:2mm}
   #printSheet .labelmeta{font-size:10px;color:#555;line-height:1.4}
   #printSheet .labelstorage{font-size:10px;color:#777;margin-top:3mm;padding-top:2mm;border-top:1px solid #ddd}
+  #printSheet .labelgroup{margin:0 0 8mm;break-inside:avoid-page}
+  #printSheet .labelgroup h2{font-size:15px;margin:0 0 1mm}
+  #printSheet .labelgroupmeta{font-size:10px;color:#666;margin-bottom:4mm}
+  #printSheet .projectlabelsheet .labelgrid{margin-bottom:4mm}
 }
 
 .sharepage{background:var(--bg);color:var(--ink);min-height:100vh}
