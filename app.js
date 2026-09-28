@@ -1625,14 +1625,31 @@ function placementSupported(p,placed,type){
   if(z<=1e-9)return true;
   return !!state.enableStacking && !!type?.canBeStacked && !!supportingBaseFor(p,placed);
 }
+function dividerRectsForStorage(S){
+  if(!S)return [];
+  return (S.dividers||[]).map(d=>{
+    const thickness=Math.max(0.01,Number(d.thickness)||0.5),h=Math.max(0,Math.min(Number(d.h)||S.h,S.h));
+    if(d.orientation==="horizontal"){
+      const y=(Number(d.position)||0)-thickness/2;
+      return {id:d.id,name:"Divider",kind:"divider",z:0,x:0,y,w:S.w,d:thickness,h};
+    }
+    const x=(Number(d.position)||0)-thickness/2;
+    return {id:d.id,name:"Divider",kind:"divider",z:0,x,y:0,w:thickness,d:S.d,h};
+  });
+}
+function physicalObstaclesForStorage(S){
+  if(!S)return [];
+  const blocked=(S.obstacles||[]).map(o=>({...o,kind:"blocked",z:0}));
+  return [...blocked,...dividerRectsForStorage(S)];
+}
 function rawObstacles(){
-  return storage()?.obstacles||[];
+  return physicalObstaclesForStorage(storage());
 }
 function usableObstaclesFor(S,clearance=0){
   if(!S)return [];
   const c=Math.max(0,Number(clearance)||0),W=S.w-2*c,D=S.d-2*c,H=S.h-2*c;
-  return (S.obstacles||[]).map(o=>({
-    id:o.id,name:o.name||"Blocked zone",z:0,
+  return physicalObstaclesForStorage(S).map(o=>({
+    id:o.id,name:o.name||(o.kind==="divider"?"Divider":"Blocked zone"),kind:o.kind||"blocked",z:0,
     x:Math.max(0,(Number(o.x)||0)-c),
     y:Math.max(0,(Number(o.y)||0)-c),
     w:Math.max(0,Math.min(Number(o.w)||0,W-Math.max(0,(Number(o.x)||0)-c))),
