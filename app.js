@@ -1,7 +1,7 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v25";
-const PREV_KEYS = ["storage-fit-planner-v24","storage-fit-planner-v23","storage-fit-planner-v22","storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v26";
+const PREV_KEYS = ["storage-fit-planner-v25","storage-fit-planner-v24","storage-fit-planner-v23","storage-fit-planner-v22","storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -71,6 +71,16 @@ for(const s of state.storages){
     d.thickness=Math.max(0.01,Number(d.thickness)||0.5);
     d.h=Math.max(0.01,Number(d.h)||s.h||0.01);
   }
+}
+for(const p of state.savedPlans){
+  if(!p.storageSnapshot){
+    const live=state.storages.find(s=>s.id===p.storageId);
+    if(live)p.storageSnapshot=captureStorageSnapshot(live);
+  }
+  if(!p.itemSnapshots||typeof p.itemSnapshots!=="object"||Array.isArray(p.itemSnapshots)){
+    p.itemSnapshots=capturePlanItems(p.layout||[]);
+  }
+  p.validatedAt=p.validatedAt||p.savedAt||new Date().toISOString();
 }
 
 function defaults(){
@@ -322,7 +332,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:25,
+    appVersion:26,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
@@ -363,6 +373,9 @@ function validateBackupState(candidate){
   if(!Array.isArray(candidate.storages))return "Backup has no storage-space list.";
   if(!Array.isArray(candidate.boxes))return "Backup has no item list.";
   if(candidate.savedPlans!=null&&!Array.isArray(candidate.savedPlans))return "Saved plans are malformed.";
+  for(const p of candidate.savedPlans||[]){
+    if(p.itemSnapshots!=null&&(typeof p.itemSnapshots!=="object"||Array.isArray(p.itemSnapshots)))return "A saved plan has malformed item snapshots.";
+  }
   if(candidate.chosenPlanIds!=null&&(typeof candidate.chosenPlanIds!=="object"||Array.isArray(candidate.chosenPlanIds)))return "Chosen plan selections are malformed.";
   if(candidate.shoppingBought!=null&&(typeof candidate.shoppingBought!=="object"||Array.isArray(candidate.shoppingBought)))return "Shopping progress is malformed.";
   if(candidate.installedPlanIds!=null&&(typeof candidate.installedPlanIds!=="object"||Array.isArray(candidate.installedPlanIds)))return "Installed plan status is malformed.";
@@ -566,12 +579,12 @@ function renderObstacleEditor(){
     row.querySelectorAll("[data-okey]").forEach(inp=>inp.addEventListener("change",()=>{
       const k=inp.dataset.okey;
       o[k]=k==="name"?(inp.value.trim()||"Blocked zone"):Math.max(0,Number(inp.value)||0);
-      save();renderStorageList();resetResults();
+      save();renderStorageList();renderSavedPlans();resetResults();
     }));
   });
   el.querySelectorAll("[data-remove-obstacle]").forEach(btn=>btn.addEventListener("click",()=>{
     s.obstacles=s.obstacles.filter(o=>o.id!==btn.dataset.removeObstacle);
-    save();renderObstacleEditor();renderStorageList();resetResults();
+    save();renderObstacleEditor();renderStorageList();renderSavedPlans();resetResults();
   }));
 }
 
@@ -602,12 +615,12 @@ function renderDividerEditor(){
       else d[k]=Math.max(0,Number(inp.value)||0);
       d.position=Math.min(d.position,d.orientation==="horizontal"?s.d:s.w);
       d.h=Math.min(d.h,s.h);
-      save();renderDividerEditor();renderStorageList();resetResults();
+      save();renderDividerEditor();renderStorageList();renderSavedPlans();resetResults();
     }));
   });
   el.querySelectorAll("[data-remove-divider]").forEach(btn=>btn.addEventListener("click",()=>{
     s.dividers=s.dividers.filter(d=>d.id!==btn.dataset.removeDivider);
-    save();renderDividerEditor();renderStorageList();resetResults();
+    save();renderDividerEditor();renderStorageList();renderSavedPlans();resetResults();
   }));
 }
 
@@ -1151,8 +1164,10 @@ function createSavedPlanForStorage(target,layout,{name=null,note=""}={}){
     storageName:target.name,
     storagePath:storageBreadcrumb(target),
     storageSnapshot:captureStorageSnapshot(target),
+    itemSnapshots:capturePlanItems(layout),
     settings:capturePlanSettings(),
     savedAt:new Date().toISOString(),
+    validatedAt:new Date().toISOString(),
     goal:state.optimizeGoal,
     stacking:state.enableStacking,
     signature,
@@ -1186,6 +1201,117 @@ function capturePlanSettings(){
     uprightOnly:state.uprightOnly!==false
   };
 }
+function itemPlanningSnapshot(b){
+  if(!b)return null;
+  return {
+    id:b.id,name:b.name||"Item",
+    w:Number(b.w)||0,d:Number(b.d)||0,h:Number(b.h)||0,
+    uprightOnly:b.uprightOnly!==false,
+    floorRotationLocked:!!b.floorRotationLocked,
+    frontPriority:!!b.frontPriority,
+    canBeStacked:!!b.canBeStacked,
+    canSupportStack:!!b.canSupportStack,
+    maxStackLevel:b.maxStackLevel==null?null:Math.max(1,Math.min(9,Math.floor(Number(b.maxStackLevel)||1)))
+  };
+}
+function itemPlanningSignature(item){
+  const b=itemPlanningSnapshot(item);
+  return b?JSON.stringify([round6(b.w),round6(b.d),round6(b.h),b.uprightOnly,b.floorRotationLocked,b.frontPriority,b.canBeStacked,b.canSupportStack,b.maxStackLevel]):"";
+}
+function capturePlanItems(layout){
+  const out={};
+  for(const id of new Set((layout||[]).map(p=>p.typeId))){
+    const item=boxById(id);if(item)out[id]=itemPlanningSnapshot(item);
+  }
+  return out;
+}
+function snapshotItemLookup(snapshots={}){
+  return id=>snapshots?.[id]||null;
+}
+function supportingBaseForLookup(p,placed,itemLookup){
+  const z=Number(p.z)||0;if(z<=1e-9)return null;
+  return placed.find(base=>{
+    const rule=itemLookup(base.typeId);
+    return !!rule?.canSupportStack && Math.abs((Number(base.z)||0)+base.h-z)<=1e-9 && footprintContains(base,p);
+  })||null;
+}
+function placementStackLevelLookup(p,placed,itemLookup){
+  let current=p,level=1;const seen=new Set();
+  while((Number(current.z)||0)>1e-9){
+    const base=supportingBaseForLookup(current,placed,itemLookup);
+    if(!base||seen.has(base))return Infinity;
+    seen.add(base);level++;current=base;
+  }
+  return level;
+}
+function placementMatchesItem(p,item,forceUpright){
+  if(!item)return false;
+  return orientations(item,forceUpright).some(o=>
+    Math.abs(o[0]-p.w)<=1e-6&&Math.abs(o[1]-p.d)<=1e-6&&Math.abs(o[2]-p.h)<=1e-6
+  );
+}
+function validatePlanLayoutAgainst(plan,liveStorage,itemLookup){
+  if(!liveStorage)return {valid:false,reasons:["Storage space no longer exists."]};
+  const settings=plan.settings||{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true};
+  const c=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
+  const gap=Math.max(0,Number(settings.fitTolerance)||0);
+  const W=(Number(liveStorage.w)||0)-2*c,D=(Number(liveStorage.d)||0)-2*c,H=(Number(liveStorage.h)||0)-2*c;
+  if(W<=0||D<=0||H<=0)return {valid:false,reasons:["Saved clearance no longer leaves usable storage space."]};
+  const obstacles=usableObstaclesFor(liveStorage,c),layout=plan.layout||[],reasons=[];
+  for(let i=0;i<layout.length;i++){
+    const p=layout[i],item=itemLookup(p.typeId),z=Number(p.z)||0;
+    if(!item){reasons.push(`Item ${p.typeId} no longer exists.`);continue}
+    if(!placementMatchesItem(p,item,settings.uprightOnly!==false)){
+      reasons.push(`${item.name||"Item"} dimensions or orientation rules no longer match its saved placement.`);
+    }
+    if(p.x<gap-1e-9||p.y<gap-1e-9||p.x+p.w+gap>W+1e-9||p.y+p.d+gap>D+1e-9||z<0||z+p.h>H+1e-9){
+      reasons.push(`${item.name||"Item"} no longer fits inside the storage bounds.`);
+    }
+    if(obstacles.some(o=>overlap3D(p,o,gap)))reasons.push(`${item.name||"Item"} now collides with a blocked zone or divider.`);
+    for(let j=i+1;j<layout.length;j++)if(overlap3D(p,layout[j],gap))reasons.push("Saved placements now overlap.");
+    if(z>1e-9){
+      const base=supportingBaseForLookup(p,layout.filter((_,j)=>j!==i),itemLookup);
+      if(!plan.stacking||!item.canBeStacked||!base){
+        reasons.push(`${item.name||"Item"} is no longer valid at its stacked position.`);
+      }else{
+        const level=placementStackLevelLookup(p,layout.filter((_,j)=>j!==i),itemLookup);
+        if(item.maxStackLevel&&level>item.maxStackLevel)reasons.push(`${item.name||"Item"} exceeds its current maximum stack level.`);
+      }
+    }
+  }
+  return {valid:reasons.length===0,reasons:[...new Set(reasons)]};
+}
+function planHealthFromData(plan,liveStorage,itemLookup){
+  const changes=[];
+  if(!liveStorage)return {status:"invalid",canRevalidate:false,reasons:["Storage space no longer exists."]};
+  if(!plan.storageSnapshot||storageStructureSignature(plan.storageSnapshot)!==storageStructureSignature(liveStorage)){
+    changes.push("Storage dimensions, blocked zones, or dividers changed.");
+  }
+  const snapshots=plan.itemSnapshots||{};
+  for(const id of new Set((plan.layout||[]).map(p=>p.typeId))){
+    const live=itemLookup(id),snap=snapshots[id];
+    if(!live){changes.push(`Item ${snap?.name||id} no longer exists.`);continue}
+    if(!snap||itemPlanningSignature(snap)!==itemPlanningSignature(live)){
+      changes.push(`${live.name||snap?.name||"Item"} dimensions or handling rules changed.`);
+    }
+  }
+  const validity=validatePlanLayoutAgainst(plan,liveStorage,itemLookup);
+  if(!validity.valid)return {status:"invalid",canRevalidate:false,reasons:[...new Set([...changes,...validity.reasons])]};
+  if(changes.length)return {status:"review",canRevalidate:true,reasons:[...new Set(changes)]};
+  return {status:"current",canRevalidate:false,reasons:[]};
+}
+function planHealth(plan){
+  return planHealthFromData(plan,state.storages.find(s=>s.id===plan.storageId),boxById);
+}
+function revalidatePlan(plan){
+  const health=planHealth(plan);if(!health.canRevalidate)return false;
+  const live=state.storages.find(s=>s.id===plan.storageId);if(!live)return false;
+  plan.storageSnapshot=captureStorageSnapshot(live);
+  plan.itemSnapshots=capturePlanItems(plan.layout||[]);
+  plan.validatedAt=new Date().toISOString();
+  return true;
+}
+
 function captureStorageSnapshot(s){
   return s?JSON.parse(JSON.stringify({
     id:s.id,name:s.name,furnitureId:s.furnitureId,w:s.w,d:s.d,h:s.h,unit:state.unit,obstacles:s.obstacles||[],dividers:s.dividers||[]
@@ -1221,11 +1347,21 @@ function isPlanChosen(plan){
   return !!plan && state.chosenPlanIds?.[plan.storageId]===plan.id;
 }
 function toggleChosenPlan(planId){
-  const plan=state.savedPlans.find(p=>p.id===planId);if(!plan)return;
+  const plan=state.savedPlans.find(p=>p.id===planId);if(!plan)return false;
   state.chosenPlanIds=state.chosenPlanIds||{};
-  if(state.chosenPlanIds[plan.storageId]===plan.id)delete state.chosenPlanIds[plan.storageId];
-  else state.chosenPlanIds[plan.storageId]=plan.id;
-  normalizeInstallState(state);
+  if(state.chosenPlanIds[plan.storageId]===plan.id){
+    delete state.chosenPlanIds[plan.storageId];
+    normalizeInstallState(state);return true;
+  }
+  const health=planHealth(plan);
+  if(health.status!=="current"){
+    alert(health.status==="review"
+      ?"Review and revalidate this plan before choosing it."
+      :"This plan is no longer valid with the current storage/items. Open it and rebuild or edit it first.");
+    return false;
+  }
+  state.chosenPlanIds[plan.storageId]=plan.id;
+  normalizeInstallState(state);return true;
 }
 function chosenPlans(){
   return Object.entries(state.chosenPlanIds||{})
@@ -1274,8 +1410,21 @@ function computeInstallAllocation(plans,ownedById={},installedPlanIds={},order=[
 }
 function currentInstallAllocation(){
   normalizeInstallState(state);
-  const owned=Object.fromEntries(state.boxes.map(b=>[b.id,b.ownedQty||0]));
-  return computeInstallAllocation(chosenPlans(),owned,state.installedPlanIds,state.installOrder);
+  const plans=chosenPlans(),owned=Object.fromEntries(state.boxes.map(b=>[b.id,b.ownedQty||0]));
+  const installed=p=>state.installedPlanIds?.[p.storageId]===p.id;
+  const healthById=new Map(plans.map(p=>[p.id,planHealth(p)]));
+  const active=plans.filter(p=>installed(p)||healthById.get(p.id)?.status==="current");
+  const base=computeInstallAllocation(active,owned,state.installedPlanIds,state.installOrder);
+  const byStorage=new Map(base.entries.map(e=>[e.storageId,{...e,health:healthById.get(e.plan.id)}]));
+  for(const p of plans){
+    if(installed(p))continue;
+    const health=healthById.get(p.id);
+    if(health?.status!=="current")byStorage.set(p.storageId,{plan:p,storageId:p.storageId,status:"stale",missing:[],health});
+  }
+  const order=[],seen=new Set();
+  for(const id of state.installOrder||[])if(byStorage.has(id)&&!seen.has(id)){seen.add(id);order.push(id)}
+  for(const p of plans)if(byStorage.has(p.storageId)&&!seen.has(p.storageId)){seen.add(p.storageId);order.push(p.storageId)}
+  return {entries:order.map(id=>byStorage.get(id)).filter(Boolean),remainingOwned:base.remainingOwned};
 }
 function moveInstallStorage(storageId,delta){
   normalizeInstallState(state);
@@ -1295,17 +1444,19 @@ function renderInstallDashboard(){
   const installed=entries.filter(e=>e.status==="installed").length;
   const ready=entries.filter(e=>e.status==="ready").length;
   const waiting=entries.filter(e=>e.status==="waiting").length;
+  const stale=entries.filter(e=>e.status==="stale").length;
   $("installProgressText").textContent=`${installed}/${entries.length} installed`;
   $("installSummary").innerHTML=`
     <div class="installstat"><div class="k">Chosen spaces</div><div class="v">${entries.length}</div></div>
     <div class="installstat"><div class="k">Ready now</div><div class="v">${ready}</div></div>
     <div class="installstat"><div class="k">Waiting</div><div class="v">${waiting}</div></div>
+    <div class="installstat"><div class="k">Needs review</div><div class="v">${stale}</div></div>
     <div class="installstat"><div class="k">Installed</div><div class="v">${installed}</div><div class="progressbar"><span style="width:${entries.length?Math.round(installed/entries.length*100):0}%"></span></div></div>`;
 
   $("installQueue").innerHTML=entries.map((entry,index)=>{
     const plan=entry.plan,m=planMetrics(plan),contents=labeledPlacements(plan.layout||[]);
     const missing=entry.missing.map(x=>`${esc(boxById(x.id)?.name||"Item")} ×${x.qty}`).join(" · ");
-    const label=entry.status==="installed"?"Installed":entry.status==="ready"?"Ready now":"Waiting for inventory";
+    const label=entry.status==="installed"?"Installed":entry.status==="ready"?"Ready now":entry.status==="stale"?"Needs plan review":"Waiting for inventory";
     return `<div class="installcard ${entry.status}">
       <div>
         <div class="installtitle">${esc(m.storagePath)}</div>
@@ -1313,6 +1464,8 @@ function renderInstallDashboard(){
         ${contents.length?`<div class="installmeta">Contents: ${contents.slice(0,4).map(x=>esc(x.label)).join(" · ")}${contents.length>4?` · +${contents.length-4} more`:""}</div>`:""}
         <span class="installstatus ${entry.status}">${label}</span>
         ${entry.status==="waiting"?`<div class="installmissing">Missing: ${missing}</div>`:""}
+        ${entry.status==="stale"?`<div class="planissues">${(entry.health?.reasons||[]).slice(0,2).map(esc).join(" · ")}</div>`:""}
+        ${entry.status==="installed"&&entry.health?.status!=="current"?`<div class="planissues">Installed from a plan that has since changed: ${(entry.health?.reasons||[]).slice(0,2).map(esc).join(" · ")}</div>`:""}
       </div>
       <div class="installactions">
         <button class="btn soft" type="button" data-install-up="${entry.storageId}" ${index===0?"disabled":""}>↑</button>
@@ -1350,8 +1503,12 @@ function aggregateRequiredCounts(plans){
 }
 
 function projectProcurement(plans=chosenPlans()){
-  const counts=aggregateRequiredCounts(plans),storageUse={};
-  for(const plan of plans){
+  const installed=p=>state.installedPlanIds?.[p.storageId]===p.id;
+  const stalePlans=(plans||[]).filter(p=>!installed(p)&&planHealth(p).status!=="current");
+  const staleIds=new Set(stalePlans.map(p=>p.id));
+  const activePlans=(plans||[]).filter(p=>!staleIds.has(p.id));
+  const counts=aggregateRequiredCounts(activePlans),storageUse={};
+  for(const plan of activePlans){
     const perPlan=layoutCounts(plan.layout||[]);
     for(const [id] of Object.entries(perPlan)){
       if(!storageUse[id])storageUse[id]=new Set();
@@ -1385,7 +1542,7 @@ function projectProcurement(plans=chosenPlans()){
       else remainingMissing+=r.remainingQty;
     }
   }
-  return {plans,rows,totals,remainingTotals,missing,remainingMissing,purchaseUnits,boughtUnits,remainingUnits,ownedUsed,totalRequired};
+  return {plans,activePlans,stalePlans,rows,totals,remainingTotals,missing,remainingMissing,purchaseUnits,boughtUnits,remainingUnits,ownedUsed,totalRequired};
 }
 function moneyTotalsText(totals,missing,emptyText="Nothing to buy"){
   const parts=Object.entries(totals||{}).map(([c,v])=>money(v,c));
@@ -1396,6 +1553,7 @@ function projectTotalsText(summary){
   return summary.purchaseUnits===0?"Nothing to buy":moneyTotalsText(summary.totals,summary.missing);
 }
 function projectRemainingText(summary){
+  if(summary.stalePlans?.length)return `${summary.stalePlans.length} chosen plan${summary.stalePlans.length===1?"":"s"} need review`;
   if(summary.purchaseUnits===0)return "Ready to install";
   if(summary.remainingUnits===0)return "All purchased";
   return moneyTotalsText(summary.remainingTotals,summary.remainingMissing);
@@ -1416,11 +1574,11 @@ function renderHomeProcurement(){
     return;
   }
   sec.style.display="block";
-  $("homeChosenCount").textContent=`${summary.plans.length} chosen storage${summary.plans.length===1?"":"s"}`;
+  $("homeChosenCount").textContent=summary.plans.length+" chosen storage"+(summary.plans.length===1?"":"s")+(summary.stalePlans.length?" · "+summary.stalePlans.length+" need review":"");
   $("receivePurchasesBtn").disabled=summary.boughtUnits<=0;
   $("receivePurchasesBtn").textContent=summary.boughtUnits?`Receive ${summary.boughtUnits} purchased`:"Receive purchases";
 
-  const ready=summary.purchaseUnits===0;
+  const ready=summary.purchaseUnits===0&&summary.stalePlans.length===0;
   $("homeProcurementSummary").innerHTML=`
     <div class="projectstat"><div class="k">Chosen spaces</div><div class="v">${summary.plans.length}</div></div>
     <div class="projectstat"><div class="k">Organizers required</div><div class="v">${summary.totalRequired}</div></div>
@@ -1430,7 +1588,7 @@ function renderHomeProcurement(){
 
   $("homeChosenPlans").innerHTML=summary.plans.map(plan=>{
     const m=planMetrics(plan);
-    return `<span class="projectplan">${esc(m.storagePath)} · ${esc(plan.name)}</span>`;
+    const health=planHealth(plan);return `<span class="projectplan">${esc(m.storagePath)} · ${esc(plan.name)}${health.status!=="current"?" · needs review":""}</span>`;
   }).join("");
 
   $("homeProcurementList").innerHTML=summary.rows.map(r=>`<div class="homeshoprow">
@@ -1474,10 +1632,11 @@ function homeShoppingExportPayload(){
   const summary=projectProcurement(),install=currentInstallAllocation();
   return {
     format:"storage-fit-home-shopping",
-    version:3,
+    version:4,
     exportedAt:new Date().toISOString(),
     unit:state.unit,
-    chosenPlans:summary.plans.map(p=>({id:p.id,name:p.name,storageId:p.storageId,storagePath:planMetrics(p).storagePath})),
+    chosenPlans:summary.plans.map(p=>{const h=planHealth(p);return {id:p.id,name:p.name,storageId:p.storageId,storagePath:planMetrics(p).storagePath,health:h.status,healthReasons:h.reasons}}),
+    staleChosenPlans:summary.stalePlans.length,
     totals:summary.totals,
     remainingTotals:summary.remainingTotals,
     missingPriceUnits:summary.missing,
@@ -1488,6 +1647,7 @@ function homeShoppingExportPayload(){
     ownedUsed:summary.ownedUsed,
     installQueue:install.entries.map((e,index)=>({
       order:index+1,storageId:e.storageId,planId:e.plan.id,storagePath:planMetrics(e.plan).storagePath,status:e.status,
+      health:(e.health||planHealth(e.plan)).status,healthReasons:(e.health||planHealth(e.plan)).reasons,
       missing:e.missing.map(x=>({itemId:x.id,name:boxById(x.id)?.name||"Item",qty:x.qty}))
     })),
     items:summary.rows.map(r=>({...r,url:safeUrl(r.url)}))
@@ -1519,9 +1679,9 @@ function renderCompareModal(){
   el.innerHTML=plans.map(plan=>{
     const m=planMetrics(plan),counts=layoutCounts(plan.layout||[]),contents=labeledPlacements(plan.layout||[]);
     const items=Object.entries(counts).map(([id,n])=>`<li>${esc(boxById(id)?.name||"Item")} ×${n}</li>`).join("");
-    const chosen=isPlanChosen(plan);
+    const chosen=isPlanChosen(plan),health=planHealth(plan);
     return `<article class="comparecard ${chosen?"chosen":""}">
-      <div class="comparetitle">${esc(plan.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}</div>
+      <div class="comparetitle">${esc(plan.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}${health.status!=="current"?`<span class="planhealth ${health.status}">${health.status==="review"?"Review":"Invalid"}</span>`:""}</div>
       <div class="comparestorage">${esc(m.storagePath)} · ${esc(goalLabel(plan.goal))}</div>
       <div class="comparestats">
         <div class="comparestat"><div class="k">Utilization</div><div class="v">${m.utilizationPct.toFixed(1)}%</div><div class="small">${esc(m.utilizationKind)}</div></div>
@@ -1531,9 +1691,10 @@ function renderCompareModal(){
       </div>
       <div class="compareitems"><strong>Item mix</strong><ul>${items||"<li>No items</li>"}</ul></div>
       ${contents.length?`<div class="compareitems"><strong>Contents</strong><ul>${contents.map(x=>`<li>${esc(x.label)} — ${esc(x.itemName)}</li>`).join("")}</ul></div>`:""}
+      ${health.status!=="current"?`<div class="planissues">${health.reasons.slice(0,3).map(esc).join(" · ")}</div>`:""}
       ${plan.note?`<div class="comparnote">${esc(plan.note)}</div>`:""}
       <div class="savedactions">
-        <button class="btn ${chosen?"primary":"soft"}" type="button" data-compare-choose="${plan.id}">${chosen?"Chosen here ✓":"Choose for this storage"}</button>
+        <button class="btn ${chosen?"primary":"soft"}" type="button" data-compare-choose="${plan.id}" ${!chosen&&health.status!=="current"?"disabled":""}>${chosen?"Chosen here ✓":"Choose for this storage"}</button>
         <button class="btn soft" type="button" data-compare-open="${plan.id}">Open</button>
       </div>
     </article>`;
@@ -1576,11 +1737,11 @@ function renderSavedPlans(){
   el.innerHTML=state.savedPlans.map(p=>{
     const m=planMetrics(p),counts=layoutCounts(p.layout||[]),contents=labeledPlacements(p.layout||[]);
     const summary=Object.entries(counts).map(([id,n])=>`${esc(boxById(id)?.name||"Item")} ×${n}`).join(" · ");
-    const chosen=isPlanChosen(p),selected=comparePlanIds.has(p.id);
-    return `<div class="savedcard ${chosen?"chosen":""}">
+    const chosen=isPlanChosen(p),selected=comparePlanIds.has(p.id),health=planHealth(p);
+    return `<div class="savedcard ${chosen?"chosen":""} ${health.status!=="current"?health.status:""}">
       <div class="savedhead">
         <div>
-          <div class="savedname">${esc(p.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}</div>
+          <div class="savedname">${esc(p.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}${health.status!=="current"?`<span class="planhealth ${health.status}">${health.status==="review"?"Review":"Invalid"}</span>`:""}</div>
           <div class="savedmeta">${esc(m.storagePath)} · ${m.itemCount} item${m.itemCount===1?"":"s"} · ${m.utilizationPct.toFixed(1)}% ${esc(m.utilizationKind)}</div>
           <span class="goallabel">${esc(goalLabel(p.goal))}</span>
         </div>
@@ -1589,12 +1750,14 @@ function renderSavedPlans(){
       <div class="small" style="margin-top:8px">${summary||"Saved layout"}</div>
       ${contents.length?`<div class="savedmeta" style="margin-top:5px">Contents: ${contents.slice(0,4).map(x=>esc(x.label)).join(" · ")}${contents.length>4?` · +${contents.length-4} more`:""}</div>`:""}
       <div class="savedmeta" style="margin-top:6px">To buy: ${esc(m.cost)}${m.ownedUsed?` · ${m.ownedUsed} owned used`:""}${m.stackedCount?` · ${m.stackedCount} stacked`:""}</div>
+      ${health.status!=="current"?`<div class="planissues">${health.reasons.slice(0,3).map(esc).join(" · ")}</div>`:""}
       ${p.note?`<div class="savednote">${esc(p.note)}</div>`:""}
       <div class="savedactions">
         <button class="btn soft" type="button" data-open-plan="${p.id}">Open</button>
         <button class="btn soft" type="button" data-rename-plan="${p.id}">Rename</button>
         <button class="btn soft" type="button" data-note-plan="${p.id}">${p.note?"Edit note":"Add note"}</button>
-        <button class="btn ${chosen?"primary":"soft"}" type="button" data-choose-plan="${p.id}">${chosen?"Chosen here ✓":"Choose"}</button>
+        ${health.canRevalidate?`<button class="btn soft" type="button" data-revalidate-plan="${p.id}">Revalidate</button>`:""}
+        <button class="btn ${chosen?"primary":"soft"}" type="button" data-choose-plan="${p.id}" ${!chosen&&health.status!=="current"?"disabled":""}>${chosen?"Chosen here ✓":"Choose"}</button>
         <button class="btn danger" type="button" data-delete-plan="${p.id}">Delete</button>
       </div>
     </div>`;
@@ -1618,6 +1781,10 @@ function renderSavedPlans(){
     const plan=state.savedPlans.find(p=>p.id===btn.dataset.notePlan);if(!plan)return;
     const note=prompt("Plan note",plan.note||"");if(note===null)return;
     plan.note=note.trim();localStorage.setItem(KEY,JSON.stringify(state));renderSavedPlans();
+  }));
+  el.querySelectorAll("[data-revalidate-plan]").forEach(btn=>btn.addEventListener("click",()=>{
+    const plan=state.savedPlans.find(p=>p.id===btn.dataset.revalidatePlan);if(!plan||!revalidatePlan(plan))return;
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();
   }));
   el.querySelectorAll("[data-choose-plan]").forEach(btn=>btn.addEventListener("click",()=>{
     toggleChosenPlan(btn.dataset.choosePlan);
@@ -2713,7 +2880,7 @@ $("addObstacle").addEventListener("click",()=>{
   s.obstacles=s.obstacles||[];
   const n=s.obstacles.length+1;
   s.obstacles.push({id:uid("o"),name:`Blocked zone ${n}`,x:0,y:0,w:5,d:5,h:Math.min(s.h||5,5)});
-  save();renderObstacleEditor();renderStorageList();resetResults();
+  save();renderObstacleEditor();renderStorageList();renderSavedPlans();resetResults();
 });
 function addDivider(orientation){
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
@@ -2725,7 +2892,7 @@ function addDivider(orientation){
     thickness:Math.max(0.01,state.unit==="mm"?5:state.unit==="in"?0.2:0.5),
     h:s.h
   });
-  save();renderDividerEditor();renderStorageList();resetResults();
+  save();renderDividerEditor();renderStorageList();renderSavedPlans();resetResults();
 }
 $("addVerticalDivider").addEventListener("click",()=>addDivider("vertical"));
 $("addHorizontalDivider").addEventListener("click",()=>addDivider("horizontal"));
@@ -2858,6 +3025,10 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     repeatStorageNames,
     canonicalPlanLayout,
     labeledPlacements,
+    itemPlanningSnapshot,
+    itemPlanningSignature,
+    validatePlanLayoutAgainst,
+    planHealthFromData,
     dividerRectsForStorage,
     physicalObstaclesForStorage,
     storageStructureSignature,
