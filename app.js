@@ -1,7 +1,7 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v24";
-const PREV_KEYS = ["storage-fit-planner-v23","storage-fit-planner-v22","storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v25";
+const PREV_KEYS = ["storage-fit-planner-v24","storage-fit-planner-v23","storage-fit-planner-v22","storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -28,7 +28,7 @@ let pendingImport = null;
 state.itemLimits = state.itemLimits || {};
 state.fitTolerance = Math.max(0, Number(state.fitTolerance)||0);
 state.enableStacking = !!state.enableStacking;
-state.optimizeGoal = ["fill","compartments","simple","balanced","cost"].includes(state.optimizeGoal)?state.optimizeGoal:"fill";
+state.optimizeGoal = ["fill","compartments","simple","balanced","cost","access"].includes(state.optimizeGoal)?state.optimizeGoal:"fill";
 state.savedPlans = Array.isArray(state.savedPlans)?state.savedPlans:[];
 normalizeChosenPlanSelections(state);
 normalizeShoppingBought(state);
@@ -48,8 +48,11 @@ for(const b of state.boxes){
   b.sku = String(b.sku||"").trim();
   b.retailer = String(b.retailer||retailerName(b.url)||"").trim();
   b.uprightOnly = b.uprightOnly !== false;
+  b.floorRotationLocked = !!b.floorRotationLocked;
+  b.frontPriority = !!b.frontPriority;
   b.canBeStacked = !!b.canBeStacked;
   b.canSupportStack = !!b.canSupportStack;
+  b.maxStackLevel = Number.isFinite(Number(b.maxStackLevel)) ? Math.max(1,Math.min(9,Math.floor(Number(b.maxStackLevel)))) : null;
 }
 for(const s of state.storages){
   if(!Array.isArray(s.obstacles)) s.obstacles=[];
@@ -81,9 +84,9 @@ function defaults(){
       {id:"s2",name:"Shelf 81 × 40 × 27",w:81,d:40,h:27,furnitureId:"furn1",obstacles:[],dividers:[]}
     ],
     boxes:[
-      {id:"b1",name:"Box 30 × 25 × 12",w:30,d:25,h:12,ownedQty:0,uprightOnly:true,canBeStacked:false,canSupportStack:false},
-      {id:"b2",name:"Box 32 × 25 × 12",w:32,d:25,h:12,ownedQty:0,uprightOnly:true,canBeStacked:false,canSupportStack:false},
-      {id:"b3",name:"Small box 20 × 13 × 10",w:20,d:13,h:10,ownedQty:0,uprightOnly:true,canBeStacked:false,canSupportStack:false}
+      {id:"b1",name:"Box 30 × 25 × 12",w:30,d:25,h:12,ownedQty:0,uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:false,canSupportStack:false,maxStackLevel:null},
+      {id:"b2",name:"Box 32 × 25 × 12",w:32,d:25,h:12,ownedQty:0,uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:false,canSupportStack:false,maxStackLevel:null},
+      {id:"b3",name:"Small box 20 × 13 × 10",w:20,d:13,h:10,ownedQty:0,uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:false,canSupportStack:false,maxStackLevel:null}
     ],
     selectedStorage:"s1",selectedTypes:{b1:true,b2:false,b3:false},itemLimits:{b1:null,b2:null,b3:null}
   };
@@ -319,7 +322,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:24,
+    appVersion:25,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
@@ -2735,7 +2738,7 @@ $("smartImportBtn").addEventListener("click",async()=>{
 });
 
 $("addBox").addEventListener("click",()=>{
-  const id=uid("b");state.boxes.push({id,name:"New item",w:30,d:20,h:10,price:0,currency:"MAD",ownedQty:0,sku:"",url:"",image:"",retailer:"",uprightOnly:true,canBeStacked:false,canSupportStack:false});state.selectedTypes[id]=false;state.itemLimits[id]=null;editingBox=id;save();renderAll();$("boxName").focus();$("boxName").select()
+  const id=uid("b");state.boxes.push({id,name:"New item",w:30,d:20,h:10,price:0,currency:"MAD",ownedQty:0,sku:"",url:"",image:"",retailer:"",uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:false,canSupportStack:false,maxStackLevel:null});state.selectedTypes[id]=false;state.itemLimits[id]=null;editingBox=id;save();renderAll();$("boxName").focus();$("boxName").select()
 });
 $("saveStorage").addEventListener("click",()=>{
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
