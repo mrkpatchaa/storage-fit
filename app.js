@@ -2658,6 +2658,7 @@ function renderDetail(W,D,H){
   $("editSnapUnit").textContent=state.unit;
   $("editShowGrid").checked=state.editShowGrid!==false;
   updateEditHistoryControls();
+  updateReplacementControl(selectedPlacement);
   const selectedType=selectedPlacement?boxById(selectedPlacement.typeId):null;
   $("moveItemFloor").disabled=!editMode||!selectedPlacement||(Number(selectedPlacement.z)||0)<=1e-9;
   $("stackItem").disabled=!editMode||!selectedPlacement||!state.enableStacking||!selectedType?.canBeStacked;
@@ -2784,6 +2785,70 @@ function moveEditHistory(delta){
   if(selectedEditItem>=step.layout.length)selectedEditItem=-1;
   selectedGap=-1;topDrag=null;updateSavePlanButton();updateEditHistoryControls();
   setEditStatus((delta<0?"Undo: "+fromLabel:"Redo: "+step.label)+".");
+  refreshCurrentDetail();return true;
+}
+function replacementOrientationCandidates(source,target,forceUpright=state.uprightOnly){
+  if(!source||!target)return [];
+  return orientations(target,forceUpright).map(o=>({
+    w:o[0],d:o[1],h:o[2],
+    score:Math.abs(o[0]-source.w)+Math.abs(o[1]-source.d)+Math.abs(o[2]-source.h)
+  })).sort((a,b)=>a.score-b.score||a.w*b.d-b.w*a.d);
+}
+function replacementPlacementCandidates(layout,index,target,W,D,H){
+  if(!Array.isArray(layout)||index<0||index>=layout.length||!target)return [];
+  const source=layout[index],others=layout.filter((_,i)=>i!==index),gap=Math.max(0,state.fitTolerance||0),obstacles=usableObstacles();
+  const candidates=[],seen=new Set();
+  const add=q=>{
+    const candidate={...q,typeId:target.id,name:target.name,label:placementLabel(source)};
+    const key=[round6(candidate.x),round6(candidate.y),round6(candidate.z||0),round6(candidate.w),round6(candidate.d),round6(candidate.h)].join("|");
+    if(seen.has(key))return;
+    const trial=cloneLayoutSnapshot(layout);trial[index]=candidate;
+    if(!editItemValid(trial,index,W,D))return;
+    seen.add(key);candidates.push(candidate);
+  };
+  const oris=replacementOrientationCandidates(source,target);
+  for(const o of oris)add({x:source.x,y:source.y,z:Number(source.z)||0,w:o.w,d:o.d,h:o.h});
+  for(const o of oris){
+    for(const q of candidatePlacementsFor(others,target,[o.w,o.d,o.h],W,D,H,obstacles,gap))add(q);
+  }
+  return candidates.sort((a,b)=>{
+    const asame=Math.abs(a.x-source.x)<1e-9&&Math.abs(a.y-source.y)<1e-9&&Math.abs((a.z||0)-(source.z||0))<1e-9?0:1;
+    const bsame=Math.abs(b.x-source.x)<1e-9&&Math.abs(b.y-source.y)<1e-9&&Math.abs((b.z||0)-(source.z||0))<1e-9?0:1;
+    if(asame!==bsame)return asame-bsame;
+    const ad=Math.abs(a.x-source.x)+Math.abs(a.y-source.y)+2*Math.abs((a.z||0)-(source.z||0));
+    const bd=Math.abs(b.x-source.x)+Math.abs(b.y-source.y)+2*Math.abs((b.z||0)-(source.z||0));
+    if(ad!==bd)return ad-bd;
+    return Math.abs(a.w-source.w)+Math.abs(a.d-source.d)+Math.abs(a.h-source.h)
+      -Math.abs(b.w-source.w)-Math.abs(b.d-source.d)-Math.abs(b.h-source.h);
+  });
+}
+function updateReplacementControl(selectedPlacement){
+  const select=$("replaceItemSelect"),button=$("replaceItemBtn");if(!select||!button)return;
+  const old=select.value;
+  if(!editMode||!selectedPlacement){
+    select.innerHTML='<option value="">Select a box first</option>';select.disabled=true;button.disabled=true;return;
+  }
+  const layout=selectedManualLayout();
+  const options=state.boxes.filter(b=>b.id!==selectedPlacement.typeId).map(b=>{
+    const max=allowedMaxFor(b.id),reached=max!==null&&countType(layout,b.id)>=max;
+    return `<option value="${esc(b.id)}" ${reached?"disabled":""}>${esc(b.name)} · ${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}${reached?" · max reached":""}</option>`;
+  }).join("");
+  select.innerHTML='<option value="">Choose replacement…</option>'+options;
+  select.disabled=!options;
+  if(old&&[...select.options].some(o=>o.value===old&&!o.disabled))select.value=old;
+  button.disabled=!select.value;
+}
+function replaceSelectedOrganizer(targetId){
+  const layout=selectedManualLayout(),sz=currentUsableSize(),source=layout?.[selectedEditItem],target=boxById(targetId);
+  if(!editMode||!layout||!sz||!source||!target){setEditStatus("Select a box and replacement organizer first.",true);return false}
+  if(source.typeId===target.id)return false;
+  const max=allowedMaxFor(target.id);
+  if(max!==null&&countType(layout,target.id)>=max){setEditStatus(`Maximum quantity (${max}) reached for ${target.name}.`,true);return false}
+  const candidates=replacementPlacementCandidates(layout,selectedEditItem,target,sz.W,sz.D,sz.H);
+  if(!candidates.length){setEditStatus(`${target.name} cannot replace this placement without breaking fit or support rules.`,true);return false}
+  const old={...source},next=candidates[0],moved=Math.abs(next.x-old.x)>1e-9||Math.abs(next.y-old.y)>1e-9||Math.abs((next.z||0)-(old.z||0))>1e-9;
+  layout[selectedEditItem]=next;selectedGap=-1;updateSavePlanButton();recordEditHistory("Replace organizer");
+  setEditStatus(moved?`Replaced with ${target.name} and moved to the nearest valid position.`:`Replaced with ${target.name} in the same position.`);
   refreshCurrentDetail();return true;
 }
 function mirrorLayoutGeometry(layout,W,D,axis){
@@ -2940,6 +3005,8 @@ $("mirrorLayoutX").addEventListener("click",()=>mirrorCurrentLayout("x"));
 $("mirrorLayoutY").addEventListener("click",()=>mirrorCurrentLayout("y"));
 $("undoEdit").addEventListener("click",()=>moveEditHistory(-1));
 $("redoEdit").addEventListener("click",()=>moveEditHistory(1));
+$("replaceItemSelect").addEventListener("change",()=>{$("replaceItemBtn").disabled=!$("replaceItemSelect").value});
+$("replaceItemBtn").addEventListener("click",()=>replaceSelectedOrganizer($("replaceItemSelect").value));
 
 document.addEventListener("keydown",e=>{
   if(!editMode)return;
@@ -3499,6 +3566,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     makeEditHistory,
     appendEditHistoryState,
     stepEditHistoryState,
+    replacementOrientationCandidates,
     mirrorLayoutGeometry,
     base64UrlEncodeUtf8,
     base64UrlDecodeUtf8,
