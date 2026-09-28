@@ -254,6 +254,14 @@ function validateBackupState(candidate){
   if(!Array.isArray(candidate.storages))return "Backup has no storage-space list.";
   if(!Array.isArray(candidate.boxes))return "Backup has no item list.";
   if(candidate.savedPlans!=null&&!Array.isArray(candidate.savedPlans))return "Saved plans are malformed.";
+  if(candidate.rooms!=null&&!Array.isArray(candidate.rooms))return "Rooms are malformed.";
+  if(candidate.furniture!=null&&!Array.isArray(candidate.furniture))return "Furniture is malformed.";
+  if(Array.isArray(candidate.rooms)&&Array.isArray(candidate.furniture)){
+    const roomIds=new Set(candidate.rooms.map(r=>r?.id).filter(Boolean));
+    if(candidate.furniture.some(f=>!f?.id||!roomIds.has(f.roomId)))return "A furniture entry points to a missing room.";
+    const furnitureIds=new Set(candidate.furniture.map(f=>f.id));
+    if(candidate.storages.some(s=>s.furnitureId&&!furnitureIds.has(s.furnitureId)))return "A storage space points to missing furniture.";
+  }
 
   const ids=new Set();
   for(const s of candidate.storages){
@@ -315,6 +323,7 @@ function renderHierarchy(){
   $("homeProgress").textContent=allCount?`${plannedCount}/${allCount} planned`:"No storage yet";
 
   const currentSpaces=state.storages.filter(s=>s.furnitureId===state.selectedFurniture);
+  if(!currentSpaces.some(s=>s.id===editingStorage))editingStorage=currentSpaces[0]?.id||"";
   const currentPlanned=currentSpaces.filter(s=>planned.has(s.id)).length;
   const pct=currentSpaces.length?Math.round(currentPlanned/currentSpaces.length*100):0;
   $("furnitureProgress").innerHTML=currentSpaces.length
@@ -352,8 +361,9 @@ function renderBoxList(){
   el.querySelectorAll("[data-b]").forEach(n=>n.addEventListener("click",()=>{editingBox=n.dataset.b;loadBoxEditor();renderBoxList()}));
 }
 function renderStorageSelect(){
-  const el=$("storageSelect");el.innerHTML=state.storages.map(s=>`<option value="${s.id}">${esc(storageBreadcrumb(s))}</option>`).join("");
-  if(state.selectedStorage) el.value=state.selectedStorage;
+  const el=$("storageSelect");
+  el.innerHTML='<option value="">Select a storage space</option>'+state.storages.map(s=>`<option value="${s.id}">${esc(storageBreadcrumb(s))}</option>`).join("");
+  el.value=state.selectedStorage||"";
 }
 function renderItemPicker(){
   const el=$("itemPicker");state.selectedTypes=state.selectedTypes||{};state.itemLimits=state.itemLimits||{};
@@ -1877,14 +1887,14 @@ $("roomSelect").addEventListener("change",()=>{
   const firstFurniture=state.furniture.find(f=>f.roomId===state.selectedRoom);
   state.selectedFurniture=firstFurniture?.id||"";
   const firstStorage=state.storages.find(s=>s.furnitureId===state.selectedFurniture);
-  if(firstStorage){state.selectedStorage=firstStorage.id;editingStorage=firstStorage.id}
+  state.selectedStorage=firstStorage?.id||"";editingStorage=firstStorage?.id||""
   localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
 });
 $("furnitureSelect").addEventListener("change",()=>{
   state.selectedFurniture=$("furnitureSelect").value;
   const f=furnitureById(state.selectedFurniture);if(f)state.selectedRoom=f.roomId;
   const firstStorage=state.storages.find(s=>s.furnitureId===state.selectedFurniture);
-  if(firstStorage){state.selectedStorage=firstStorage.id;editingStorage=firstStorage.id}
+  state.selectedStorage=firstStorage?.id||"";editingStorage=firstStorage?.id||""
   localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
 });
 $("addRoom").addEventListener("click",()=>{
@@ -1926,7 +1936,7 @@ $("deleteFurniture").addEventListener("click",()=>{
 });
 
 $("generateBtn").addEventListener("click",findLayouts);
-$("storageSelect").addEventListener("change",()=>{state.selectedStorage=$("storageSelect").value;editingStorage=state.selectedStorage;syncHierarchyToStorage(state.selectedStorage);save();renderHierarchy();renderStorageList();loadStorageEditor();renderObstacleEditor();resetResults()});
+$("storageSelect").addEventListener("change",()=>{state.selectedStorage=$("storageSelect").value;editingStorage=state.selectedStorage;if(state.selectedStorage)syncHierarchyToStorage(state.selectedStorage);save();renderHierarchy();renderStorageList();loadStorageEditor();renderObstacleEditor();resetResults()});
 $("optimizeGoal").addEventListener("change",()=>{
   state.optimizeGoal=$("optimizeGoal").value;save();
   const sz=currentUsableSize();
@@ -2069,6 +2079,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeProductDimensions,
     safeUrl,
     validateBackupState,
+    ensureHomeHierarchy,
     overlap3D,
     footprintContains
   };
