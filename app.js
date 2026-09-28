@@ -1,7 +1,9 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v26";
-const PREV_KEYS = ["storage-fit-planner-v25","storage-fit-planner-v24","storage-fit-planner-v23","storage-fit-planner-v22","storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v27";
+const RECOVERY_KEY = "storage-fit-recovery-v1";
+const RECOVERY_LIMIT = 8;
+const PREV_KEYS = ["storage-fit-planner-v26","storage-fit-planner-v25","storage-fit-planner-v24","storage-fit-planner-v23","storage-fit-planner-v22","storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -332,11 +334,109 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:26,
+    appVersion:27,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
   };
+}
+function normalizeRecoveryJournal(entries){
+  const rows=(Array.isArray(entries)?entries:[]).filter(e=>e&&typeof e==="object"&&e.data&&typeof e.data==="object").map((e,i)=>{
+    const parsed=Date.parse(e.createdAt||"");
+    return {
+      id:String(e.id||`recovery-${i}`),
+      createdAt:Number.isFinite(parsed)?new Date(parsed).toISOString():new Date(0).toISOString(),
+      reason:String(e.reason||"Recovery checkpoint").trim().slice(0,120)||"Recovery checkpoint",
+      appVersion:Number(e.appVersion)||null,
+      data:e.data
+    };
+  }).sort((a,b)=>Date.parse(b.createdAt)-Date.parse(a.createdAt));
+  const seen=new Set(),out=[];
+  for(const row of rows){
+    if(seen.has(row.id))continue;
+    seen.add(row.id);out.push(row);
+    if(out.length>=RECOVERY_LIMIT)break;
+  }
+  return out;
+}
+function writeRecoveryJournal(entries){
+  const journal=normalizeRecoveryJournal(entries);
+  localStorage.setItem(RECOVERY_KEY,JSON.stringify(journal));
+  return journal;
+}
+function readRecoveryJournal(){
+  let journal=[];
+  try{journal=normalizeRecoveryJournal(JSON.parse(localStorage.getItem(RECOVERY_KEY)||"[]"))}catch(e){}
+  let imported=false;
+  for(const key of [KEY,...PREV_KEYS]){
+    const legacyKey=`${key}-pre-restore`,raw=localStorage.getItem(legacyKey);
+    if(!raw)continue;
+    try{
+      const parsed=JSON.parse(raw),candidate=extractBackupState(parsed)||parsed?.data||parsed;
+      if(candidate&&typeof candidate==="object"&&!validateBackupState(candidate)){
+        journal.unshift({
+          id:uid("rec"),createdAt:parsed?.exportedAt||new Date().toISOString(),
+          reason:"Before backup restore (legacy checkpoint)",appVersion:parsed?.appVersion||null,data:candidate
+        });
+        imported=true;
+      }
+    }catch(e){}
+    localStorage.removeItem(legacyKey);
+  }
+  return imported?writeRecoveryJournal(journal):journal;
+}
+function createRecoveryCheckpoint(reason,data=state){
+  const snapshot=JSON.parse(JSON.stringify(data));
+  if(validateBackupState(snapshot))return null;
+  const journal=readRecoveryJournal(),serialized=JSON.stringify(snapshot);
+  if(journal[0]&&JSON.stringify(journal[0].data)===serialized){
+    journal[0].reason=String(reason||journal[0].reason).slice(0,120);
+    journal[0].createdAt=new Date().toISOString();
+    writeRecoveryJournal(journal);renderRecoveryHistory();return journal[0];
+  }
+  const entry={
+    id:uid("rec"),createdAt:new Date().toISOString(),reason:String(reason||"Recovery checkpoint").slice(0,120),
+    appVersion:27,data:snapshot
+  };
+  writeRecoveryJournal([entry,...journal]);renderRecoveryHistory();return entry;
+}
+function recoveryEntryMeta(entry){
+  const data=entry?.data||{};
+  return {
+    storages:Array.isArray(data.storages)?data.storages.length:0,
+    items:Array.isArray(data.boxes)?data.boxes.length:0,
+    plans:Array.isArray(data.savedPlans)?data.savedPlans.length:0
+  };
+}
+function renderRecoveryHistory(){
+  const el=$("recoveryList"),clear=$("clearRecoveryBtn");if(!el||!clear)return;
+  const journal=readRecoveryJournal();clear.disabled=!journal.length;
+  if(!journal.length){el.innerHTML='<div class="empty">No recovery checkpoints yet.</div>';return}
+  el.innerHTML=journal.map(entry=>{
+    const m=recoveryEntryMeta(entry),when=new Date(entry.createdAt);
+    const time=Number.isFinite(when.getTime())?when.toLocaleString():"Unknown time";
+    return `<div class="recoveryrow">
+      <div><div class="recoveryreason">${esc(entry.reason)}</div><div class="recoverymeta">${esc(time)} · ${m.storages} storage · ${m.items} items · ${m.plans} plans</div></div>
+      <button class="btn soft" type="button" data-restore-recovery="${entry.id}">Restore</button>
+    </div>`;
+  }).join("");
+  el.querySelectorAll("[data-restore-recovery]").forEach(btn=>btn.addEventListener("click",()=>restoreRecoveryCheckpoint(btn.dataset.restoreRecovery)));
+}
+function restoreRecoveryCheckpoint(id){
+  const journal=readRecoveryJournal(),entry=journal.find(e=>e.id===id);if(!entry)return;
+  const error=validateBackupState(entry.data);
+  if(error){setBackupStatus(`Recovery checkpoint is invalid: ${error}`,"warn");return}
+  const m=recoveryEntryMeta(entry);
+  const ok=confirm(`Restore this checkpoint?\n\n${entry.reason}\n${m.storages} storage spaces · ${m.items} items · ${m.plans} plans\n\nYour current state will be checkpointed first.`);
+  if(!ok)return;
+  createRecoveryCheckpoint("Before restoring recovery checkpoint");
+  localStorage.setItem(KEY,JSON.stringify(entry.data));
+  location.reload();
+}
+function clearRecoveryHistory(){
+  if(!readRecoveryJournal().length)return;
+  if(!confirm("Clear all local recovery checkpoints? Manual backup files are not affected."))return;
+  localStorage.removeItem(RECOVERY_KEY);renderRecoveryHistory();
 }
 function backupFilename(){
   const d=new Date(),pad=n=>String(n).padStart(2,"0");
@@ -445,7 +545,7 @@ function renderAll(){
   $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;$("enableStacking").checked=!!state.enableStacking;
   $("clearanceEnabled").checked=!!state.clearanceEnabled;$("clearance").value=state.clearance??0.5;$("fitTolerance").value=state.fitTolerance??0;
   $("clearanceField").style.display=state.clearanceEnabled?"block":"none";
-  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();renderDividerEditor();loadBoxEditor();renderSavedPlans();renderInstallDashboard();renderHomeProcurement();renderBackupStats();resetResults();
+  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();renderDividerEditor();loadBoxEditor();renderSavedPlans();renderInstallDashboard();renderHomeProcurement();renderBackupStats();renderRecoveryHistory();resetResults();
 }
 function plannedStorageIds(){return new Set((state.savedPlans||[]).map(p=>p.storageId))}
 function installedStorageIds(){return new Set(Object.keys(state.installedPlanIds||{}))}
@@ -583,6 +683,8 @@ function renderObstacleEditor(){
     }));
   });
   el.querySelectorAll("[data-remove-obstacle]").forEach(btn=>btn.addEventListener("click",()=>{
+    const obstacle=s.obstacles.find(o=>o.id===btn.dataset.removeObstacle);
+    createRecoveryCheckpoint(`Before deleting blocked zone “${obstacle?.name||"Blocked zone"}”`);
     s.obstacles=s.obstacles.filter(o=>o.id!==btn.dataset.removeObstacle);
     save();renderObstacleEditor();renderStorageList();renderSavedPlans();resetResults();
   }));
@@ -619,6 +721,8 @@ function renderDividerEditor(){
     }));
   });
   el.querySelectorAll("[data-remove-divider]").forEach(btn=>btn.addEventListener("click",()=>{
+    const divider=s.dividers.find(d=>d.id===btn.dataset.removeDivider);
+    createRecoveryCheckpoint(`Before deleting ${divider?.orientation||"custom"} divider`);
     s.dividers=s.dividers.filter(d=>d.id!==btn.dataset.removeDivider);
     save();renderDividerEditor();renderStorageList();renderSavedPlans();resetResults();
   }));
@@ -1792,6 +1896,7 @@ function renderSavedPlans(){
   }));
   el.querySelectorAll("[data-delete-plan]").forEach(btn=>btn.addEventListener("click",()=>{
     const id=btn.dataset.deletePlan,deleted=state.savedPlans.find(p=>p.id===id);
+    createRecoveryCheckpoint(`Before deleting saved plan “${deleted?.name||"Plan"}”`);
     state.savedPlans=state.savedPlans.filter(p=>p.id!==id);
     comparePlanIds.delete(id);
     if(deleted&&state.chosenPlanIds?.[deleted.storageId]===id)delete state.chosenPlanIds[deleted.storageId];
@@ -2787,6 +2892,7 @@ $("renameRoom").addEventListener("click",()=>{
 $("deleteRoom").addEventListener("click",()=>{
   const room=roomById(state.selectedRoom);if(!room||state.rooms.length<=1)return;
   if(state.furniture.some(f=>f.roomId===room.id)){alert("Move or delete the furniture in this room first.");return}
+  createRecoveryCheckpoint(`Before deleting room “${room.name}”`);
   state.rooms=state.rooms.filter(r=>r.id!==room.id);
   state.selectedRoom=state.rooms[0]?.id||"";state.selectedFurniture=state.furniture.find(f=>f.roomId===state.selectedRoom)?.id||"";
   localStorage.setItem(KEY,JSON.stringify(state));renderAll();
@@ -2817,6 +2923,7 @@ $("duplicateFurniture").addEventListener("click",()=>{
 $("deleteFurniture").addEventListener("click",()=>{
   const furniture=furnitureById(state.selectedFurniture);if(!furniture||state.furniture.length<=1)return;
   if(state.storages.some(s=>s.furnitureId===furniture.id)){alert("Move or delete the storage spaces in this furniture first.");return}
+  createRecoveryCheckpoint(`Before deleting furniture “${furniture.name}”`);
   state.furniture=state.furniture.filter(f=>f.id!==furniture.id);
   const next=state.furniture.find(f=>f.roomId===state.selectedRoom)||state.furniture[0]||null;
   state.selectedFurniture=next?.id||"";if(next)state.selectedRoom=next.roomId;
@@ -2899,6 +3006,8 @@ $("addHorizontalDivider").addEventListener("click",()=>addDivider("horizontal"))
 
 
 
+$("clearRecoveryBtn").addEventListener("click",clearRecoveryHistory);
+
 $("backupAllBtn").addEventListener("click",()=>{
   const payload=backupPayload();
   downloadTextFile(backupFilename(),JSON.stringify(payload,null,2));
@@ -2922,9 +3031,8 @@ $("restoreFileInput").addEventListener("change",async()=>{
     const ok=confirm(`Restore this backup?\n\n${s} storage space${s===1?"":"s"}\n${b} item${b===1?"":"s"}\n${p} saved plan${p===1?"":"s"}\n\nThis will replace the data currently stored in this browser.`);
     if(!ok){setBackupStatus("Restore cancelled.");return}
 
-    // Automatic emergency rollback snapshot of the current browser data.
-    localStorage.setItem(`${KEY}-pre-restore`,JSON.stringify(backupPayload()));
-    setBackupStatus("Backup validated. Restoring…","good");
+    createRecoveryCheckpoint(`Before restoring backup “${file.name}”`);
+    setBackupStatus("Backup validated. Recovery checkpoint created. Restoring…","good");
     restoreBackupState(candidate);
   }catch(err){
     setBackupStatus(`Restore failed: ${err?.message||"invalid backup file"}`,"warn");
@@ -2987,6 +3095,8 @@ $("saveBox").addEventListener("click",()=>{
 });
 $("deleteStorage").addEventListener("click",()=>{
   if(!editingStorage)return;
+  const deletingStorage=state.storages.find(s=>s.id===editingStorage);
+  createRecoveryCheckpoint(`Before deleting storage “${deletingStorage?.name||"Storage"}”`);
   const removedPlanIds=new Set(state.savedPlans.filter(p=>p.storageId===editingStorage).map(p=>p.id));
   state.savedPlans=state.savedPlans.filter(p=>p.storageId!==editingStorage);
   comparePlanIds=new Set([...comparePlanIds].filter(id=>!removedPlanIds.has(id)));
@@ -3003,6 +3113,8 @@ $("deleteBox").addEventListener("click",()=>{
   if(!editingBox)return;
   const usedBySaved=state.savedPlans.some(p=>(p.layout||[]).some(q=>q.typeId===editingBox));
   if(usedBySaved){alert("This item is used by a saved plan. Remove or replace it in saved plans before deleting it.");return}
+  const deletingItem=state.boxes.find(b=>b.id===editingBox);
+  createRecoveryCheckpoint(`Before deleting item “${deletingItem?.name||"Item"}”`);
   state.boxes=state.boxes.filter(x=>x.id!==editingBox);delete state.selectedTypes[editingBox];delete state.itemLimits[editingBox];delete state.shoppingBought[editingBox];
   editingBox=state.boxes[0]?.id||"";save();renderAll()
 });
@@ -3029,6 +3141,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     itemPlanningSignature,
     validatePlanLayoutAgainst,
     planHealthFromData,
+    normalizeRecoveryJournal,
+    recoveryEntryMeta,
     dividerRectsForStorage,
     physicalObstaclesForStorage,
     storageStructureSignature,

@@ -116,7 +116,7 @@
       <section class="card">
         <div class="head"><h2>Data & portability</h2><span class="badge">local</span></div>
         <div class="datacard">
-          <div class="small">Your planner data is stored only in this browser. Create a full backup before moving to another browser, domain, or device.</div>
+          <div class="small">Your planner data is stored only in this browser. Recovery checkpoints protect against local mistakes; create a full backup before moving to another browser, domain, or device.</div>
           <div class="datameta">
             <div><strong id="backupStorageCount">0</strong><span>storage spaces</span></div>
             <div><strong id="backupItemCount">0</strong><span>items</span></div>
@@ -129,6 +129,13 @@
             <input id="restoreFileInput" type="file" accept=".json,application/json" hidden>
           </div>
           <div class="datastatus" id="backupStatus">Backup includes rooms, furniture, storage spaces, blocked zones, custom dividers, items, handling preferences, placement labels, saved-plan validation snapshots, owned inventory, shopping progress, install order/status, product metadata, settings, quantity limits, saved plans, and chosen project plans.</div>
+          <div class="recoverypanel">
+            <div class="recoveryhead">
+              <div><strong>Recovery</strong><div class="small">Automatic local checkpoints before destructive changes. Keeps the latest 8.</div></div>
+              <button class="btn soft" id="clearRecoveryBtn" type="button" disabled>Clear</button>
+            </div>
+            <div class="recoverylist" id="recoveryList"><div class="empty">No recovery checkpoints yet.</div></div>
+          </div>
         </div>
       </section>
     </aside>
