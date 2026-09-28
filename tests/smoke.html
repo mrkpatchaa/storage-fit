@@ -262,6 +262,15 @@
       var capped=api.makeEditHistory([{x:0}]);
       for(var hi=1;hi<=5;hi++)capped=api.appendEditHistoryState(capped,[{x:hi}],"Edit "+hi,3);
       result(capped.entries.length===3&&capped.entries[capped.index].layout[0].x===5,"manual edit history respects its bounded capacity");
+      var replaceSource={w:30,d:20,h:10};
+      var replaceTarget={id:"rt",name:"Replacement",w:28,d:19,h:10,uprightOnly:true,floorRotationLocked:false};
+      var replaceOris=api.replacementOrientationCandidates(replaceSource,replaceTarget,true);
+      result(replaceOris.length===2&&replaceOris[0].w===28&&replaceOris[0].d===19,"replacement prefers the orientation closest to the existing footprint");
+      result(replaceOris[0].score<replaceOris[1].score,"replacement orientation ranking minimizes dimension change");
+      var lockedReplace={id:"rl",name:"Locked",w:28,d:19,h:10,uprightOnly:true,floorRotationLocked:true};
+      var lockedOris=api.replacementOrientationCandidates(replaceSource,lockedReplace,true);
+      result(lockedOris.length===1&&lockedOris[0].w===28&&lockedOris[0].d===19,"replacement respects floor rotation locks");
+      result(api.replacementOrientationCandidates(null,replaceTarget,true).length===0,"replacement orientation helper rejects missing source safely");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{
