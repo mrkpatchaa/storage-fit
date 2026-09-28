@@ -29,7 +29,7 @@ let pendingImport = null;
 
 state.itemLimits = state.itemLimits || {};
 state.fitTolerance = Math.max(0, Number(state.fitTolerance)||0);
-state.editSnapStep = Math.max(0.01, Number(state.editSnapStep)||0.5);
+state.editSnapStep = Math.max(0.01, Number(state.editSnapStep)||defaultEditSnapStep(state.unit));
 state.editShowGrid = state.editShowGrid !== false;
 state.enableStacking = !!state.enableStacking;
 state.optimizeGoal = ["fill","compartments","simple","balanced","cost","access"].includes(state.optimizeGoal)?state.optimizeGoal:"fill";
@@ -117,7 +117,7 @@ function loadState(){
           selectedTypes[b.id]=Boolean(old.selectedTypes?.[b.id] || (old.selections?.[b.id]||0)>0 || b.id===old.selectedBox);
         }
         return {
-          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,editSnapStep:old.editSnapStep??0.5,editShowGrid:old.editShowGrid!==false,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanIds:old.chosenPlanIds&&typeof old.chosenPlanIds==="object"?old.chosenPlanIds:{},chosenPlanId:old.chosenPlanId||null,shoppingBought:old.shoppingBought&&typeof old.shoppingBought==="object"?old.shoppingBought:{},installedPlanIds:old.installedPlanIds&&typeof old.installedPlanIds==="object"?old.installedPlanIds:{},installOrder:Array.isArray(old.installOrder)?old.installOrder:[],
+          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,editSnapStep:old.editSnapStep??defaultEditSnapStep(old.unit||"cm"),editShowGrid:old.editShowGrid!==false,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanIds:old.chosenPlanIds&&typeof old.chosenPlanIds==="object"?old.chosenPlanIds:{},chosenPlanId:old.chosenPlanId||null,shoppingBought:old.shoppingBought&&typeof old.shoppingBought==="object"?old.shoppingBought:{},installedPlanIds:old.installedPlanIds&&typeof old.installedPlanIds==="object"?old.installedPlanIds:{},installOrder:Array.isArray(old.installOrder)?old.installOrder:[],
           clearanceEnabled:!!old.clearanceEnabled,rooms:Array.isArray(old.rooms)?old.rooms:[],furniture:Array.isArray(old.furniture)?old.furniture:[],
           selectedRoom:old.selectedRoom||"",selectedFurniture:old.selectedFurniture||"",
           storages:old.storages,boxes:old.boxes,
@@ -2514,7 +2514,7 @@ function renderDetail(W,D,H){
   labelInput.disabled=!editMode||!selectedPlacement;
   labelInput.value=selectedPlacement?placementLabel(selectedPlacement):"";
   labelInput.placeholder=selectedPlacement?"e.g. Socks":"Select a box, e.g. Socks";
-  $("editSnapStep").value=fmt(normalizeSnapStep(state.editSnapStep));
+  $("editSnapStep").value=String(round6(normalizeSnapStep(state.editSnapStep)));
   $("editSnapUnit").textContent=state.unit;
   $("editShowGrid").checked=state.editShowGrid!==false;
   const selectedType=selectedPlacement?boxById(selectedPlacement.typeId):null;
@@ -2603,9 +2603,12 @@ function currentUsableSize(){
   return {W:S.w-2*c,D:S.d-2*c,H:S.h-2*c};
 }
 function selectedManualLayout(){return layouts[selectedLayout]}
+function defaultEditSnapStep(unit){
+  return unit==="mm"?5:unit==="in"?0.2:0.5;
+}
 function normalizeSnapStep(value){
   const n=Number(value);
-  return Math.max(0.01,Math.min(10000,Number.isFinite(n)&&n>0?n:0.5));
+  return Math.max(0.01,Math.min(10000,Number.isFinite(n)&&n>0?n:defaultEditSnapStep(state.unit)));
 }
 function snapValue(value,step=state.editSnapStep){
   const s=normalizeSnapStep(step);
@@ -3253,6 +3256,10 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     maxStackLevelAllows,
     accessPenalty,
     compareAccess,
+    defaultEditSnapStep,
+    normalizeSnapStep,
+    snapValue,
+    clampSnappedValue,
     overlap3D,
     footprintContains
   };
