@@ -2500,6 +2500,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     validateBackupState,
     normalizeChosenPlanSelections,
     normalizeShoppingBought,
+    normalizeInstallState,
+    computeInstallAllocation,
     ensureHomeHierarchy,
     purchaseBreakdown,
     aggregateRequiredCounts,
