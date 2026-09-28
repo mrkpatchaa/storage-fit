@@ -17,6 +17,9 @@ jobs:
       - name: Check JavaScript syntax
         run: node --check app.js
 
+      - name: Check shared-viewer JavaScript syntax
+        run: node --check share.js
+
       - name: Check smoke-test JavaScript syntax
         run: |
           python3 - <<'PY'
@@ -39,5 +42,10 @@ jobs:
           assert "<style>" not in html.lower(), "keep application CSS in styles.css"
           assert "<script>" not in html.lower(), "keep application JS in app.js"
           assert Path("tests/smoke.html").is_file(), "browser smoke test is missing"
+          assert Path("share.html").is_file(), "shared-plan viewer is missing"
+          assert Path("share.js").is_file(), "shared-plan viewer script is missing"
+          share = Path("share.html").read_text()
+          assert 'href="styles.css"' in share, "share.html must load styles.css"
+          assert 'src="share.js"' in share, "share.html must load share.js"
           print("Static structure looks good.")
           PY
