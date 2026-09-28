@@ -984,12 +984,19 @@ function chosenPlans(){
     .map(([storageId,planId])=>state.savedPlans.find(p=>p.id===planId&&p.storageId===storageId))
     .filter(Boolean);
 }
+function aggregateRequiredCounts(plans){
+  const counts={};
+  for(const plan of plans||[]){
+    const perPlan=layoutCounts(plan.layout||[]);
+    for(const [id,qty] of Object.entries(perPlan))counts[id]=(counts[id]||0)+qty;
+  }
+  return counts;
+}
 function projectProcurement(plans=chosenPlans()){
-  const counts={},storageUse={};
+  const counts=aggregateRequiredCounts(plans),storageUse={};
   for(const plan of plans){
     const perPlan=layoutCounts(plan.layout||[]);
-    for(const [id,qty] of Object.entries(perPlan)){
-      counts[id]=(counts[id]||0)+qty;
+    for(const [id] of Object.entries(perPlan)){
       if(!storageUse[id])storageUse[id]=new Set();
       storageUse[id].add(plan.storageId);
     }
