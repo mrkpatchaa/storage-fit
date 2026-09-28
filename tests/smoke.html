@@ -232,6 +232,19 @@
       var corners=api.constraintTemplateZones("corner-posts",templateStorage,{width:4,depth:3,height:12},constraintIds);
       result(corners.length===4&&corners.some(function(x){return x.x===96&&x.y===47})&&corners.every(function(x){return x.w===4&&x.d===3&&x.h===12}),"corner template creates four symmetric editable notches");
       result(api.constraintTemplateZones("unknown",templateStorage,{},constraintIds).length===0,"unknown constraint template produces no geometry");
+      var mirrorSource=[
+        {typeId:"b1",x:10,y:5,z:0,w:20,d:10,h:6,label:"Left"},
+        {typeId:"b1",x:10,y:5,z:6,w:20,d:10,h:6,label:"Top"}
+      ];
+      var mirrorX=api.mirrorLayoutGeometry(mirrorSource,100,50,"x");
+      result(mirrorX[0].x===70&&mirrorX[0].y===5&&mirrorX[1].x===70,"left-right mirror reflects X while preserving stacked alignment");
+      result(mirrorX[0].label==="Left"&&mirrorX[1].z===6&&mirrorX[0].w===20&&mirrorX[0].d===10,"mirror preserves labels elevation and organizer orientation");
+      var mirrorY=api.mirrorLayoutGeometry(mirrorSource,100,50,"y");
+      result(mirrorY[0].x===10&&mirrorY[0].y===35,"front-back mirror reflects Y inside the usable depth");
+      var mirrorTwice=api.mirrorLayoutGeometry(mirrorX,100,50,"x");
+      result(JSON.stringify(mirrorTwice)===JSON.stringify(mirrorSource),"mirroring twice on the same axis restores the exact layout");
+      result(api.footprintContains(mirrorX[0],mirrorX[1])===true,"mirroring a stacked pair preserves full-footprint support geometry");
+      result(api.mirrorLayoutGeometry(mirrorSource,100,50,"diagonal").length===0,"unknown mirror axis is rejected safely");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{
