@@ -629,3 +629,51 @@ Template defaults are unit-aware:
 - in → 0.4 in
 
 No state migration is required because templates generate the same blocked-zone records the app already understands.
+
+
+## Mirror an entire layout
+
+Manual editing now includes two whole-layout transforms:
+
+- **Mirror L↔R** — reflects every placement across the usable storage width.
+- **Mirror F↔B** — reflects every placement across the usable storage depth.
+
+The transform preserves:
+
+- organizer type;
+- organizer orientation and dimensions;
+- elevation / stack level;
+- purpose labels;
+- item counts.
+
+Only X or Y placement coordinates are reflected.
+
+### All-or-nothing validation
+
+Mirroring never forces an invalid result.
+
+Storage Fit builds the full reflected layout first, then validates it against the current storage:
+
+- usable bounds and fit tolerance;
+- blocked zones;
+- custom dividers;
+- organizer collisions;
+- stacking support;
+- maximum stack-level rules;
+- storage height.
+
+If any mirrored placement is invalid, the entire operation is rejected and the original layout remains untouched.
+
+This is useful when a layout is geometrically symmetric but the real furniture is not: for example, a left/right reflection that would hit one side's hinge or runner simply does not apply.
+
+### Paired furniture workflow
+
+Mirroring pairs naturally with the existing duplication tools:
+
+1. duplicate/repeat matching compartments or furniture;
+2. optimize one side;
+3. open the layout in **Edit layout**;
+4. mirror left↔right or front↔back;
+5. save/apply the reflected version where appropriate.
+
+Mirroring is a manual-layout operation only and introduces no new state schema. The app remains on V28.
