@@ -11,7 +11,7 @@ Storage Fit is a dependency-free browser tool for planning boxes and organizers 
 - Lets you drag, rotate, duplicate and remove items in a layout.
 - Models blocked zones such as rails, hinges and unusable corners.
 - Detects leftover rectangles and suggests saved items that fit them.
-- Imports public IKEA/product URLs when product metadata is available.
+- Imports public IKEA/product URLs when product metadata is available, previews the result before saving, and detects existing catalog items by SKU or canonical product URL.
 - Saves plans, builds shopping lists, prints/exports layouts, and backs up/restores all browser data.
 - Turns saved plans into a shortlist: rename them, add notes, mark a chosen plan, and compare up to three side-by-side.
 
@@ -88,3 +88,18 @@ Saved plans are more than bookmarks:
 - Select two or three plans and compare utilization, item count, stacking, estimated cost, and item mix side-by-side.
 - Opening a saved plan restores the fit settings that were active when it was saved.
 - Saved-plan geometry is converted when you switch between cm, mm, and inches, so plan comparisons remain dimensionally consistent.
+
+
+## Smart Import workflow
+
+Smart Import is review-first:
+
+1. Paste a public product URL.
+2. Storage Fit reads whatever metadata the retailer exposes.
+3. Review the detected title, dimensions, price, reference, image, retailer, and source.
+4. If the product already exists, choose **Update existing** or deliberately **Add as new**.
+5. Fine-tune physical stacking/orientation rules in the normal item editor.
+
+Duplicate matching prefers normalized SKU/article numbers and falls back to canonical product URLs with tracking parameters, URL fragments, and trailing slashes removed. The item library can also be searched by name, SKU, or retailer.
+
+Retailer pages and cross-origin policies can change, so automatic import remains best-effort. The app never adds an imported item until you explicitly confirm it.
