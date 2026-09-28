@@ -59,6 +59,17 @@
       result(stock.ownedUsed===2&&stock.buyQty===3&&stock.subtotal===90,"owned inventory reduces purchase quantity");
       var covered=api.purchaseBreakdown(3,5,30);
       result(covered.ownedUsed===3&&covered.buyQty===0&&covered.subtotal===0,"owned inventory can fully cover a layout");
+      var projectCounts=api.aggregateRequiredCounts([
+        {layout:[{typeId:"b1"},{typeId:"b1"},{typeId:"b2"}]},
+        {layout:[{typeId:"b1"},{typeId:"b2"},{typeId:"b2"}]}
+      ]);
+      result(projectCounts.b1===3&&projectCounts.b2===3,"chosen-plan quantities aggregate across storage spaces");
+      var legacyChoice={
+        savedPlans:[{id:"p1",storageId:"s1"},{id:"p2",storageId:"s2"}],
+        chosenPlanId:"p2"
+      };
+      api.normalizeChosenPlanSelections(legacyChoice);
+      result(legacyChoice.chosenPlanIds.s2==="p2"&&!("chosenPlanId" in legacyChoice),"legacy single chosen plan migrates to its storage");
       var legacy={storages:[{id:"s1",name:"Drawer",w:10,d:10,h:10}],boxes:[{id:"b1",name:"Box",w:5,d:5,h:5}],rooms:[],furniture:[],selectedStorage:"s1"};
       api.ensureHomeHierarchy(legacy);
       result(legacy.rooms.length===1,"legacy data gets a fallback room");
