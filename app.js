@@ -1096,13 +1096,13 @@ function balanceScore(layout){
   for(const c of counts){const p=c/total;entropy-=p*Math.log(p)}
   return entropy/Math.log(counts.length);
 }
-function accessPenalty(layout,D){
-  const preferred=(layout||[]).filter(p=>boxById(p.typeId)?.frontPriority);
+function accessPenalty(layout,D,itemLookup=boxById){
+  const preferred=(layout||[]).filter(p=>itemLookup(p.typeId)?.frontPriority);
   if(!preferred.length)return 0;
   const depth=Math.max(1e-9,Number(D)||1);
   return preferred.reduce((sum,p)=>sum+Math.max(0,Math.min(1,(p.y+p.d/2)/depth)),0)/preferred.length;
 }
-function compareAccess(a,b,D){return accessPenalty(a,D)-accessPenalty(b,D)}
+function compareAccess(a,b,D,itemLookup=boxById){return accessPenalty(a,D,itemLookup)-accessPenalty(b,D,itemLookup)}
 function compareLayoutsForGoal(a,b,W,D){
   const ua=utilization(a,W,D),ub=utilization(b,W,D),access=compareAccess(a,b,D);
   if(state.optimizeGoal==="access") return access || ub-ua || b.length-a.length || distinctTypes(b)-distinctTypes(a);
@@ -1680,12 +1680,15 @@ function placementStackLevel(p,placed){
   }
   return level;
 }
+function maxStackLevelAllows(type,level){
+  return !type?.maxStackLevel || level<=type.maxStackLevel;
+}
 function placementSupported(p,placed,type){
   const z=Number(p.z)||0;
   if(z<=1e-9)return true;
   if(!state.enableStacking||!type?.canBeStacked||!supportingBaseFor(p,placed))return false;
   const level=placementStackLevel(p,placed);
-  return !type.maxStackLevel || level<=type.maxStackLevel;
+  return maxStackLevelAllows(type,level);
 }
 function dividerRectsForStorage(S){
   if(!S)return [];
@@ -2019,12 +2022,14 @@ function findLayouts(){
     showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${rejected.map(x=>x.name).join(", ")} cannot fit at all and was excluded.${truncated?" Results are capped.":""}`,"warn");
   }else{
     const costNote=state.optimizeGoal==="cost"?"Owned quantities reduce purchases; unpriced purchases are treated conservatively. Different currencies are not converted. ":"";
+    const frontCount=selected.filter(b=>b.frontPriority).length;
+    const handlingNote=(state.optimizeGoal==="access"||frontCount)?`Access ranking active${frontCount?` for ${frontCount} front-priority item type${frontCount===1?"":"s"}`:""}. `:"";
     const blockedCount=obstacles.filter(o=>o.kind!=="divider").length,dividerCount=obstacles.filter(o=>o.kind==="divider").length;
     const constraintNote=[
       blockedCount?`${blockedCount} blocked zone${blockedCount===1?"":"s"} avoided`:"",
       dividerCount?`${dividerCount} divider${dividerCount===1?"":"s"} respected`:""
     ].filter(Boolean).join(" · ");
-    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${costNote}Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${state.enableStacking?"Stacking rules enabled. ":""}${constraintNote?`${constraintNote}. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?"Results are capped to keep the browser responsive.":""}`,"good");
+    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${costNote}${handlingNote}Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${state.enableStacking?"Stacking rules enabled. ":""}${constraintNote?`${constraintNote}. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?"Results are capped to keep the browser responsive.":""}`,"good");
   }
   selectedLayout=0;selectedGap=-1;currentGaps=[];
   editMode=false;
@@ -2865,6 +2870,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     aggregateRequiredCounts,
     orientations,
     placementStackLevel,
+    maxStackLevelAllows,
     accessPenalty,
     compareAccess,
     overlap3D,
