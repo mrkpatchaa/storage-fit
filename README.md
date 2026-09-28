@@ -717,3 +717,40 @@ The toolbar also has explicit **Undo** / **Redo** buttons.
 - finishing the edit session clears the temporary history.
 
 The history is deliberately not persisted in backups or planner state. It is an editing-session safety tool; the finished layout remains the normal source of truth.
+
+
+## Replace an organizer in a manual layout
+
+Manual editing can now swap a selected placement to another item from the organizer library.
+
+The **Replace organizer** picker:
+
+1. keeps the placement's purpose label;
+2. tries the target organizer in the exact current position first;
+3. tries every orientation allowed by the target item's upright / rotation rules;
+4. if the exact spot does not work, searches for the nearest valid floor or stacked position;
+5. rejects the replacement if no valid result exists.
+
+Replacement uses the same planner rules as every other edit:
+
+- storage bounds and clearance;
+- fit tolerance;
+- blocked zones and dividers;
+- organizer collisions;
+- stacking permission;
+- support-surface rules;
+- maximum stack level;
+- storage height;
+- dependent items stacked above the replaced support.
+
+If the target item has a layout **Max** and that quantity is already reached, it is shown as unavailable.
+
+The replacement is one Undo/Redo history step, so the original organizer can be restored immediately.
+
+This is useful when:
+- a planned organizer is unavailable;
+- you find a cheaper/smaller alternative;
+- you want to compare two organizer types without regenerating the whole proposal;
+- a support item needs to be changed while preserving the rest of the layout.
+
+No state schema change is required; the app remains on V28.
