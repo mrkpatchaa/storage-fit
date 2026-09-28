@@ -2741,6 +2741,30 @@ function currentUsableSize(){
   return {W:S.w-2*c,D:S.d-2*c,H:S.h-2*c};
 }
 function selectedManualLayout(){return layouts[selectedLayout]}
+function mirrorLayoutGeometry(layout,W,D,axis){
+  const width=Math.max(0,Number(W)||0),depth=Math.max(0,Number(D)||0);
+  if(!Array.isArray(layout)||!["x","y"].includes(axis))return [];
+  return layout.map(p=>({
+    ...p,
+    x:axis==="x"?round6(width-(Number(p.x)||0)-(Number(p.w)||0)):round6(Number(p.x)||0),
+    y:axis==="y"?round6(depth-(Number(p.y)||0)-(Number(p.d)||0)):round6(Number(p.y)||0)
+  }));
+}
+function mirrorCurrentLayout(axis){
+  const layout=selectedManualLayout(),sz=currentUsableSize();
+  if(!editMode||!layout||!sz)return false;
+  const mirrored=mirrorLayoutGeometry(layout,sz.W,sz.D,axis);
+  if(invalidEditIndices(mirrored,sz.W,sz.D).size){
+    setEditStatus(axis==="x"
+      ?"Mirror rejected: the left/right reflection collides with current constraints or support rules."
+      :"Mirror rejected: the front/back reflection collides with current constraints or support rules.",true);
+    return false;
+  }
+  layouts[selectedLayout]=mirrored;
+  selectedGap=-1;updateSavePlanButton();
+  setEditStatus(axis==="x"?"Mirrored left ↔ right.":"Mirrored front ↔ back.");
+  refreshCurrentDetail();return true;
+}
 function defaultEditSnapStep(unit){
   return unit==="mm"?5:unit==="in"?0.2:0.5;
 }
@@ -2865,6 +2889,8 @@ $("editShowGrid").addEventListener("change",()=>{
 });
 $("moveItemFloor").addEventListener("click",()=>relocateSelectedPlacement("floor"));
 $("stackItem").addEventListener("click",()=>relocateSelectedPlacement("stack"));
+$("mirrorLayoutX").addEventListener("click",()=>mirrorCurrentLayout("x"));
+$("mirrorLayoutY").addEventListener("click",()=>mirrorCurrentLayout("y"));
 
 document.addEventListener("keydown",e=>{
   if(!editMode||detailView!=="top"||selectedEditItem<0)return;
@@ -3414,6 +3440,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeSnapStep,
     snapValue,
     clampSnappedValue,
+    mirrorLayoutGeometry,
     base64UrlEncodeUtf8,
     base64UrlDecodeUtf8,
     validateSharePayload,
