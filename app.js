@@ -2070,13 +2070,23 @@ function svgTop(layout,W,D,width,height,labels=true,editable=false,selected=-1,h
     const sw=active?3:invalid?2.5:1.7;
     return `<g data-item="${editable?idx:""}" style="${editable?"cursor:move":""}">
       <rect data-item="${editable?idx:""}" x="${g.ox+p.x*g.scale}" y="${g.oy+p.y*g.scale}" width="${p.w*g.scale}" height="${p.d*g.scale}" rx="3" fill="${fill}" fill-opacity="${invalid?".28":".34"}" stroke="${stroke}" stroke-width="${sw}"/>
-      ${labels?`<text data-item="${editable?idx:""}" x="${g.ox+(p.x+p.w/2)*g.scale}" y="${g.oy+(p.y+p.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#222" pointer-events="${editable?"auto":"none"}">${esc(shortName(boxById(p.typeId)?.name||String(idx+1)))}${(p.z||0)>0?` ↑${fmt(p.z)}${state.unit}`:""}</text>`:""}
+      ${labels?`<text data-item="${editable?idx:""}" x="${g.ox+(p.x+p.w/2)*g.scale}" y="${g.oy+(p.y+p.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#222" pointer-events="${editable?"auto":"none"}">${esc(shortName(placementDisplayName(p,idx)))}${(p.z||0)>0?` ↑${fmt(p.z)}${state.unit}`:""}</text>`:""}
     </g>`;
   }).join("");
   const gapMark=highlightGap?`<rect x="${g.ox+highlightGap.x*g.scale}" y="${g.oy+highlightGap.y*g.scale}" width="${highlightGap.w*g.scale}" height="${highlightGap.d*g.scale}" fill="#166c45" fill-opacity=".08" stroke="#166c45" stroke-width="3" stroke-dasharray="8 5"/><text x="${g.ox+(highlightGap.x+highlightGap.w/2)*g.scale}" y="${g.oy+(highlightGap.y+highlightGap.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="800" fill="#166c45">${fmt(highlightGap.w)} × ${fmt(highlightGap.d)} ${esc(state.unit)}</text>`:"";
   return `<svg class="preview" viewBox="0 0 ${width} ${height}" role="img" aria-label="Top view"><rect x="${g.ox}" y="${g.oy}" width="${W*g.scale}" height="${D*g.scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${obstacleRects}${gapMark}${rects}</svg>`;
 }
 function shortName(s){return s.length>12?s.slice(0,10)+"…":s}
+function placementLabel(p){return String(p?.label||"").trim().slice(0,60)}
+function placementDisplayName(p,index=0){
+  return placementLabel(p)||boxById(p?.typeId)?.name||String(index+1);
+}
+function labeledPlacements(layout){
+  return (layout||[]).map((p,index)=>({
+    index,label:placementLabel(p),itemName:boxById(p.typeId)?.name||p.typeId,
+    x:p.x,y:p.y,z:Number(p.z)||0
+  })).filter(x=>x.label);
+}
 function svgFront(layout,W,H,width=760,height=390){
   const pad=28,scale=Math.min((width-2*pad)/W,(height-2*pad)/H),ox=(width-W*scale)/2,oy=(height-H*scale)/2;
   const obstacles=usableObstacles();
@@ -2160,6 +2170,10 @@ function renderDetail(W,D,H){
   $("reset3d").disabled=detailView!=="iso";
   $("editLayoutBtn").textContent=editMode?"Editing":"Edit layout";
   $("editBar").classList.toggle("active",editMode);
+  const labelInput=$("placementLabel"),selectedPlacement=selectedEditItem>=0?layout[selectedEditItem]:null;
+  labelInput.disabled=!editMode||!selectedPlacement;
+  labelInput.value=selectedPlacement?placementLabel(selectedPlacement):"";
+  labelInput.placeholder=selectedPlacement?"e.g. Socks":"Select a box, e.g. Socks";
   $("detailViz").classList.toggle("is-3d",detailView==="iso"&&!editMode);
   let svg="";
   if(detailView==="front")svg=svgFront(layout,W,H);
@@ -2175,6 +2189,8 @@ function renderDetail(W,D,H){
     const stacked=ps.filter(p=>(p.z||0)>1e-9).length;
     return `<li><strong>${esc(b?.name||id)} ×${n}</strong> — ${os.join(", ")} ${esc(state.unit)}${stacked?` · ${stacked} stacked`:""}</li>`;
   }).join("");
+  const labels=labeledPlacements(layout);
+  $("layoutLabels").innerHTML=labels.length?labels.map(x=>`<div class="placementlabelrow"><span class="n">${x.index+1}</span><div><strong>${esc(x.label)}</strong><span>${esc(x.itemName)}</span></div></div>`).join(""):'<div class="empty">No placement labels yet. Use Edit layout and select a box.</div>';
 
   currentGaps=findEmptyRectangles(layout,W,D);
   if(selectedGap>=currentGaps.length)selectedGap=-1;
@@ -2279,6 +2295,17 @@ $("editLayoutBtn").addEventListener("click",()=>{
   refreshCurrentDetail();
 });
 
+$("placementLabel").addEventListener("input",()=>{
+  const layout=selectedManualLayout();
+  if(!editMode||!layout||selectedEditItem<0)return;
+  layout[selectedEditItem].label=$("placementLabel").value.trim().slice(0,60);
+  updateSavePlanButton();
+  const sz=currentUsableSize();if(sz)renderDetail(sz.W,sz.D,sz.H);
+});
+$("placementLabel").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){e.preventDefault();$("placementLabel").blur()}
+});
+
 $("doneEdit").addEventListener("click",()=>{
   if(!editMode)return;
   const sz=currentUsableSize(),layout=selectedManualLayout();
@@ -2327,6 +2354,7 @@ $("duplicateItem").addEventListener("click",()=>{
   if(max!==null&&countType(layout,src.typeId)>=max){setEditStatus(`Maximum quantity (${max}) reached for this item.`,true);return}
   const type=boxById(src.typeId),gap=Math.max(0,state.fitTolerance||0);
   for(const p of candidatePlacementsFor(layout,type,[src.w,src.d,src.h],sz.W,sz.D,sz.H,usableObstacles(),gap)){
+    p.label="";
     layout.push(p);selectedEditItem=layout.length-1;selectedGap=-1;setEditStatus((p.z||0)>0?"Duplicate stacked.":"Duplicate added.");refreshCurrentDetail();return;
   }
   setEditStatus("No free position for another copy.",true);
