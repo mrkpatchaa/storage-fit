@@ -238,7 +238,7 @@ function renderBoxList(){
   const el=$("boxList");
   if(!state.boxes.length){el.innerHTML='<div class="empty">No items yet.</div>';return}
   el.innerHTML=state.boxes.map(b=>`<div class="listitem ${b.id===editingBox?"active":""}" data-b="${b.id}">
-    <div class="itemmain">${safeUrl(b.image)?`<img class="itemthumb" src="${esc(safeUrl(b.image))}" alt="">`:""}<div><div class="listname">${esc(b.name)}</div><div class="dims">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}${b.price>0?` · ${esc(money(b.price,b.currency))}`:""}${b.sku?` · ${esc(b.sku)}`:""}</div></div></div>
+    <div class="itemmain">${safeUrl(b.image)?`<img class="itemthumb" src="${esc(safeUrl(b.image))}" alt="">`:""}<div><div class="listname">${esc(b.name)}</div><div class="dims">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}${b.price>0?` · ${esc(money(b.price,b.currency))}`:""}${b.sku?` · ${esc(b.sku)}`:""}${esc(itemRuleText(b))}</div></div></div>
     ${state.selectedTypes?.[b.id]?'<span class="badge">allowed</span>':""}</div>`).join("");
   el.querySelectorAll("[data-b]").forEach(n=>n.addEventListener("click",()=>{editingBox=n.dataset.b;loadBoxEditor();renderBoxList()}));
 }
@@ -255,7 +255,7 @@ function renderItemPicker(){
     const limited=Number.isFinite(limit) && limit>0;
     return `<div class="pickrow">
       <input aria-label="Allow ${esc(b.name)}" type="checkbox" data-type="${b.id}" ${selected?"checked":""}>
-      <span><span class="listname">${esc(b.name)}</span><span class="dims" style="display:block">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}</span></span>
+      <span><span class="listname">${esc(b.name)}</span><span class="dims" style="display:block">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}${esc(itemRuleText(b))}</span></span>
       <span class="limitcontrol">
         <select data-limit-mode="${b.id}" aria-label="Quantity mode for ${esc(b.name)}">
           <option value="unlimited" ${limited?"":"selected"}>Unlimited</option>
@@ -324,6 +324,7 @@ function loadBoxEditor(){
   $("boxPrice").value=b?.price||"";$("boxCurrency").value=b?.currency||"MAD";$("boxSku").value=b?.sku||"";$("boxUrl").value=b?.url||"";$("boxImage").value=b?.image||"";
   $("boxUprightOnly").checked=b?.uprightOnly!==false;$("boxCanBeStacked").checked=!!b?.canBeStacked;$("boxCanSupportStack").checked=!!b?.canSupportStack;
 }
+function itemRuleText(b){const tags=[];if(b?.canBeStacked)tags.push("can stack");if(b?.canSupportStack)tags.push("supports");if(b?.uprightOnly===false)tags.push("may tip");return tags.length?` · ${tags.join(" · ")}`:""}
 function selectedBoxes(){return state.boxes.filter(b=>state.selectedTypes?.[b.id])}
 
 function ikeaUrlInfo(raw){
@@ -583,7 +584,9 @@ function currentExportPayload(){
       obstacles:(s.obstacles||[]).map(o=>({...o}))
     },
     optimizationGoal:state.optimizeGoal,
-    utilization:Number((utilization(layout,s.w-2*c,s.d-2*c)*100).toFixed(2)),
+    stackingEnabled:state.enableStacking,
+    utilizationKind:utilizationNoun(layout),
+    utilization:Number((utilization(layout,s.w-2*c,s.d-2*c,s.h-2*c)*100).toFixed(2)),
     items:shoppingRows(layout),
     placements:layout.map(p=>({...p}))
   };
@@ -600,7 +603,7 @@ function buildPrintSheet(){
   const rows=shoppingRows(layout);
   $("printSheet").innerHTML=`<div class="printsheet">
     <h1>${esc(s.name)} — Layout ${selectedLayout+1}</h1>
-    <div class="printmeta">${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${esc(state.unit)} · ${esc(goalLabel())} · ${(utilization(layout,W,D)*100).toFixed(1)}% usable-floor utilization</div>
+    <div class="printmeta">${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${esc(state.unit)} · ${esc(goalLabel())} · ${(utilization(layout,W,D,H)*100).toFixed(1)}% ${esc(utilizationNoun(layout))} utilization</div>
     <div class="printgrid">
       <div class="printviz"><h2>Front view</h2>${svgFront(layout,W,H,640,340)}</div>
       <div class="printviz"><h2>Top view</h2>${svgTop(layout,W,D,640,340,true,false,-1,null)}</div>
@@ -669,6 +672,7 @@ function renderSavedPlans(){
     const plan=state.savedPlans.find(p=>p.id===btn.dataset.openPlan);if(!plan)return;
     if(state.storages.some(s=>s.id===plan.storageId))state.selectedStorage=plan.storageId;
     state.optimizeGoal=plan.goal||state.optimizeGoal;
+    state.enableStacking=plan.stacking ?? layoutUsesStacking(plan.layout);
     localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
     renderAll();
     layouts=[plan.layout.map(q=>({...q}))];
@@ -1014,7 +1018,7 @@ function findLayouts(){
 
   $("resultLabel").textContent=layouts.length?"Fits":"No layout";
   $("layoutCount").textContent=String(layouts.length);
-  $("bestFill").textContent=layouts.length?`${(utilization(layouts[0],W,D)*100).toFixed(1)}%`:"0%";
+  $("bestFill").textContent=layouts.length?`${(utilization(layouts[0],W,D,H)*100).toFixed(1)}%`:"0%";
   $("searchState").textContent=truncated?"Capped":"Complete";
 
   if(rejected.length){
@@ -1030,10 +1034,10 @@ function findLayouts(){
 function distinctTypes(layout){
   return new Set(layout.map(p=>p.typeId)).size;
 }
-function proposalTags(layout,W,D){
+function proposalTags(layout,W,D,H=currentUsableSize()?.H||1){
   if(!layouts.length)return [];
-  const fill=utilization(layout,W,D);
-  const bestFill=Math.max(...layouts.map(l=>utilization(l,W,D)));
+  const fill=utilization(layout,W,D,H);
+  const bestFill=Math.max(...layouts.map(l=>utilization(l,W,D,H)));
   const mostItems=Math.max(...layouts.map(l=>l.length));
   const minTypes=Math.min(...layouts.map(l=>distinctTypes(l)));
   const maxTypes=Math.max(...layouts.map(l=>distinctTypes(l)));
@@ -1060,7 +1064,7 @@ function renderGallery(W,D,H,truncated){
   $("gallerySubtitle").textContent=`${layouts.length} curated proposals${truncated?" (search capped)":""}, ordered for “${goalLabel()}”.`;
   const el=$("gallery");
   el.innerHTML=layouts.map((layout,i)=>`<button type="button" class="layoutcard ${i===selectedLayout?"selected":""}" data-layout="${i}">
-    <div class="layoutmeta"><div><strong>Layout ${i+1}</strong>${i===0?`<span class="proposalbadge">${esc(goalLabel())}</span>`:""}${proposalTags(layout,W,D).map(t=>`<span class="proposalbadge">${t}</span>`).join(" ")}</div><span>${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)}</span></div>
+    <div class="layoutmeta"><div><strong>Layout ${i+1}</strong>${i===0?`<span class="proposalbadge">${esc(goalLabel())}</span>`:""}${proposalTags(layout,W,D,H).map(t=>`<span class="proposalbadge">${t}</span>`).join(" ")}</div><span>${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)}</span></div>
     ${svgTop(layout,W,D,360,210,false)}
     <div class="legend">${legendHtml(layout)}</div>
   </button>`).join("");
@@ -1459,6 +1463,7 @@ $("savePlanBtn").addEventListener("click",()=>{
       storageId:s.id,
       storageName:s.name,
       goal:state.optimizeGoal,
+      stacking:state.enableStacking,
       signature,
       layout:layout.map(q=>({...q}))
     });
