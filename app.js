@@ -1486,7 +1486,7 @@ function renderCompareModal(){
   const plans=[...comparePlanIds].map(id=>state.savedPlans.find(p=>p.id===id)).filter(Boolean).slice(0,3);
   const el=$("compareGrid");
   el.innerHTML=plans.map(plan=>{
-    const m=planMetrics(plan),counts=layoutCounts(plan.layout||[]);
+    const m=planMetrics(plan),counts=layoutCounts(plan.layout||[]),contents=labeledPlacements(plan.layout||[]);
     const items=Object.entries(counts).map(([id,n])=>`<li>${esc(boxById(id)?.name||"Item")} ×${n}</li>`).join("");
     const chosen=isPlanChosen(plan);
     return `<article class="comparecard ${chosen?"chosen":""}">
@@ -1499,6 +1499,7 @@ function renderCompareModal(){
         <div class="comparestat"><div class="k">To buy</div><div class="v" style="font-size:12px">${esc(m.cost)}</div><div class="small">${m.ownedUsed} owned used</div></div>
       </div>
       <div class="compareitems"><strong>Item mix</strong><ul>${items||"<li>No items</li>"}</ul></div>
+      ${contents.length?`<div class="compareitems"><strong>Contents</strong><ul>${contents.map(x=>`<li>${esc(x.label)} — ${esc(x.itemName)}</li>`).join("")}</ul></div>`:""}
       ${plan.note?`<div class="comparnote">${esc(plan.note)}</div>`:""}
       <div class="savedactions">
         <button class="btn ${chosen?"primary":"soft"}" type="button" data-compare-choose="${plan.id}">${chosen?"Chosen here ✓":"Choose for this storage"}</button>
@@ -1542,7 +1543,7 @@ function renderSavedPlans(){
   sec.style.display="block";
   $("savedPlansCount").textContent=`${state.savedPlans.length} saved`;
   el.innerHTML=state.savedPlans.map(p=>{
-    const m=planMetrics(p),counts=layoutCounts(p.layout||[]);
+    const m=planMetrics(p),counts=layoutCounts(p.layout||[]),contents=labeledPlacements(p.layout||[]);
     const summary=Object.entries(counts).map(([id,n])=>`${esc(boxById(id)?.name||"Item")} ×${n}`).join(" · ");
     const chosen=isPlanChosen(p),selected=comparePlanIds.has(p.id);
     return `<div class="savedcard ${chosen?"chosen":""}">
@@ -1555,6 +1556,7 @@ function renderSavedPlans(){
         <label class="savedselect"><input type="checkbox" data-compare-plan="${p.id}" ${selected?"checked":""}> compare</label>
       </div>
       <div class="small" style="margin-top:8px">${summary||"Saved layout"}</div>
+      ${contents.length?`<div class="savedmeta" style="margin-top:5px">Contents: ${contents.slice(0,4).map(x=>esc(x.label)).join(" · ")}${contents.length>4?` · +${contents.length-4} more`:""}</div>`:""}
       <div class="savedmeta" style="margin-top:6px">To buy: ${esc(m.cost)}${m.ownedUsed?` · ${m.ownedUsed} owned used`:""}${m.stackedCount?` · ${m.stackedCount} stacked`:""}</div>
       ${p.note?`<div class="savednote">${esc(p.note)}</div>`:""}
       <div class="savedactions">
