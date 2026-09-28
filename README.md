@@ -138,4 +138,21 @@ The **Cheapest to implement** optimization goal ranks layouts conservatively:
 - currencies are never silently converted;
 - when currencies differ, the planner falls back to fewer units to buy, then better space utilization.
 
-A saved plan's purchase estimate uses the current item inventory, so if you later buy more organizers the plan can immediately show fewer remaining purchases. Owned inventory is currently evaluated per layout; home-wide allocation across several saved plans is intentionally left for a later procurement pass.
+A saved plan's purchase estimate uses the current item inventory, so if you later buy more organizers the plan can immediately show fewer remaining purchases.
+
+## Whole-home procurement
+
+Each storage space can have one **chosen plan**. Choosing a different plan for the same storage replaces that storage's winner without affecting choices elsewhere.
+
+The **Home shopping list** aggregates every chosen plan, sums each organizer type across rooms/furniture/storage spaces, and applies owned inventory **once globally**. Example: if three chosen compartments need 7 of the same organizer and you own 2, the home project correctly reports **Buy 5**.
+
+The project workspace shows:
+
+- number of chosen storage spaces;
+- total organizers required;
+- owned units reused;
+- total additional purchases by currency;
+- one aggregated row per organizer with Use / Own / Buy;
+- product links only where more units are needed.
+
+The project list can be exported as `storage-fit-home-shopping.json`. Existing V19 single-choice data migrates automatically into the matching storage's chosen-plan slot in V20.

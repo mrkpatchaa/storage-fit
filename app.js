@@ -1,7 +1,7 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v19";
-const PREV_KEYS = ["storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v20";
+const PREV_KEYS = ["storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -30,7 +30,7 @@ state.fitTolerance = Math.max(0, Number(state.fitTolerance)||0);
 state.enableStacking = !!state.enableStacking;
 state.optimizeGoal = ["fill","compartments","simple","balanced","cost"].includes(state.optimizeGoal)?state.optimizeGoal:"fill";
 state.savedPlans = Array.isArray(state.savedPlans)?state.savedPlans:[];
-state.chosenPlanId = state.savedPlans.some(p=>p.id===state.chosenPlanId)?state.chosenPlanId:null;
+normalizeChosenPlanSelections(state);
 for(const p of state.savedPlans){p.note=String(p.note||"");p.settings=p.settings||null;}
 for(const b of state.boxes){
   if(!(b.id in state.itemLimits)) state.itemLimits[b.id] = null;
@@ -58,7 +58,7 @@ for(const s of state.storages){
 
 function defaults(){
   return {
-    unit:"cm",clearance:0.5,fitTolerance:0,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanId:null,
+    unit:"cm",clearance:0.5,fitTolerance:0,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanIds:{},
     rooms:[{id:"room1",name:"Bedroom"}],
     furniture:[{id:"furn1",roomId:"room1",name:"Wardrobe"}],
     selectedRoom:"room1",selectedFurniture:"furn1",
@@ -86,7 +86,7 @@ function loadState(){
           selectedTypes[b.id]=Boolean(old.selectedTypes?.[b.id] || (old.selections?.[b.id]||0)>0 || b.id===old.selectedBox);
         }
         return {
-          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanId:old.chosenPlanId||null,
+          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanIds:old.chosenPlanIds&&typeof old.chosenPlanIds==="object"?old.chosenPlanIds:{},chosenPlanId:old.chosenPlanId||null,
           clearanceEnabled:!!old.clearanceEnabled,rooms:Array.isArray(old.rooms)?old.rooms:[],furniture:Array.isArray(old.furniture)?old.furniture:[],
           selectedRoom:old.selectedRoom||"",selectedFurniture:old.selectedFurniture||"",
           storages:old.storages,boxes:old.boxes,
@@ -97,6 +97,20 @@ function loadState(){
     }
   }catch(e){}
   return defaults();
+}
+function normalizeChosenPlanSelections(target){
+  target.savedPlans=Array.isArray(target.savedPlans)?target.savedPlans:[];
+  target.chosenPlanIds=target.chosenPlanIds&&typeof target.chosenPlanIds==="object"&&!Array.isArray(target.chosenPlanIds)?target.chosenPlanIds:{};
+  if(target.chosenPlanId&&target.savedPlans.some(p=>p.id===target.chosenPlanId)){
+    const legacy=target.savedPlans.find(p=>p.id===target.chosenPlanId);
+    if(legacy?.storageId&&!target.chosenPlanIds[legacy.storageId])target.chosenPlanIds[legacy.storageId]=legacy.id;
+  }
+  delete target.chosenPlanId;
+  for(const storageId of Object.keys(target.chosenPlanIds)){
+    const plan=target.savedPlans.find(p=>p.id===target.chosenPlanIds[storageId]&&p.storageId===storageId);
+    if(!plan)delete target.chosenPlanIds[storageId];
+  }
+  return target.chosenPlanIds;
 }
 function ensureHomeHierarchy(target){
   target.rooms=Array.isArray(target.rooms)?target.rooms.filter(r=>r&&r.id):[];
@@ -214,7 +228,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:19,
+    appVersion:20,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
@@ -255,8 +269,14 @@ function validateBackupState(candidate){
   if(!Array.isArray(candidate.storages))return "Backup has no storage-space list.";
   if(!Array.isArray(candidate.boxes))return "Backup has no item list.";
   if(candidate.savedPlans!=null&&!Array.isArray(candidate.savedPlans))return "Saved plans are malformed.";
+  if(candidate.chosenPlanIds!=null&&(typeof candidate.chosenPlanIds!=="object"||Array.isArray(candidate.chosenPlanIds)))return "Chosen plan selections are malformed.";
   if(candidate.rooms!=null&&!Array.isArray(candidate.rooms))return "Rooms are malformed.";
   if(candidate.furniture!=null&&!Array.isArray(candidate.furniture))return "Furniture is malformed.";
+  if(candidate.chosenPlanIds&&Array.isArray(candidate.savedPlans)){
+    for(const [storageId,planId] of Object.entries(candidate.chosenPlanIds)){
+      if(!candidate.savedPlans.some(p=>p?.id===planId&&p?.storageId===storageId))return "A chosen plan selection is invalid.";
+    }
+  }
   if(Array.isArray(candidate.rooms)&&Array.isArray(candidate.furniture)){
     const roomIds=new Set(candidate.rooms.map(r=>r?.id).filter(Boolean));
     if(candidate.furniture.some(f=>!f?.id||!roomIds.has(f.roomId)))return "A furniture entry points to a missing room.";
@@ -299,7 +319,7 @@ function renderAll(){
   $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;$("enableStacking").checked=!!state.enableStacking;
   $("clearanceEnabled").checked=!!state.clearanceEnabled;$("clearance").value=state.clearance??0.5;$("fitTolerance").value=state.fitTolerance??0;
   $("clearanceField").style.display=state.clearanceEnabled?"block":"none";
-  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();loadBoxEditor();renderSavedPlans();renderBackupStats();resetResults();
+  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();loadBoxEditor();renderSavedPlans();renderHomeProcurement();renderBackupStats();resetResults();
 }
 function plannedStorageIds(){return new Set((state.savedPlans||[]).map(p=>p.storageId))}
 function renderHierarchy(){
@@ -957,6 +977,107 @@ function planMetrics(plan){
     ownedUsed:purchaseCostProfile(plan.layout||[]).ownedUsed
   };
 }
+function chosenPlanForStorage(storageId){
+  const id=state.chosenPlanIds?.[storageId];
+  return id?state.savedPlans.find(p=>p.id===id&&p.storageId===storageId)||null:null;
+}
+function isPlanChosen(plan){
+  return !!plan && state.chosenPlanIds?.[plan.storageId]===plan.id;
+}
+function toggleChosenPlan(planId){
+  const plan=state.savedPlans.find(p=>p.id===planId);if(!plan)return;
+  state.chosenPlanIds=state.chosenPlanIds||{};
+  if(state.chosenPlanIds[plan.storageId]===plan.id)delete state.chosenPlanIds[plan.storageId];
+  else state.chosenPlanIds[plan.storageId]=plan.id;
+}
+function chosenPlans(){
+  return Object.entries(state.chosenPlanIds||{})
+    .map(([storageId,planId])=>state.savedPlans.find(p=>p.id===planId&&p.storageId===storageId))
+    .filter(Boolean);
+}
+function aggregateRequiredCounts(plans){
+  const counts={};
+  for(const plan of plans||[]){
+    const perPlan=layoutCounts(plan.layout||[]);
+    for(const [id,qty] of Object.entries(perPlan))counts[id]=(counts[id]||0)+qty;
+  }
+  return counts;
+}
+function projectProcurement(plans=chosenPlans()){
+  const counts=aggregateRequiredCounts(plans),storageUse={};
+  for(const plan of plans){
+    const perPlan=layoutCounts(plan.layout||[]);
+    for(const [id] of Object.entries(perPlan)){
+      if(!storageUse[id])storageUse[id]=new Set();
+      storageUse[id].add(plan.storageId);
+    }
+  }
+  const rows=Object.entries(counts).map(([id,qty])=>{
+    const b=boxById(id),price=Math.max(0,Number(b?.price)||0),currency=(b?.currency||"MAD").toUpperCase();
+    const stock=purchaseBreakdown(qty,b?.ownedQty,price);
+    return {
+      id,name:b?.name||"Deleted item",sku:b?.sku||"",url:safeUrl(b?.url),
+      qty:stock.used,ownedQty:stock.owned,ownedUsed:stock.ownedUsed,buyQty:stock.buyQty,
+      price,currency,subtotal:stock.subtotal,storageCount:storageUse[id]?.size||0
+    };
+  }).sort((a,b)=>a.name.localeCompare(b.name));
+  const totals={};let missing=0,purchaseUnits=0,ownedUsed=0,totalRequired=0;
+  for(const r of rows){
+    totalRequired+=r.qty;purchaseUnits+=r.buyQty;ownedUsed+=r.ownedUsed;
+    if(r.buyQty<=0)continue;
+    if(r.price>0)totals[r.currency]=(totals[r.currency]||0)+r.subtotal;
+    else missing+=r.buyQty;
+  }
+  return {plans,rows,totals,missing,purchaseUnits,ownedUsed,totalRequired};
+}
+function projectTotalsText(summary){
+  if(summary.purchaseUnits===0)return "Nothing to buy";
+  const parts=Object.entries(summary.totals).map(([c,v])=>money(v,c));
+  if(!parts.length)return summary.missing?`${summary.missing} unpriced to buy`:"Nothing to buy";
+  return parts.join(" + ")+(summary.missing?` · ${summary.missing} unpriced`:"");
+}
+function renderHomeProcurement(){
+  const sec=$("homeProcurementSection");if(!sec)return;
+  const summary=projectProcurement();
+  if(!summary.plans.length){
+    sec.style.display="none";$("homeProcurementList").innerHTML="";return;
+  }
+  sec.style.display="block";
+  $("homeChosenCount").textContent=`${summary.plans.length} chosen storage${summary.plans.length===1?"":"s"}`;
+  $("homeProcurementSummary").innerHTML=`
+    <div class="projectstat"><div class="k">Chosen spaces</div><div class="v">${summary.plans.length}</div></div>
+    <div class="projectstat"><div class="k">Organizers required</div><div class="v">${summary.totalRequired}</div></div>
+    <div class="projectstat"><div class="k">Owned reused</div><div class="v">${summary.ownedUsed}</div></div>
+    <div class="projectstat"><div class="k">Project purchase</div><div class="v" style="font-size:13px">${esc(projectTotalsText(summary))}</div></div>`;
+  $("homeChosenPlans").innerHTML=summary.plans.map(plan=>{
+    const m=planMetrics(plan);
+    return `<span class="projectplan">${esc(m.storagePath)} · ${esc(plan.name)}</span>`;
+  }).join("");
+  $("homeProcurementList").innerHTML=summary.rows.map(r=>`<div class="homeshoprow">
+    <div><div class="shopname">${esc(r.name)}</div><div class="shopsub">${r.sku?esc(r.sku)+" · ":""}used in ${r.storageCount} storage${r.storageCount===1?"":"s"}</div></div>
+    <div class="shopnum">Use ×${r.qty}</div>
+    <div class="shopnum">Own ×${r.ownedUsed}</div>
+    <div class="shopnum"><strong>Buy ×${r.buyQty}</strong></div>
+    <div class="shopnum shopprice">${r.buyQty&&r.price>0?money(r.price,r.currency):"—"}</div>
+    <div class="shopnum shopsubtotal">${r.buyQty&&r.price>0?money(r.subtotal,r.currency):r.buyQty?"—":"✓"}</div>
+    <div class="shopaction">${r.buyQty&&r.url?`<a class="shoplink" href="${esc(r.url)}" target="_blank" rel="noopener">Product ↗</a>`:""}</div>
+  </div>`).join("") || '<div class="empty">No items in the chosen plans.</div>';
+}
+function homeShoppingExportPayload(){
+  const summary=projectProcurement();
+  return {
+    format:"storage-fit-home-shopping",
+    version:1,
+    exportedAt:new Date().toISOString(),
+    unit:state.unit,
+    chosenPlans:summary.plans.map(p=>({id:p.id,name:p.name,storageId:p.storageId,storagePath:planMetrics(p).storagePath})),
+    totals:summary.totals,
+    missingPriceUnits:summary.missing,
+    purchaseUnits:summary.purchaseUnits,
+    ownedUsed:summary.ownedUsed,
+    items:summary.rows.map(r=>({...r,url:safeUrl(r.url)}))
+  };
+}
 function updateCompareButton(){
   const btn=$("comparePlansBtn");if(!btn)return;
   const count=comparePlanIds.size;
@@ -982,7 +1103,7 @@ function renderCompareModal(){
   el.innerHTML=plans.map(plan=>{
     const m=planMetrics(plan),counts=layoutCounts(plan.layout||[]);
     const items=Object.entries(counts).map(([id,n])=>`<li>${esc(boxById(id)?.name||"Item")} ×${n}</li>`).join("");
-    const chosen=state.chosenPlanId===plan.id;
+    const chosen=isPlanChosen(plan);
     return `<article class="comparecard ${chosen?"chosen":""}">
       <div class="comparetitle">${esc(plan.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}</div>
       <div class="comparestorage">${esc(m.storagePath)} · ${esc(goalLabel(plan.goal))}</div>
@@ -995,15 +1116,15 @@ function renderCompareModal(){
       <div class="compareitems"><strong>Item mix</strong><ul>${items||"<li>No items</li>"}</ul></div>
       ${plan.note?`<div class="comparnote">${esc(plan.note)}</div>`:""}
       <div class="savedactions">
-        <button class="btn ${chosen?"primary":"soft"}" type="button" data-compare-choose="${plan.id}">${chosen?"Chosen ✓":"Choose this plan"}</button>
+        <button class="btn ${chosen?"primary":"soft"}" type="button" data-compare-choose="${plan.id}">${chosen?"Chosen here ✓":"Choose for this storage"}</button>
         <button class="btn soft" type="button" data-compare-open="${plan.id}">Open</button>
       </div>
     </article>`;
   }).join("");
 
   el.querySelectorAll("[data-compare-choose]").forEach(btn=>btn.addEventListener("click",()=>{
-    state.chosenPlanId=state.chosenPlanId===btn.dataset.compareChoose?null:btn.dataset.compareChoose;
-    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();renderCompareModal();
+    toggleChosenPlan(btn.dataset.compareChoose);
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();renderHomeProcurement();renderCompareModal();
   }));
   el.querySelectorAll("[data-compare-open]").forEach(btn=>btn.addEventListener("click",()=>{
     closeCompareModal();openSavedPlan(btn.dataset.compareOpen);
@@ -1031,14 +1152,14 @@ function renderSavedPlans(){
   const sec=$("savedPlansSection"),el=$("savedPlans");
   comparePlanIds=new Set([...comparePlanIds].filter(id=>state.savedPlans.some(p=>p.id===id)));
   if(!state.savedPlans.length){
-    sec.style.display="none";el.innerHTML="";state.chosenPlanId=null;comparePlanIds.clear();updateCompareButton();return;
+    sec.style.display="none";el.innerHTML="";state.chosenPlanIds={};comparePlanIds.clear();updateCompareButton();renderHomeProcurement();return;
   }
   sec.style.display="block";
   $("savedPlansCount").textContent=`${state.savedPlans.length} saved`;
   el.innerHTML=state.savedPlans.map(p=>{
     const m=planMetrics(p),counts=layoutCounts(p.layout||[]);
     const summary=Object.entries(counts).map(([id,n])=>`${esc(boxById(id)?.name||"Item")} ×${n}`).join(" · ");
-    const chosen=state.chosenPlanId===p.id,selected=comparePlanIds.has(p.id);
+    const chosen=isPlanChosen(p),selected=comparePlanIds.has(p.id);
     return `<div class="savedcard ${chosen?"chosen":""}">
       <div class="savedhead">
         <div>
@@ -1055,7 +1176,7 @@ function renderSavedPlans(){
         <button class="btn soft" type="button" data-open-plan="${p.id}">Open</button>
         <button class="btn soft" type="button" data-rename-plan="${p.id}">Rename</button>
         <button class="btn soft" type="button" data-note-plan="${p.id}">${p.note?"Edit note":"Add note"}</button>
-        <button class="btn ${chosen?"primary":"soft"}" type="button" data-choose-plan="${p.id}">${chosen?"Chosen ✓":"Choose"}</button>
+        <button class="btn ${chosen?"primary":"soft"}" type="button" data-choose-plan="${p.id}">${chosen?"Chosen here ✓":"Choose"}</button>
         <button class="btn danger" type="button" data-delete-plan="${p.id}">Delete</button>
       </div>
     </div>`;
@@ -1081,17 +1202,17 @@ function renderSavedPlans(){
     plan.note=note.trim();localStorage.setItem(KEY,JSON.stringify(state));renderSavedPlans();
   }));
   el.querySelectorAll("[data-choose-plan]").forEach(btn=>btn.addEventListener("click",()=>{
-    state.chosenPlanId=state.chosenPlanId===btn.dataset.choosePlan?null:btn.dataset.choosePlan;
-    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();
+    toggleChosenPlan(btn.dataset.choosePlan);
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();renderHomeProcurement();
   }));
   el.querySelectorAll("[data-delete-plan]").forEach(btn=>btn.addEventListener("click",()=>{
-    const id=btn.dataset.deletePlan;
+    const id=btn.dataset.deletePlan,deleted=state.savedPlans.find(p=>p.id===id);
     state.savedPlans=state.savedPlans.filter(p=>p.id!==id);
     comparePlanIds.delete(id);
-    if(state.chosenPlanId===id)state.chosenPlanId=null;
-    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();updateSavePlanButton();
+    if(deleted&&state.chosenPlanIds?.[deleted.storageId]===id)delete state.chosenPlanIds[deleted.storageId];
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();renderHomeProcurement();updateSavePlanButton();
   }));
-  updateCompareButton();
+  updateCompareButton();renderHomeProcurement();
 }
 function updateSavePlanButton(){
   const saved=currentPlanSaved();
@@ -1877,7 +1998,7 @@ $("savePlanBtn").addEventListener("click",()=>{
   if(existing){
     state.savedPlans=state.savedPlans.filter(p=>p.id!==existing.id);
     comparePlanIds.delete(existing.id);
-    if(state.chosenPlanId===existing.id)state.chosenPlanId=null;
+    if(state.chosenPlanIds?.[existing.storageId]===existing.id)delete state.chosenPlanIds[existing.storageId];
   }else{
     const sameStorage=state.savedPlans.filter(p=>p.storageId===s.id).length+1;
     state.savedPlans.push({
@@ -1900,6 +2021,13 @@ $("savePlanBtn").addEventListener("click",()=>{
   renderSavedPlans();updateSavePlanButton();
 });
 
+$("exportHomeShoppingBtn").addEventListener("click",()=>{
+  const payload=homeShoppingExportPayload();
+  if(!payload.chosenPlans.length)return;
+  downloadJson("storage-fit-home-shopping.json",payload);
+  const btn=$("exportHomeShoppingBtn"),old=btn.textContent;btn.textContent="Exported ✓";
+  setTimeout(()=>{btn.textContent=old},1200);
+});
 $("comparePlansBtn").addEventListener("click",openCompareModal);
 $("closeCompareModal").addEventListener("click",closeCompareModal);
 $("compareBackdrop").addEventListener("click",closeCompareModal);
@@ -2108,7 +2236,7 @@ $("deleteStorage").addEventListener("click",()=>{
   const removedPlanIds=new Set(state.savedPlans.filter(p=>p.storageId===editingStorage).map(p=>p.id));
   state.savedPlans=state.savedPlans.filter(p=>p.storageId!==editingStorage);
   comparePlanIds=new Set([...comparePlanIds].filter(id=>!removedPlanIds.has(id)));
-  if(removedPlanIds.has(state.chosenPlanId))state.chosenPlanId=null;
+  if(state.chosenPlanIds?.[editingStorage])delete state.chosenPlanIds[editingStorage];
   state.storages=state.storages.filter(x=>x.id!==editingStorage);
   if(state.selectedStorage===editingStorage)state.selectedStorage=state.storages[0]?.id||"";
   editingStorage=state.selectedStorage||state.storages[0]?.id||"";
@@ -2131,8 +2259,10 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeProductDimensions,
     safeUrl,
     validateBackupState,
+    normalizeChosenPlanSelections,
     ensureHomeHierarchy,
     purchaseBreakdown,
+    aggregateRequiredCounts,
     overlap3D,
     footprintContains
   };
