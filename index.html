@@ -108,7 +108,7 @@
             <button class="btn soft" id="restoreAllBtn" type="button">Restore backup</button>
             <input id="restoreFileInput" type="file" accept=".json,application/json" hidden>
           </div>
-          <div class="datastatus" id="backupStatus">Backup includes rooms, furniture, storage spaces, blocked zones, items, owned inventory, shopping progress, product metadata, settings, quantity limits, saved plans, and chosen project plans.</div>
+          <div class="datastatus" id="backupStatus">Backup includes rooms, furniture, storage spaces, blocked zones, items, owned inventory, shopping progress, install order/status, product metadata, settings, quantity limits, saved plans, and chosen project plans.</div>
         </div>
       </section>
     </aside>
@@ -174,6 +174,15 @@
           </div>
         </div>
         <div class="savedplans" id="savedPlans"></div>
+      </section>
+
+      <section class="card" id="installDashboardSection" style="display:none">
+        <div class="galleryhead">
+          <div><h2>Install queue</h2><div class="small">Owned inventory is allocated across chosen plans so you can see what is ready to install now.</div></div>
+          <div class="small" id="installProgressText"></div>
+        </div>
+        <div class="installsummary" id="installSummary"></div>
+        <div class="installqueue" id="installQueue"></div>
       </section>
 
       <section class="card" id="homeProcurementSection" style="display:none">

@@ -1,7 +1,7 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v21";
-const PREV_KEYS = ["storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v22";
+const PREV_KEYS = ["storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -32,6 +32,7 @@ state.optimizeGoal = ["fill","compartments","simple","balanced","cost"].includes
 state.savedPlans = Array.isArray(state.savedPlans)?state.savedPlans:[];
 normalizeChosenPlanSelections(state);
 normalizeShoppingBought(state);
+normalizeInstallState(state);
 for(const p of state.savedPlans){p.note=String(p.note||"");p.settings=p.settings||null;}
 for(const b of state.boxes){
   if(!(b.id in state.itemLimits)) state.itemLimits[b.id] = null;
@@ -59,7 +60,7 @@ for(const s of state.storages){
 
 function defaults(){
   return {
-    unit:"cm",clearance:0.5,fitTolerance:0,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanIds:{},shoppingBought:{},
+    unit:"cm",clearance:0.5,fitTolerance:0,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanIds:{},shoppingBought:{},installedPlanIds:{},installOrder:[],
     rooms:[{id:"room1",name:"Bedroom"}],
     furniture:[{id:"furn1",roomId:"room1",name:"Wardrobe"}],
     selectedRoom:"room1",selectedFurniture:"furn1",
@@ -87,7 +88,7 @@ function loadState(){
           selectedTypes[b.id]=Boolean(old.selectedTypes?.[b.id] || (old.selections?.[b.id]||0)>0 || b.id===old.selectedBox);
         }
         return {
-          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanIds:old.chosenPlanIds&&typeof old.chosenPlanIds==="object"?old.chosenPlanIds:{},chosenPlanId:old.chosenPlanId||null,shoppingBought:old.shoppingBought&&typeof old.shoppingBought==="object"?old.shoppingBought:{},
+          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanIds:old.chosenPlanIds&&typeof old.chosenPlanIds==="object"?old.chosenPlanIds:{},chosenPlanId:old.chosenPlanId||null,shoppingBought:old.shoppingBought&&typeof old.shoppingBought==="object"?old.shoppingBought:{},installedPlanIds:old.installedPlanIds&&typeof old.installedPlanIds==="object"?old.installedPlanIds:{},installOrder:Array.isArray(old.installOrder)?old.installOrder:[],
           clearanceEnabled:!!old.clearanceEnabled,rooms:Array.isArray(old.rooms)?old.rooms:[],furniture:Array.isArray(old.furniture)?old.furniture:[],
           selectedRoom:old.selectedRoom||"",selectedFurniture:old.selectedFurniture||"",
           storages:old.storages,boxes:old.boxes,
@@ -98,6 +99,30 @@ function loadState(){
     }
   }catch(e){}
   return defaults();
+}
+function normalizeInstallState(target){
+  target.installedPlanIds=target.installedPlanIds&&typeof target.installedPlanIds==="object"&&!Array.isArray(target.installedPlanIds)?target.installedPlanIds:{};
+  target.installOrder=Array.isArray(target.installOrder)?target.installOrder.filter(Boolean):[];
+
+  const chosen=target.chosenPlanIds||{},saved=Array.isArray(target.savedPlans)?target.savedPlans:[];
+  for(const [storageId,planId] of Object.entries(target.installedPlanIds)){
+    const valid=chosen[storageId]===planId&&saved.some(p=>p.id===planId&&p.storageId===storageId);
+    if(!valid)delete target.installedPlanIds[storageId];
+  }
+
+  const chosenIds=new Set(Object.keys(chosen));
+  const seen=new Set(),normalized=[];
+  for(const id of target.installOrder){
+    if(chosenIds.has(id)&&!seen.has(id)){seen.add(id);normalized.push(id)}
+  }
+  for(const s of target.storages||[]){
+    if(chosenIds.has(s.id)&&!seen.has(s.id)){seen.add(s.id);normalized.push(s.id)}
+  }
+  for(const id of chosenIds){
+    if(!seen.has(id)){seen.add(id);normalized.push(id)}
+  }
+  target.installOrder=normalized;
+  return target;
 }
 function normalizeShoppingBought(target){
   target.shoppingBought=target.shoppingBought&&typeof target.shoppingBought==="object"&&!Array.isArray(target.shoppingBought)?target.shoppingBought:{};
@@ -237,7 +262,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:21,
+    appVersion:22,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
@@ -280,11 +305,22 @@ function validateBackupState(candidate){
   if(candidate.savedPlans!=null&&!Array.isArray(candidate.savedPlans))return "Saved plans are malformed.";
   if(candidate.chosenPlanIds!=null&&(typeof candidate.chosenPlanIds!=="object"||Array.isArray(candidate.chosenPlanIds)))return "Chosen plan selections are malformed.";
   if(candidate.shoppingBought!=null&&(typeof candidate.shoppingBought!=="object"||Array.isArray(candidate.shoppingBought)))return "Shopping progress is malformed.";
+  if(candidate.installedPlanIds!=null&&(typeof candidate.installedPlanIds!=="object"||Array.isArray(candidate.installedPlanIds)))return "Installed plan status is malformed.";
+  if(candidate.installOrder!=null&&!Array.isArray(candidate.installOrder))return "Install order is malformed.";
+  if(Array.isArray(candidate.installOrder)){
+    if(candidate.installOrder.some(id=>typeof id!=="string"))return "Install order contains an invalid storage ID.";
+    if(new Set(candidate.installOrder).size!==candidate.installOrder.length)return "Install order contains duplicates.";
+  }
   if(candidate.rooms!=null&&!Array.isArray(candidate.rooms))return "Rooms are malformed.";
   if(candidate.furniture!=null&&!Array.isArray(candidate.furniture))return "Furniture is malformed.";
   if(candidate.chosenPlanIds&&Array.isArray(candidate.savedPlans)){
     for(const [storageId,planId] of Object.entries(candidate.chosenPlanIds)){
       if(!candidate.savedPlans.some(p=>p?.id===planId&&p?.storageId===storageId))return "A chosen plan selection is invalid.";
+    }
+    if(candidate.installedPlanIds){
+      for(const [storageId,planId] of Object.entries(candidate.installedPlanIds)){
+        if(candidate.chosenPlanIds[storageId]!==planId)return "An installed plan no longer matches the chosen plan for its storage.";
+      }
     }
   }
   if(Array.isArray(candidate.rooms)&&Array.isArray(candidate.furniture)){
@@ -329,9 +365,10 @@ function renderAll(){
   $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;$("enableStacking").checked=!!state.enableStacking;
   $("clearanceEnabled").checked=!!state.clearanceEnabled;$("clearance").value=state.clearance??0.5;$("fitTolerance").value=state.fitTolerance??0;
   $("clearanceField").style.display=state.clearanceEnabled?"block":"none";
-  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();loadBoxEditor();renderSavedPlans();renderHomeProcurement();renderBackupStats();resetResults();
+  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();loadBoxEditor();renderSavedPlans();renderInstallDashboard();renderHomeProcurement();renderBackupStats();resetResults();
 }
 function plannedStorageIds(){return new Set((state.savedPlans||[]).map(p=>p.storageId))}
+function installedStorageIds(){return new Set(Object.keys(state.installedPlanIds||{}))}
 function renderHierarchy(){
   const roomSelect=$("roomSelect"),furnitureSelect=$("furnitureSelect"),storageFurniture=$("storageFurniture");
   const room=roomById(state.selectedRoom)||state.rooms[0];
@@ -350,15 +387,16 @@ function renderHierarchy(){
   const furnitureOptions=state.rooms.flatMap(r=>state.furniture.filter(f=>f.roomId===r.id).map(f=>`<option value="${f.id}">${esc(r.name)} → ${esc(f.name)}</option>`)).join("");
   storageFurniture.innerHTML=furnitureOptions;
 
-  const planned=plannedStorageIds(),allCount=state.storages.length,plannedCount=state.storages.filter(s=>planned.has(s.id)).length;
-  $("homeProgress").textContent=allCount?`${plannedCount}/${allCount} planned`:"No storage yet";
+  const planned=plannedStorageIds(),installed=installedStorageIds(),allCount=state.storages.length;
+  const plannedCount=state.storages.filter(s=>planned.has(s.id)).length,installedCount=state.storages.filter(s=>installed.has(s.id)).length;
+  $("homeProgress").textContent=allCount?`${plannedCount}/${allCount} planned · ${installedCount} installed`:"No storage yet";
 
   const currentSpaces=state.storages.filter(s=>s.furnitureId===state.selectedFurniture);
   if(!currentSpaces.some(s=>s.id===editingStorage))editingStorage=currentSpaces[0]?.id||"";
-  const currentPlanned=currentSpaces.filter(s=>planned.has(s.id)).length;
-  const pct=currentSpaces.length?Math.round(currentPlanned/currentSpaces.length*100):0;
+  const currentPlanned=currentSpaces.filter(s=>planned.has(s.id)).length,currentInstalled=currentSpaces.filter(s=>installed.has(s.id)).length;
+  const pct=currentSpaces.length?Math.round(currentInstalled/currentSpaces.length*100):0;
   $("furnitureProgress").innerHTML=currentSpaces.length
-    ? `${currentPlanned} of ${currentSpaces.length} storage space${currentSpaces.length===1?"":"s"} has a saved plan.<div class="progressbar"><span style="width:${pct}%"></span></div>`
+    ? `${currentPlanned} of ${currentSpaces.length} planned · ${currentInstalled} installed.<div class="progressbar"><span style="width:${pct}%"></span></div>`
     : "No storage spaces in this furniture yet.";
 
   $("deleteRoom").disabled=state.rooms.length<=1;
@@ -999,12 +1037,120 @@ function toggleChosenPlan(planId){
   state.chosenPlanIds=state.chosenPlanIds||{};
   if(state.chosenPlanIds[plan.storageId]===plan.id)delete state.chosenPlanIds[plan.storageId];
   else state.chosenPlanIds[plan.storageId]=plan.id;
+  normalizeInstallState(state);
 }
 function chosenPlans(){
   return Object.entries(state.chosenPlanIds||{})
     .map(([storageId,planId])=>state.savedPlans.find(p=>p.id===planId&&p.storageId===storageId))
     .filter(Boolean);
 }
+function computeInstallAllocation(plans,ownedById={},installedPlanIds={},order=[]){
+  const byStorage=new Map((plans||[]).map(p=>[p.storageId,p]));
+  const orderedIds=[],seen=new Set();
+  for(const id of order||[]){
+    if(byStorage.has(id)&&!seen.has(id)){seen.add(id);orderedIds.push(id)}
+  }
+  for(const p of plans||[]){
+    if(!seen.has(p.storageId)){seen.add(p.storageId);orderedIds.push(p.storageId)}
+  }
+
+  const available={};
+  for(const [id,qty] of Object.entries(ownedById||{}))available[id]=Math.max(0,Math.floor(Number(qty)||0));
+
+  const requirements=p=>layoutCounts(p.layout||[]);
+  for(const storageId of orderedIds){
+    const plan=byStorage.get(storageId);
+    if(!plan||installedPlanIds?.[storageId]!==plan.id)continue;
+    for(const [id,qty] of Object.entries(requirements(plan))){
+      available[id]=Math.max(0,(available[id]||0)-qty);
+    }
+  }
+
+  const entries=[];
+  for(const storageId of orderedIds){
+    const plan=byStorage.get(storageId);if(!plan)continue;
+    const req=requirements(plan),installed=installedPlanIds?.[storageId]===plan.id;
+    if(installed){
+      entries.push({plan,storageId,status:"installed",missing:[]});
+      continue;
+    }
+    const missing=Object.entries(req).map(([id,qty])=>({id,qty:Math.max(0,qty-(available[id]||0))})).filter(x=>x.qty>0);
+    if(!missing.length){
+      for(const [id,qty] of Object.entries(req))available[id]=Math.max(0,(available[id]||0)-qty);
+      entries.push({plan,storageId,status:"ready",missing:[]});
+    }else{
+      entries.push({plan,storageId,status:"waiting",missing});
+    }
+  }
+  return {entries,remainingOwned:available};
+}
+function currentInstallAllocation(){
+  normalizeInstallState(state);
+  const owned=Object.fromEntries(state.boxes.map(b=>[b.id,b.ownedQty||0]));
+  return computeInstallAllocation(chosenPlans(),owned,state.installedPlanIds,state.installOrder);
+}
+function moveInstallStorage(storageId,delta){
+  normalizeInstallState(state);
+  const order=state.installOrder,i=order.indexOf(storageId),j=i+delta;
+  if(i<0||j<0||j>=order.length)return;
+  [order[i],order[j]]=[order[j],order[i]];
+  localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();
+}
+function renderInstallDashboard(){
+  const sec=$("installDashboardSection");if(!sec)return;
+  normalizeInstallState(state);
+  const allocation=currentInstallAllocation(),entries=allocation.entries;
+  if(!entries.length){
+    sec.style.display="none";$("installQueue").innerHTML="";return;
+  }
+  sec.style.display="block";
+  const installed=entries.filter(e=>e.status==="installed").length;
+  const ready=entries.filter(e=>e.status==="ready").length;
+  const waiting=entries.filter(e=>e.status==="waiting").length;
+  $("installProgressText").textContent=`${installed}/${entries.length} installed`;
+  $("installSummary").innerHTML=`
+    <div class="installstat"><div class="k">Chosen spaces</div><div class="v">${entries.length}</div></div>
+    <div class="installstat"><div class="k">Ready now</div><div class="v">${ready}</div></div>
+    <div class="installstat"><div class="k">Waiting</div><div class="v">${waiting}</div></div>
+    <div class="installstat"><div class="k">Installed</div><div class="v">${installed}</div><div class="progressbar"><span style="width:${entries.length?Math.round(installed/entries.length*100):0}%"></span></div></div>`;
+
+  $("installQueue").innerHTML=entries.map((entry,index)=>{
+    const plan=entry.plan,m=planMetrics(plan);
+    const missing=entry.missing.map(x=>`${esc(boxById(x.id)?.name||"Item")} ×${x.qty}`).join(" · ");
+    const label=entry.status==="installed"?"Installed":entry.status==="ready"?"Ready now":"Waiting for inventory";
+    return `<div class="installcard ${entry.status}">
+      <div>
+        <div class="installtitle">${esc(m.storagePath)}</div>
+        <div class="installmeta">${esc(plan.name)} · ${m.itemCount} organizer${m.itemCount===1?"":"s"}</div>
+        <span class="installstatus ${entry.status}">${label}</span>
+        ${entry.status==="waiting"?`<div class="installmissing">Missing: ${missing}</div>`:""}
+      </div>
+      <div class="installactions">
+        <button class="btn soft" type="button" data-install-up="${entry.storageId}" ${index===0?"disabled":""}>↑</button>
+        <button class="btn soft" type="button" data-install-down="${entry.storageId}" ${index===entries.length-1?"disabled":""}>↓</button>
+        <button class="btn soft" type="button" data-install-open="${plan.id}">Open</button>
+        ${entry.status==="installed"
+          ?`<button class="btn soft" type="button" data-install-undo="${entry.storageId}">Undo installed</button>`
+          :`<button class="btn primary" type="button" data-install-done="${entry.storageId}" ${entry.status!=="ready"?"disabled":""}>Mark installed</button>`}
+      </div>
+    </div>`;
+  }).join("");
+
+  $("installQueue").querySelectorAll("[data-install-up]").forEach(btn=>btn.addEventListener("click",()=>moveInstallStorage(btn.dataset.installUp,-1)));
+  $("installQueue").querySelectorAll("[data-install-down]").forEach(btn=>btn.addEventListener("click",()=>moveInstallStorage(btn.dataset.installDown,1)));
+  $("installQueue").querySelectorAll("[data-install-open]").forEach(btn=>btn.addEventListener("click",()=>openSavedPlan(btn.dataset.installOpen)));
+  $("installQueue").querySelectorAll("[data-install-done]").forEach(btn=>btn.addEventListener("click",()=>{
+    const storageId=btn.dataset.installDone,entry=currentInstallAllocation().entries.find(e=>e.storageId===storageId);
+    if(!entry||entry.status!=="ready")return;
+    state.installedPlanIds[storageId]=entry.plan.id;
+    localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();renderHomeProcurement();
+  }));
+  $("installQueue").querySelectorAll("[data-install-undo]").forEach(btn=>btn.addEventListener("click",()=>{
+    delete state.installedPlanIds[btn.dataset.installUndo];
+    localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();renderHomeProcurement();
+  }));
+}
+
 function aggregateRequiredCounts(plans){
   const counts={};
   for(const plan of plans||[]){
@@ -1136,10 +1282,10 @@ function receiveMarkedPurchases(){
   return received;
 }
 function homeShoppingExportPayload(){
-  const summary=projectProcurement();
+  const summary=projectProcurement(),install=currentInstallAllocation();
   return {
     format:"storage-fit-home-shopping",
-    version:2,
+    version:3,
     exportedAt:new Date().toISOString(),
     unit:state.unit,
     chosenPlans:summary.plans.map(p=>({id:p.id,name:p.name,storageId:p.storageId,storagePath:planMetrics(p).storagePath})),
@@ -1151,6 +1297,10 @@ function homeShoppingExportPayload(){
     purchasedUnits:summary.boughtUnits,
     remainingUnits:summary.remainingUnits,
     ownedUsed:summary.ownedUsed,
+    installQueue:install.entries.map((e,index)=>({
+      order:index+1,storageId:e.storageId,planId:e.plan.id,storagePath:planMetrics(e.plan).storagePath,status:e.status,
+      missing:e.missing.map(x=>({itemId:x.id,name:boxById(x.id)?.name||"Item",qty:x.qty}))
+    })),
     items:summary.rows.map(r=>({...r,url:safeUrl(r.url)}))
   };
 }
@@ -1229,7 +1379,7 @@ function renderSavedPlans(){
   const sec=$("savedPlansSection"),el=$("savedPlans");
   comparePlanIds=new Set([...comparePlanIds].filter(id=>state.savedPlans.some(p=>p.id===id)));
   if(!state.savedPlans.length){
-    sec.style.display="none";el.innerHTML="";state.chosenPlanIds={};comparePlanIds.clear();updateCompareButton();renderHomeProcurement();return;
+    sec.style.display="none";el.innerHTML="";state.chosenPlanIds={};state.installedPlanIds={};state.installOrder=[];comparePlanIds.clear();updateCompareButton();renderInstallDashboard();renderHomeProcurement();return;
   }
   sec.style.display="block";
   $("savedPlansCount").textContent=`${state.savedPlans.length} saved`;
@@ -1287,9 +1437,10 @@ function renderSavedPlans(){
     state.savedPlans=state.savedPlans.filter(p=>p.id!==id);
     comparePlanIds.delete(id);
     if(deleted&&state.chosenPlanIds?.[deleted.storageId]===id)delete state.chosenPlanIds[deleted.storageId];
-    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();renderHomeProcurement();updateSavePlanButton();
+    normalizeInstallState(state);
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();renderInstallDashboard();renderHomeProcurement();updateSavePlanButton();
   }));
-  updateCompareButton();renderHomeProcurement();
+  updateCompareButton();renderInstallDashboard();renderHomeProcurement();
 }
 function updateSavePlanButton(){
   const saved=currentPlanSaved();
@@ -2076,6 +2227,7 @@ $("savePlanBtn").addEventListener("click",()=>{
     state.savedPlans=state.savedPlans.filter(p=>p.id!==existing.id);
     comparePlanIds.delete(existing.id);
     if(state.chosenPlanIds?.[existing.storageId]===existing.id)delete state.chosenPlanIds[existing.storageId];
+    normalizeInstallState(state);
   }else{
     const sameStorage=state.savedPlans.filter(p=>p.storageId===s.id).length+1;
     state.savedPlans.push({
@@ -2321,6 +2473,8 @@ $("deleteStorage").addEventListener("click",()=>{
   state.savedPlans=state.savedPlans.filter(p=>p.storageId!==editingStorage);
   comparePlanIds=new Set([...comparePlanIds].filter(id=>!removedPlanIds.has(id)));
   if(state.chosenPlanIds?.[editingStorage])delete state.chosenPlanIds[editingStorage];
+  if(state.installedPlanIds?.[editingStorage])delete state.installedPlanIds[editingStorage];
+  state.installOrder=(state.installOrder||[]).filter(id=>id!==editingStorage);
   state.storages=state.storages.filter(x=>x.id!==editingStorage);
   if(state.selectedStorage===editingStorage)state.selectedStorage=state.storages[0]?.id||"";
   editingStorage=state.selectedStorage||state.storages[0]?.id||"";
@@ -2348,6 +2502,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     validateBackupState,
     normalizeChosenPlanSelections,
     normalizeShoppingBought,
+    normalizeInstallState,
+    computeInstallAllocation,
     ensureHomeHierarchy,
     purchaseBreakdown,
     aggregateRequiredCounts,
