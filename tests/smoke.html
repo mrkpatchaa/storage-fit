@@ -279,6 +279,15 @@
       var lockedOris=api.replacementOrientationCandidates(replaceSource,lockedReplace,true);
       result(lockedOris.length===1&&lockedOris[0].w===28&&lockedOris[0].d===19,"replacement respects floor rotation locks");
       result(api.replacementOrientationCandidates(null,replaceTarget,true).length===0,"replacement orientation helper rejects missing source safely");
+      var coordinateSource={typeId:"b1",x:1.23456789,y:2,z:3,w:5,d:6,h:7,label:"Socks"};
+      var coordinateX=api.placementCoordinateCandidate(coordinateSource,"x",9.87654321);
+      result(coordinateX.x===9.876543&&coordinateX.y===2&&coordinateX.z===3,"exact coordinate helper changes only the selected axis with stable precision");
+      result(coordinateX.label==="Socks"&&coordinateX.w===5&&coordinateX.d===6&&coordinateX.h===7,"exact coordinate edits preserve placement identity dimensions and labels");
+      var coordinateZero=api.placementCoordinateCandidate(coordinateSource,"z",0);
+      result(coordinateZero.z===0,"exact coordinate helper accepts floor elevation zero");
+      result(api.placementCoordinateCandidate(coordinateSource,"q",4)===null,"exact coordinate helper rejects unknown axes");
+      result(api.placementCoordinateCandidate(coordinateSource,"x","not-a-number")===null,"exact coordinate helper rejects nonnumeric values");
+      result(api.placementCoordinateCandidate(null,"x",1)===null,"exact coordinate helper rejects missing placements safely");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{
