@@ -56,6 +56,17 @@
             <div class="small" style="margin-bottom:8px">Use for rails, hinges, pipes or unusable corners. X is from the inside left edge; Y is from the inside front edge.</div>
             <div class="obstaclelist" id="obstacleList"></div>
           </div>
+          <div class="dividerpanel">
+            <div class="obstaclehead">
+              <strong>Custom dividers</strong>
+              <div class="divideradd">
+                <button class="btn soft" id="addVerticalDivider" type="button">+ Vertical</button>
+                <button class="btn soft" id="addHorizontalDivider" type="button">+ Horizontal</button>
+              </div>
+            </div>
+            <div class="small" style="margin-bottom:8px">Dividers physically split the storage space. Vertical runs front-to-back; horizontal runs left-to-right.</div>
+            <div class="dividerlist" id="dividerList"></div>
+          </div>
         </div>
       </section>
 
@@ -114,7 +125,7 @@
             <button class="btn soft" id="restoreAllBtn" type="button">Restore backup</button>
             <input id="restoreFileInput" type="file" accept=".json,application/json" hidden>
           </div>
-          <div class="datastatus" id="backupStatus">Backup includes rooms, furniture, storage spaces, blocked zones, items, owned inventory, shopping progress, install order/status, product metadata, settings, quantity limits, saved plans, and chosen project plans.</div>
+          <div class="datastatus" id="backupStatus">Backup includes rooms, furniture, storage spaces, blocked zones, custom dividers, items, owned inventory, shopping progress, install order/status, product metadata, settings, quantity limits, saved plans, and chosen project plans.</div>
         </div>
       </section>
     </aside>
