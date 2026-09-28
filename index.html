@@ -129,6 +129,13 @@
             <input id="restoreFileInput" type="file" accept=".json,application/json" hidden>
           </div>
           <div class="datastatus" id="backupStatus">Backup includes rooms, furniture, storage spaces, blocked zones, custom dividers, items, handling preferences, placement labels, saved-plan validation snapshots, owned inventory, shopping progress, install order/status, product metadata, settings, quantity limits, saved plans, and chosen project plans.</div>
+          <div class="recoverypanel">
+            <div class="recoveryhead">
+              <div><strong>Recovery</strong><div class="small">Automatic local checkpoints before destructive changes. Keeps the latest 8.</div></div>
+              <button class="btn soft" id="clearRecoveryBtn" type="button" disabled>Clear</button>
+            </div>
+            <div class="recoverylist" id="recoveryList"><div class="empty">No recovery checkpoints yet.</div></div>
+          </div>
         </div>
       </section>
     </aside>
