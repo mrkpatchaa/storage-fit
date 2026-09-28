@@ -1733,11 +1733,11 @@ function renderSavedPlans(){
   el.innerHTML=state.savedPlans.map(p=>{
     const m=planMetrics(p),counts=layoutCounts(p.layout||[]),contents=labeledPlacements(p.layout||[]);
     const summary=Object.entries(counts).map(([id,n])=>`${esc(boxById(id)?.name||"Item")} ×${n}`).join(" · ");
-    const chosen=isPlanChosen(p),selected=comparePlanIds.has(p.id);
-    return `<div class="savedcard ${chosen?"chosen":""}">
+    const chosen=isPlanChosen(p),selected=comparePlanIds.has(p.id),health=planHealth(p);
+    return `<div class="savedcard ${chosen?"chosen":""} ${health.status!=="current"?health.status:""}">
       <div class="savedhead">
         <div>
-          <div class="savedname">${esc(p.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}</div>
+          <div class="savedname">${esc(p.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}${health.status!=="current"?`<span class="planhealth ${health.status}">${health.status==="review"?"Review":"Invalid"}</span>`:""}</div>
           <div class="savedmeta">${esc(m.storagePath)} · ${m.itemCount} item${m.itemCount===1?"":"s"} · ${m.utilizationPct.toFixed(1)}% ${esc(m.utilizationKind)}</div>
           <span class="goallabel">${esc(goalLabel(p.goal))}</span>
         </div>
@@ -1746,12 +1746,14 @@ function renderSavedPlans(){
       <div class="small" style="margin-top:8px">${summary||"Saved layout"}</div>
       ${contents.length?`<div class="savedmeta" style="margin-top:5px">Contents: ${contents.slice(0,4).map(x=>esc(x.label)).join(" · ")}${contents.length>4?` · +${contents.length-4} more`:""}</div>`:""}
       <div class="savedmeta" style="margin-top:6px">To buy: ${esc(m.cost)}${m.ownedUsed?` · ${m.ownedUsed} owned used`:""}${m.stackedCount?` · ${m.stackedCount} stacked`:""}</div>
+      ${health.status!=="current"?`<div class="planissues">${health.reasons.slice(0,3).map(esc).join(" · ")}</div>`:""}
       ${p.note?`<div class="savednote">${esc(p.note)}</div>`:""}
       <div class="savedactions">
         <button class="btn soft" type="button" data-open-plan="${p.id}">Open</button>
         <button class="btn soft" type="button" data-rename-plan="${p.id}">Rename</button>
         <button class="btn soft" type="button" data-note-plan="${p.id}">${p.note?"Edit note":"Add note"}</button>
-        <button class="btn ${chosen?"primary":"soft"}" type="button" data-choose-plan="${p.id}">${chosen?"Chosen here ✓":"Choose"}</button>
+        ${health.canRevalidate?`<button class="btn soft" type="button" data-revalidate-plan="${p.id}">Revalidate</button>`:""}
+        <button class="btn ${chosen?"primary":"soft"}" type="button" data-choose-plan="${p.id}" ${!chosen&&health.status!=="current"?"disabled":""}>${chosen?"Chosen here ✓":"Choose"}</button>
         <button class="btn danger" type="button" data-delete-plan="${p.id}">Delete</button>
       </div>
     </div>`;
@@ -1775,6 +1777,10 @@ function renderSavedPlans(){
     const plan=state.savedPlans.find(p=>p.id===btn.dataset.notePlan);if(!plan)return;
     const note=prompt("Plan note",plan.note||"");if(note===null)return;
     plan.note=note.trim();localStorage.setItem(KEY,JSON.stringify(state));renderSavedPlans();
+  }));
+  el.querySelectorAll("[data-revalidate-plan]").forEach(btn=>btn.addEventListener("click",()=>{
+    const plan=state.savedPlans.find(p=>p.id===btn.dataset.revalidatePlan);if(!plan||!revalidatePlan(plan))return;
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();
   }));
   el.querySelectorAll("[data-choose-plan]").forEach(btn=>btn.addEventListener("click",()=>{
     toggleChosenPlan(btn.dataset.choosePlan);
