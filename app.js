@@ -765,31 +765,68 @@ function money(n,currency){
     return `${value.toLocaleString(undefined,{maximumFractionDigits:2})} ${currency||"MAD"}`;
   }
 }
+
+function purchaseBreakdown(qty,ownedQty,price){
+  const used=Math.max(0,Math.floor(Number(qty)||0));
+  const owned=Math.max(0,Math.floor(Number(ownedQty)||0));
+  const ownedUsed=Math.min(used,owned),buyQty=Math.max(0,used-ownedUsed);
+  const unitPrice=Math.max(0,Number(price)||0);
+  return {used,owned,ownedUsed,buyQty,subtotal:unitPrice*buyQty};
+}
 function shoppingRows(layout){
   const counts=layoutCounts(layout);
   return Object.entries(counts).map(([id,qty])=>{
-    const b=boxById(id);
-    const price=Math.max(0,Number(b?.price)||0),currency=(b?.currency||"MAD").toUpperCase();
+    const b=boxById(id),price=Math.max(0,Number(b?.price)||0),currency=(b?.currency||"MAD").toUpperCase();
+    const stock=purchaseBreakdown(qty,b?.ownedQty,price);
     return {
-      id,qty,name:b?.name||layout.find(p=>p.typeId===id)?.name||"Item",
-      price,currency,subtotal:price*qty,url:safeUrl(b?.url),image:safeUrl(b?.image),sku:b?.sku||"",
+      id,qty:stock.used,ownedQty:stock.owned,ownedUsed:stock.ownedUsed,buyQty:stock.buyQty,
+      name:b?.name||layout.find(p=>p.typeId===id)?.name||"Item",
+      price,currency,subtotal:stock.subtotal,url:safeUrl(b?.url),image:safeUrl(b?.image),sku:b?.sku||"",
       dimensions:b?`${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${state.unit}`:""
     };
   }).sort((a,b)=>a.name.localeCompare(b.name));
 }
 function shoppingTotals(layout){
-  const totals={},rows=shoppingRows(layout);let missing=0;
+  const totals={},rows=shoppingRows(layout);
+  let missing=0,purchaseUnits=0,ownedUsed=0;
   for(const r of rows){
+    purchaseUnits+=r.buyQty;ownedUsed+=r.ownedUsed;
+    if(r.buyQty<=0)continue;
     if(r.price>0) totals[r.currency]=(totals[r.currency]||0)+r.subtotal;
-    else missing+=r.qty;
+    else missing+=r.buyQty;
   }
-  return {totals,missing,rows};
+  return {totals,missing,purchaseUnits,ownedUsed,rows};
 }
 function totalsText(layout){
-  const {totals,missing}=shoppingTotals(layout);
+  const {totals,missing,purchaseUnits}=shoppingTotals(layout);
+  if(purchaseUnits===0)return "Nothing to buy";
   const parts=Object.entries(totals).map(([c,v])=>money(v,c));
-  if(!parts.length)return missing?"Prices missing":"No priced items";
+  if(!parts.length)return missing?`${missing} unpriced to buy`:"Nothing to buy";
   return parts.join(" + ")+(missing?` · ${missing} unpriced`:"");
+}
+function purchaseCostProfile(layout){
+  const summary=shoppingTotals(layout),currencies=Object.keys(summary.totals).sort();
+  return {
+    missing:summary.missing,
+    purchaseUnits:summary.purchaseUnits,
+    ownedUsed:summary.ownedUsed,
+    currencies,
+    singleCurrency:currencies.length===1?currencies[0]:null,
+    knownTotal:currencies.length===1?summary.totals[currencies[0]]:null
+  };
+}
+function comparePurchaseCost(a,b,W,D){
+  const pa=purchaseCostProfile(a),pb=purchaseCostProfile(b);
+  if(pa.missing!==pb.missing)return pa.missing-pb.missing;
+  if(pa.purchaseUnits===0||pb.purchaseUnits===0){
+    if(pa.purchaseUnits!==pb.purchaseUnits)return pa.purchaseUnits-pb.purchaseUnits;
+  }
+  if(pa.singleCurrency&&pa.singleCurrency===pb.singleCurrency&&pa.knownTotal!==pb.knownTotal){
+    return pa.knownTotal-pb.knownTotal;
+  }
+  if(pa.purchaseUnits!==pb.purchaseUnits)return pa.purchaseUnits-pb.purchaseUnits;
+  const ua=utilization(a,W,D),ub=utilization(b,W,D);
+  return ub-ua || distinctTypes(a)-distinctTypes(b);
 }
 function renderShoppingList(layout){
   const el=$("shoppingList"),summary=shoppingTotals(layout);
@@ -797,12 +834,15 @@ function renderShoppingList(layout){
   if(!summary.rows.length){el.innerHTML='<div class="empty">No items in this layout.</div>';return}
   el.innerHTML=`<div class="shoprows">${summary.rows.map(r=>`<div class="shoprow">
     <div><div class="shopname">${esc(r.name)}</div><div class="shopsub">${esc(r.dimensions)}${r.sku?` · ${esc(r.sku)}`:""}</div></div>
-    <div class="shopnum">×${r.qty}</div>
-    <div class="shopnum">${r.price>0?money(r.price,r.currency):"—"}</div>
-    <div class="shopnum shopsubtotal">${r.price>0?money(r.subtotal,r.currency):"—"}</div>
-    <div class="shopaction">${r.url?`<a class="shoplink" href="${esc(r.url)}" target="_blank" rel="noopener">Product ↗</a>`:""}</div>
-  </div>`).join("")}</div>${summary.missing?`<div class="shopmissing">${summary.missing} item${summary.missing===1?"":"s"} still need a price before the total is complete.</div>`:""}`;
+    <div class="shopnum" title="Used in layout">Use ×${r.qty}</div>
+    <div class="shopnum" title="Covered by owned inventory">Own ×${r.ownedUsed}</div>
+    <div class="shopnum" title="Additional units to buy"><strong>Buy ×${r.buyQty}</strong></div>
+    <div class="shopnum shopprice">${r.buyQty&&r.price>0?money(r.price,r.currency):"—"}</div>
+    <div class="shopnum shopsubtotal">${r.buyQty&&r.price>0?money(r.subtotal,r.currency):r.buyQty?"—":"✓"}</div>
+    <div class="shopaction">${r.buyQty&&r.url?`<a class="shoplink" href="${esc(r.url)}" target="_blank" rel="noopener">Product ↗</a>`:""}</div>
+  </div>`).join("")}</div>${summary.missing?`<div class="shopmissing">${summary.missing} unit${summary.missing===1?"":"s"} to buy still need a price before the total is complete.</div>`:""}`;
 }
+
 function slugify(s){
   return String(s||"plan").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,60)||"storage-plan";
 }
