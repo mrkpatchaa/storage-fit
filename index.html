@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Storage Fit Planner v14</title>
+<title>Storage Fit Planner</title>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -50,6 +50,11 @@
             <div class="field"><label for="bw">Width</label><input id="bw" type="number" min="0" step="0.1"></div>
             <div class="field"><label for="bd">Depth</label><input id="bd" type="number" min="0" step="0.1"></div>
             <div class="field"><label for="bh">Height</label><input id="bh" type="number" min="0" step="0.1"></div>
+          </div>
+          <div class="rulegrid" style="margin-top:8px">
+            <label class="rulecard"><input id="boxUprightOnly" type="checkbox" checked><span><strong>Must stay upright</strong><small>Do not tip this item onto its side.</small></span></label>
+            <label class="rulecard"><input id="boxCanBeStacked" type="checkbox"><span><strong>Can sit on another item</strong><small>Allow this item above floor level.</small></span></label>
+            <label class="rulecard"><input id="boxCanSupportStack" type="checkbox"><span><strong>Can support items above</strong><small>Its full top surface may be used as a shelf.</small></span></label>
           </div>
           <div class="row3" style="margin-top:8px">
             <div class="field"><label for="boxPrice">Price (optional)</label><input id="boxPrice" type="number" min="0" step="0.01" placeholder="0.00"></div>
@@ -107,7 +112,8 @@
         <details>
           <summary>Fit options</summary>
           <div class="options" style="margin-top:12px">
-            <label class="checkline"><input id="uprightOnly" type="checkbox" checked> Keep items upright</label>
+            <label class="checkline"><input id="uprightOnly" type="checkbox" checked> Force all items upright</label>
+            <label class="checkline"><input id="enableStacking" type="checkbox"> Enable stacking</label>
             <label class="checkline"><input id="clearanceEnabled" type="checkbox"> Leave wall clearance</label>
           </div>
           <div class="field" id="clearanceField" style="max-width:240px;margin-top:10px;display:none">
@@ -117,7 +123,7 @@
             <label for="fitTolerance">Fit tolerance / minimum gap</label><input id="fitTolerance" type="number" min="0" step="0.1" value="0">
             <div class="small" style="margin-top:5px">Applied between items, storage walls and blocked zones. Use 0 for an exact mathematical fit.</div>
           </div>
-          <div class="small" style="margin-top:8px">Items sit on the storage floor; layouts do not stack one box on another.</div>
+          <div class="small" style="margin-top:8px">Stacking is opt-in and respects each item’s physical rules. An upper item must be fully supported by one lower item.</div>
         </details>
 
         <div class="generatebar"><button class="btn primary" id="generateBtn" type="button">Find arrangements</button><span class="small" id="searchNote">Select at least one item type.</span></div>
@@ -190,6 +196,7 @@
               <li>Top view is useful for checking exact drawer-floor placement.</li>
               <li>Use Edit layout to drag boxes in Top view, then inspect the result again in Front or 3D.</li>
               <li>Striped red shapes are blocked zones and are never used by the optimizer.</li>
+              <li>Stacked items show their elevation in Top view; Front, Side and 3D use their real vertical position.</li>
             </ul>
           </div>
           <div class="detailbox leftovers">
