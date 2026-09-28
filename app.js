@@ -1441,17 +1441,19 @@ function renderInstallDashboard(){
   const installed=entries.filter(e=>e.status==="installed").length;
   const ready=entries.filter(e=>e.status==="ready").length;
   const waiting=entries.filter(e=>e.status==="waiting").length;
+  const stale=entries.filter(e=>e.status==="stale").length;
   $("installProgressText").textContent=`${installed}/${entries.length} installed`;
   $("installSummary").innerHTML=`
     <div class="installstat"><div class="k">Chosen spaces</div><div class="v">${entries.length}</div></div>
     <div class="installstat"><div class="k">Ready now</div><div class="v">${ready}</div></div>
     <div class="installstat"><div class="k">Waiting</div><div class="v">${waiting}</div></div>
+    <div class="installstat"><div class="k">Needs review</div><div class="v">${stale}</div></div>
     <div class="installstat"><div class="k">Installed</div><div class="v">${installed}</div><div class="progressbar"><span style="width:${entries.length?Math.round(installed/entries.length*100):0}%"></span></div></div>`;
 
   $("installQueue").innerHTML=entries.map((entry,index)=>{
     const plan=entry.plan,m=planMetrics(plan),contents=labeledPlacements(plan.layout||[]);
     const missing=entry.missing.map(x=>`${esc(boxById(x.id)?.name||"Item")} ×${x.qty}`).join(" · ");
-    const label=entry.status==="installed"?"Installed":entry.status==="ready"?"Ready now":"Waiting for inventory";
+    const label=entry.status==="installed"?"Installed":entry.status==="ready"?"Ready now":entry.status==="stale"?"Needs plan review":"Waiting for inventory";
     return `<div class="installcard ${entry.status}">
       <div>
         <div class="installtitle">${esc(m.storagePath)}</div>
@@ -1459,6 +1461,8 @@ function renderInstallDashboard(){
         ${contents.length?`<div class="installmeta">Contents: ${contents.slice(0,4).map(x=>esc(x.label)).join(" · ")}${contents.length>4?` · +${contents.length-4} more`:""}</div>`:""}
         <span class="installstatus ${entry.status}">${label}</span>
         ${entry.status==="waiting"?`<div class="installmissing">Missing: ${missing}</div>`:""}
+        ${entry.status==="stale"?`<div class="planissues">${(entry.health?.reasons||[]).slice(0,2).map(esc).join(" · ")}</div>`:""}
+        ${entry.status==="installed"&&entry.health?.status!=="current"?`<div class="planissues">Installed from a plan that has since changed: ${(entry.health?.reasons||[]).slice(0,2).map(esc).join(" · ")}</div>`:""}
       </div>
       <div class="installactions">
         <button class="btn soft" type="button" data-install-up="${entry.storageId}" ${index===0?"disabled":""}>↑</button>
