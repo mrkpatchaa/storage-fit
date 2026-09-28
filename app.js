@@ -890,11 +890,12 @@ function capturePlanSettings(){
 }
 function captureStorageSnapshot(s){
   return s?JSON.parse(JSON.stringify({
-    id:s.id,name:s.name,w:s.w,d:s.d,h:s.h,unit:state.unit,obstacles:s.obstacles||[]
+    id:s.id,name:s.name,furnitureId:s.furnitureId,w:s.w,d:s.d,h:s.h,unit:state.unit,obstacles:s.obstacles||[]
   })):null;
 }
 function planMetrics(plan){
-  const s=plan.storageSnapshot||state.storages.find(x=>x.id===plan.storageId);
+  const liveStorage=state.storages.find(x=>x.id===plan.storageId);
+  const s=plan.storageSnapshot||liveStorage;
   const settings=plan.settings||{clearanceEnabled:false,clearance:0,unit:state.unit};
   const c=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
   const W=Math.max(0,(Number(s?.w)||0)-2*c),D=Math.max(0,(Number(s?.d)||0)-2*c),H=Math.max(0,(Number(s?.h)||0)-2*c);
@@ -905,7 +906,7 @@ function planMetrics(plan){
   const used=usesStacking?occupiedVolume(plan.layout||[]):occupiedArea(plan.layout||[]);
   const utilizationPct=denom>0?used/denom*100:0;
   return {
-    storage:s,W,D,H,stackedCount,utilizationPct,
+    storage:s,storagePath:liveStorage?storageBreadcrumb(liveStorage):(plan.storagePath||plan.storageName||s?.name||"Storage"),W,D,H,stackedCount,utilizationPct,
     utilizationKind:usesStacking?"usable volume":"usable floor",
     itemCount:(plan.layout||[]).length,
     distinctTypes:distinctTypes(plan.layout||[]),
@@ -940,7 +941,7 @@ function renderCompareModal(){
     const chosen=state.chosenPlanId===plan.id;
     return `<article class="comparecard ${chosen?"chosen":""}">
       <div class="comparetitle">${esc(plan.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}</div>
-      <div class="comparestorage">${esc(m.storage?storageBreadcrumb(m.storage):(plan.storagePath||plan.storageName||"Storage"))} · ${esc(goalLabel(plan.goal))}</div>
+      <div class="comparestorage">${esc(m.storagePath)} · ${esc(goalLabel(plan.goal))}</div>
       <div class="comparestats">
         <div class="comparestat"><div class="k">Utilization</div><div class="v">${m.utilizationPct.toFixed(1)}%</div><div class="small">${esc(m.utilizationKind)}</div></div>
         <div class="comparestat"><div class="k">Items</div><div class="v">${m.itemCount}</div><div class="small">${m.distinctTypes} type${m.distinctTypes===1?"":"s"}</div></div>
@@ -998,7 +999,7 @@ function renderSavedPlans(){
       <div class="savedhead">
         <div>
           <div class="savedname">${esc(p.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}</div>
-          <div class="savedmeta">${esc(m.storage?storageBreadcrumb(m.storage):(p.storagePath||p.storageName||"Storage"))} · ${m.itemCount} item${m.itemCount===1?"":"s"} · ${m.utilizationPct.toFixed(1)}% ${esc(m.utilizationKind)}</div>
+          <div class="savedmeta">${esc(m.storagePath)} · ${m.itemCount} item${m.itemCount===1?"":"s"} · ${m.utilizationPct.toFixed(1)}% ${esc(m.utilizationKind)}</div>
           <span class="goallabel">${esc(goalLabel(p.goal))}</span>
         </div>
         <label class="savedselect"><input type="checkbox" data-compare-plan="${p.id}" ${selected?"checked":""}> compare</label>
