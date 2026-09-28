@@ -1,0 +1,31 @@
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check JavaScript syntax
+        run: node --check app.js
+
+      - name: Check static app structure
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          html = Path("index.html").read_text()
+          assert 'href="styles.css"' in html, "index.html must load styles.css"
+          assert 'src="app.js"' in html, "index.html must load app.js"
+          assert "<style>" not in html.lower(), "keep application CSS in styles.css"
+          assert "<script>" not in html.lower(), "keep application JS in app.js"
+          assert Path("tests/smoke.html").is_file(), "browser smoke test is missing"
+          print("Static structure looks good.")
+          PY
