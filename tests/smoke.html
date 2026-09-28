@@ -102,6 +102,17 @@
       );
       result(storageClone.id!=="s1"&&storageClone.name==="Drawer 2","storage clone gets a fresh ID and requested name");
       result(storageClone.obstacles.length===1&&storageClone.obstacles[0].id!=="o1"&&storageClone.obstacles[0].name==="Rail","storage clone deep-copies blocked zones with fresh IDs");
+      var dividerStorage={id:"ds",name:"Divider drawer",w:100,d:50,h:12,furnitureId:"f1",obstacles:[],dividers:[
+        {id:"dv",orientation:"vertical",position:40,thickness:2,h:10},
+        {id:"dh",orientation:"horizontal",position:20,thickness:1,h:8}
+      ]};
+      var dividerRects=api.dividerRectsForStorage(dividerStorage);
+      result(dividerRects.length===2&&dividerRects[0].x===39&&dividerRects[0].w===2&&dividerRects[0].d===50,"vertical divider becomes a centered front-to-back physical wall");
+      result(dividerRects[1].y===19.5&&dividerRects[1].d===1&&dividerRects[1].w===100,"horizontal divider becomes a centered left-to-right physical wall");
+      var physical=api.physicalObstaclesForStorage({id:"ps",w:100,d:50,h:12,obstacles:[{id:"o",x:1,y:1,w:2,d:2,h:2}],dividers:dividerStorage.dividers});
+      result(physical.length===3&&physical.filter(function(x){return x.kind==="divider"}).length===2,"optimizer geometry combines blocked zones and dividers");
+      var seqDivider=0,dividerClone=api.cloneStorageDefinition(dividerStorage,{idFactory:function(prefix){seqDivider+=1;return prefix+"-d"+seqDivider}});
+      result(dividerClone.dividers.length===2&&dividerClone.dividers[0].id!=="dv"&&dividerClone.dividers[0].position===40,"storage cloning deep-copies dividers with fresh IDs");
       var seq2=0,idFactory2=function(prefix){seq2+=1;return prefix+"-"+seq2};
       var furnClone=api.cloneFurnitureDefinition(
         {id:"f1",roomId:"r1",name:"Wardrobe"},
@@ -117,6 +128,11 @@
       var otherFurniture={id:"s4",furnitureId:"f2",name:"Drawer D",w:67,d:26,h:13,obstacles:[{id:"o4",name:"Rail",x:0,y:0,w:2,d:26,h:2}]};
       result(api.storageStructureSignature(matchSource)===api.storageStructureSignature(sameGeometry),"matching ignores obstacle IDs and labels");
       result(api.storageStructureSignature(matchSource)!==api.storageStructureSignature(changedObstacle),"matching detects obstacle geometry changes");
+      var withDivider={id:"sd1",furnitureId:"f1",w:67,d:26,h:13,obstacles:[],dividers:[{id:"d1",orientation:"vertical",position:30,thickness:1,h:13}]};
+      var sameDivider={id:"sd2",furnitureId:"f1",w:67,d:26,h:13,obstacles:[],dividers:[{id:"other",orientation:"vertical",position:30,thickness:1,h:13}]};
+      var movedDivider={id:"sd3",furnitureId:"f1",w:67,d:26,h:13,obstacles:[],dividers:[{id:"d3",orientation:"vertical",position:31,thickness:1,h:13}]};
+      result(api.storageStructureSignature(withDivider)===api.storageStructureSignature(sameDivider),"structural matching ignores divider IDs");
+      result(api.storageStructureSignature(withDivider)!==api.storageStructureSignature(movedDivider),"structural matching detects divider geometry changes");
       var siblings=api.matchingSiblingStorages(matchSource,[matchSource,sameGeometry,changedObstacle,otherFurniture]);
       result(siblings.length===1&&siblings[0].id==="s2","propagation targets only structurally identical siblings in the same furniture");
       var legacy={storages:[{id:"s1",name:"Drawer",w:10,d:10,h:10}],boxes:[{id:"b1",name:"Box",w:5,d:5,h:5}],rooms:[],furniture:[],selectedStorage:"s1"};
@@ -125,6 +141,10 @@
       result(legacy.furniture.length===1,"legacy data gets fallback furniture");
       result(legacy.storages[0].furnitureId===legacy.furniture[0].id,"legacy storage is assigned to fallback furniture");
       result(legacy.selectedRoom===legacy.rooms[0].id&&legacy.selectedFurniture===legacy.furniture[0].id,"hierarchy selection follows the active storage");
+      var validDividerBackup={storages:[{id:"s",name:"Drawer",w:10,d:10,h:10,obstacles:[],dividers:[{id:"d",orientation:"vertical",position:5,thickness:.5,h:10}]}],boxes:[{id:"b",name:"Box",w:2,d:2,h:2}],savedPlans:[]};
+      result(api.validateBackupState(validDividerBackup)==="","backup validation accepts well-formed dividers");
+      var invalidDividerBackup={storages:[{id:"s",name:"Drawer",w:10,d:10,h:10,dividers:[{id:"d",orientation:"diagonal",position:5,thickness:.5,h:10}]}],boxes:[{id:"b",name:"Box",w:2,d:2,h:2}]};
+      result(api.validateBackupState(invalidDividerBackup)!=="","backup validation rejects invalid divider direction");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{
