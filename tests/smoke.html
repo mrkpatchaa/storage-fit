@@ -288,6 +288,20 @@
       result(api.placementCoordinateCandidate(coordinateSource,"q",4)===null,"exact coordinate helper rejects unknown axes");
       result(api.placementCoordinateCandidate(coordinateSource,"x","not-a-number")===null,"exact coordinate helper rejects nonnumeric values");
       result(api.placementCoordinateCandidate(null,"x",1)===null,"exact coordinate helper rejects missing placements safely");
+      var alignSource={typeId:"b1",x:23,y:17,z:0,w:20,d:10,h:5,label:"Socks"};
+      var alignLeft=api.alignmentPlacementCandidate(alignSource,"left",100,50,2);
+      result(alignLeft.x===2&&alignLeft.y===17,"left alignment uses fit tolerance as the edge inset");
+      var alignRight=api.alignmentPlacementCandidate(alignSource,"right",100,50,2);
+      result(alignRight.x===78&&alignRight.y===17,"right alignment uses the usable width and edge inset");
+      var alignCenterX=api.alignmentPlacementCandidate(alignSource,"center-x",100,50,2);
+      result(alignCenterX.x===40&&alignCenterX.y===17,"horizontal center alignment centers the organizer exactly");
+      var alignFront=api.alignmentPlacementCandidate(alignSource,"front",100,50,3);
+      var alignBack=api.alignmentPlacementCandidate(alignSource,"back",100,50,3);
+      result(alignFront.y===3&&alignBack.y===37,"front and back alignment use the usable depth and tolerance inset");
+      var alignCenterY=api.alignmentPlacementCandidate(alignSource,"center-y",100,50,2);
+      result(alignCenterY.y===20&&alignCenterY.x===23,"depth center alignment changes only Y");
+      result(alignCenterY.label==="Socks"&&alignCenterY.z===0,"alignment preserves labels and elevation");
+      result(api.alignmentPlacementCandidate(alignSource,"diagonal",100,50,0)===null,"unknown alignment is rejected safely");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{
