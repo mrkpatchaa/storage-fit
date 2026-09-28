@@ -148,6 +148,20 @@
       ]);
       result(labels.length===2&&labels[0].label==="Socks"&&labels[1].label==="Cables","label summary trims and excludes blank placement labels");
       result(labels[1].z===2,"label summary preserves stacked placement elevation");
+      var lockedUpright={w:30,d:20,h:10,uprightOnly:true,floorRotationLocked:true};
+      var freeUpright={w:30,d:20,h:10,uprightOnly:true,floorRotationLocked:false};
+      result(api.orientations(lockedUpright,true).length===1,"rotation-locked upright items keep one floor orientation");
+      result(api.orientations(freeUpright,true).length===2,"unlocked upright items may rotate 90 degrees");
+      var tippedLocked={w:30,d:20,h:10,uprightOnly:false,floorRotationLocked:true};
+      result(api.orientations(tippedLocked,false).length===3,"rotation lock keeps one footprint orientation for each allowed attitude");
+      result(api.maxStackLevelAllows({maxStackLevel:2},2)===true&&api.maxStackLevelAllows({maxStackLevel:2},3)===false,"maximum stack level is enforced");
+      result(api.maxStackLevelAllows({maxStackLevel:null},8)===true,"unlimited stack level stays unrestricted");
+      var lookup=function(){return {frontPriority:true}};
+      var near=[{typeId:"x",y:0,d:2}],far=[{typeId:"x",y:8,d:2}];
+      result(api.accessPenalty(near,10,lookup)<api.accessPenalty(far,10,lookup),"front-priority access score prefers shallower placements");
+      result(api.compareAccess(near,far,10,lookup)<0,"access comparator ranks front-loaded layout first");
+      var noPriority=function(){return {frontPriority:false}};
+      result(api.accessPenalty(far,10,noPriority)===0,"items without front priority do not affect access scoring");
       var legacy={storages:[{id:"s1",name:"Drawer",w:10,d:10,h:10}],boxes:[{id:"b1",name:"Box",w:5,d:5,h:5}],rooms:[],furniture:[],selectedStorage:"s1"};
       api.ensureHomeHierarchy(legacy);
       result(legacy.rooms.length===1,"legacy data gets a fallback room");
@@ -158,6 +172,8 @@
       result(api.validateBackupState(validDividerBackup)==="","backup validation accepts well-formed dividers");
       var invalidDividerBackup={storages:[{id:"s",name:"Drawer",w:10,d:10,h:10,dividers:[{id:"d",orientation:"diagonal",position:5,thickness:.5,h:10}]}],boxes:[{id:"b",name:"Box",w:2,d:2,h:2}]};
       result(api.validateBackupState(invalidDividerBackup)!=="","backup validation rejects invalid divider direction");
+      var invalidStackBackup={storages:[{id:"s",name:"Drawer",w:10,d:10,h:10}],boxes:[{id:"b",name:"Box",w:2,d:2,h:2,maxStackLevel:10}]};
+      result(api.validateBackupState(invalidStackBackup)!=="","backup validation rejects stack levels above the supported range");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{

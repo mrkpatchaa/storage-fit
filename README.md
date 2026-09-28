@@ -312,3 +312,46 @@ They are preserved in:
 The single-plan JSON export is version 2 and adds an explicit `contents` list while keeping labels on each placement. It also includes custom dividers in the storage snapshot.
 
 Relabeling a placement counts as a real plan change: V24 uses a label-aware saved-plan signature while leaving the optimizer's geometry deduplication unchanged. Existing V23 saved plans migrate automatically with blank labels where none existed.
+
+
+## Practical handling rules
+
+Some layouts fit mathematically but are awkward to use. Items now support handling rules that distinguish hard physical constraints from soft access preferences.
+
+### Keep floor orientation
+
+**Keep floor orientation** prevents a 90° footprint rotation.
+
+- An upright 30 × 20 × 10 organizer stays 30 × 20 on the floor instead of also trying 20 × 30.
+- If the item may tip, each physical attitude still gets one non-rotated footprint.
+- The manual Rotate 90° action obeys the same rule.
+
+### Highest stack level
+
+An optional **Highest stack level** limits how high that item itself may be placed.
+
+- Level 1 = floor only.
+- Level 2 = floor or directly above one supporting item.
+- Level 3 = up to two supporting levels below it.
+- Blank = no item-specific level limit.
+
+This is a hard placement rule and is enforced by both optimizer search and manual editing. It works in addition to **Can sit on another item** and the global **Enable stacking** switch.
+
+### Prefer near the front
+
+**Prefer near the front** is a soft accessibility preference. The inside front edge of a storage space is `Y = 0`.
+
+Front-priority items remain allowed anywhere they physically fit, but layouts placing them closer to the front receive a better access score.
+
+A new **Easiest access** optimization goal makes that score the primary ranking criterion, then falls back to utilization and layout simplicity. The other optimization goals also use access as a secondary tie-breaker when front-priority items are present.
+
+Proposal cards can show **Easy reach** for the best access-scoring variants.
+
+### Search curation
+
+For repeated quantity mixes, Storage Fit now ranks geometry variants before keeping the curated subset. This helps preserve genuinely useful front-loaded arrangements instead of whichever equivalent variants happened to be discovered first.
+
+V25 migrates V24 automatically. Existing items default to:
+- floor rotation unlocked;
+- no front priority;
+- no maximum stack level.
