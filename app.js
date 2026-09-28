@@ -2729,7 +2729,10 @@ function renderGapList(W,D,H){
     if(!editItemValid(layout,idx,W,D)){
       layout.pop();setEditStatus("That saved item no longer fits after applying tolerance.",true);return;
     }
+    const wasEditing=editMode;
     selectedEditItem=idx;editMode=true;editOriginalLayout=editOriginalLayout||layout.slice(0,-1).map(q=>({...q}));
+    if(!wasEditing||editHistory.index<0)resetEditHistory(editOriginalLayout);
+    recordEditHistory("Add item");
     selectedGap=-1;detailView="top";
     setEditStatus(`${b.name} added. You can drag or rotate it.`);
     renderDetail(W,D,H);
@@ -3493,6 +3496,9 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeSnapStep,
     snapValue,
     clampSnappedValue,
+    makeEditHistory,
+    appendEditHistoryState,
+    stepEditHistoryState,
     mirrorLayoutGeometry,
     base64UrlEncodeUtf8,
     base64UrlDecodeUtf8,
