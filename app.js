@@ -2320,26 +2320,32 @@ $("savePlanBtn").addEventListener("click",()=>{
     comparePlanIds.delete(existing.id);
     if(state.chosenPlanIds?.[existing.storageId]===existing.id)delete state.chosenPlanIds[existing.storageId];
     normalizeInstallState(state);
-  }else{
-    const sameStorage=state.savedPlans.filter(p=>p.storageId===s.id).length+1;
-    state.savedPlans.push({
-      id:uid("plan"),
-      name:`${s.name} · Plan ${sameStorage}`,
-      note:"",
-      storageId:s.id,
-      storageName:s.name,
-      storagePath:storageBreadcrumb(s),
-      storageSnapshot:captureStorageSnapshot(s),
-      settings:capturePlanSettings(),
-      savedAt:new Date().toISOString(),
-      goal:state.optimizeGoal,
-      stacking:state.enableStacking,
-      signature,
-      layout:layout.map(q=>({...q}))
-    });
-  }
+  }else createSavedPlanForStorage(s,layout);
   localStorage.setItem(KEY,JSON.stringify(state));
   renderSavedPlans();updateSavePlanButton();
+});
+$("applyMatchingBtn").addEventListener("click",()=>{
+  const layout=layouts[selectedLayout],source=storage();if(!layout||!source)return;
+  const targets=eligiblePropagationTargets(source);if(!targets.length){updateApplyMatchingButton();return}
+
+  const sourcePlan=createSavedPlanForStorage(source,layout);
+  state.chosenPlanIds=state.chosenPlanIds||{};
+  state.chosenPlanIds[source.id]=sourcePlan.id;
+
+  for(const target of targets){
+    const plan=createSavedPlanForStorage(target,layout,{
+      name:`${target.name} · Matched layout`,
+      note:`Applied from ${storageBreadcrumb(source)}`
+    });
+    state.chosenPlanIds[target.id]=plan.id;
+  }
+
+  normalizeInstallState(state);
+  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
+  renderSavedPlans();renderInstallDashboard();renderHomeProcurement();updateSavePlanButton();
+  const btn=$("applyMatchingBtn"),count=targets.length;
+  btn.textContent=`Applied to ${count} ✓`;
+  setTimeout(updateApplyMatchingButton,1200);
 });
 
 $("receivePurchasesBtn").addEventListener("click",()=>{
