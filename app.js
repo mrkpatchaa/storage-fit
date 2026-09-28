@@ -182,6 +182,45 @@ function storageBreadcrumb(s){
   const f=furnitureById(s?.furnitureId),r=roomById(f?.roomId);
   return [r?.name,f?.name,s?.name].filter(Boolean).join(" → ");
 }
+function uniqueSiblingName(preferred,existingNames=[]){
+  const clean=String(preferred||"Copy").trim()||"Copy",taken=new Set(existingNames.map(x=>String(x).toLowerCase()));
+  if(!taken.has(clean.toLowerCase()))return clean;
+  let n=2,candidate=`${clean} (${n})`;
+  while(taken.has(candidate.toLowerCase()))candidate=`${clean} (${++n})`;
+  return candidate;
+}
+function nextCopyName(base,existingNames=[]){
+  const clean=String(base||"Copy").trim()||"Copy";
+  return uniqueSiblingName(`${clean} copy`,existingNames);
+}
+function repeatStorageNames(base,count){
+  const clean=String(base||"Storage").trim()||"Storage",m=clean.match(/^(.*?)(\d+)$/);
+  const prefix=m?m[1].trimEnd():clean,start=m?Number(m[2])+1:2,pad=m?m[2].length:0;
+  return Array.from({length:Math.max(0,Math.floor(Number(count)||0))},(_,i)=>{
+    const n=String(start+i).padStart(pad,"0");
+    return `${prefix}${prefix?" ":""}${n}`;
+  });
+}
+function cloneStorageDefinition(source,{id=null,furnitureId=null,name=null,idFactory=uid}={}){
+  const storageId=id||idFactory("s");
+  return {
+    id:storageId,
+    name:name||`${source?.name||"Storage"} copy`,
+    w:Number(source?.w)||0,d:Number(source?.d)||0,h:Number(source?.h)||0,
+    furnitureId:furnitureId||source?.furnitureId||"",
+    obstacles:(source?.obstacles||[]).map(o=>({
+      id:idFactory("o"),name:o.name||"Blocked zone",
+      x:Number(o.x)||0,y:Number(o.y)||0,w:Number(o.w)||0,d:Number(o.d)||0,h:Number(o.h)||0
+    }))
+  };
+}
+function cloneFurnitureDefinition(sourceFurniture,childStorages,{roomId=null,name=null,idFactory=uid}={}){
+  const furnitureId=idFactory("furn");
+  return {
+    furniture:{id:furnitureId,roomId:roomId||sourceFurniture?.roomId||"",name:name||`${sourceFurniture?.name||"Furniture"} copy`},
+    storages:(childStorages||[]).map(s=>cloneStorageDefinition(s,{furnitureId,idFactory}))
+  };
+}
 function syncHierarchyToStorage(storageId){
   const s=state.storages.find(x=>x.id===storageId);if(!s)return;
   const f=furnitureById(s.furnitureId);if(!f)return;
@@ -2342,6 +2381,17 @@ $("renameFurniture").addEventListener("click",()=>{
   const name=prompt("Furniture name",furniture.name);if(name===null)return;
   furniture.name=name.trim()||furniture.name;localStorage.setItem(KEY,JSON.stringify(state));renderAll();
 });
+$("duplicateFurniture").addEventListener("click",()=>{
+  const source=furnitureById(state.selectedFurniture);if(!source)return;
+  const siblings=state.furniture.filter(f=>f.roomId===source.roomId).map(f=>f.name);
+  const name=nextCopyName(source.name,siblings);
+  const childStorages=state.storages.filter(s=>s.furnitureId===source.id);
+  const clone=cloneFurnitureDefinition(source,childStorages,{roomId:source.roomId,name});
+  state.furniture.push(clone.furniture);state.storages.push(...clone.storages);
+  state.selectedRoom=clone.furniture.roomId;state.selectedFurniture=clone.furniture.id;
+  state.selectedStorage=clone.storages[0]?.id||"";editingStorage=state.selectedStorage;
+  localStorage.setItem(KEY,JSON.stringify(state));renderAll();
+});
 $("deleteFurniture").addEventListener("click",()=>{
   const furniture=furnitureById(state.selectedFurniture);if(!furniture||state.furniture.length<=1)return;
   if(state.storages.some(s=>s.furnitureId===furniture.id)){alert("Move or delete the storage spaces in this furniture first.");return}
@@ -2380,6 +2430,28 @@ $("addStorage").addEventListener("click",()=>{
   if(!state.selectedFurniture){alert("Add or select a piece of furniture first.");return}
   const id=uid("s");state.storages.push({id,name:"New storage",w:60,d:40,h:20,furnitureId:state.selectedFurniture,obstacles:[]});
   editingStorage=id;state.selectedStorage=id;save();renderAll();$("storageName").focus();$("storageName").select()
+});
+$("duplicateStorage").addEventListener("click",()=>{
+  const source=state.storages.find(s=>s.id===editingStorage);if(!source)return;
+  const siblings=state.storages.filter(s=>s.furnitureId===source.furnitureId).map(s=>s.name);
+  const clone=cloneStorageDefinition(source,{name:nextCopyName(source.name,siblings)});
+  state.storages.push(clone);editingStorage=clone.id;state.selectedStorage=clone.id;syncHierarchyToStorage(clone.id);
+  localStorage.setItem(KEY,JSON.stringify(state));renderAll();
+});
+$("repeatStorage").addEventListener("click",()=>{
+  const source=state.storages.find(s=>s.id===editingStorage);if(!source)return;
+  const raw=prompt("How many additional copies?","3");if(raw===null)return;
+  const count=Math.floor(Number(raw));
+  if(!Number.isFinite(count)||count<1||count>20){alert("Enter a number from 1 to 20.");return}
+  const existing=state.storages.filter(s=>s.furnitureId===source.furnitureId).map(s=>s.name);
+  const clones=[];
+  for(const proposed of repeatStorageNames(source.name,count)){
+    const name=uniqueSiblingName(proposed,[...existing,...clones.map(s=>s.name)]);
+    clones.push(cloneStorageDefinition(source,{name}));
+  }
+  state.storages.push(...clones);
+  editingStorage=clones[0]?.id||source.id;state.selectedStorage=editingStorage;syncHierarchyToStorage(editingStorage);
+  localStorage.setItem(KEY,JSON.stringify(state));renderAll();
 });
 $("addObstacle").addEventListener("click",()=>{
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
@@ -2504,6 +2576,10 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeShoppingBought,
     normalizeInstallState,
     computeInstallAllocation,
+    repeatStorageNames,
+    cloneStorageDefinition,
+    cloneFurnitureDefinition,
+    nextCopyName,
     ensureHomeHierarchy,
     purchaseBreakdown,
     aggregateRequiredCounts,

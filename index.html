@@ -29,6 +29,7 @@
             <div class="hierarchyactions">
               <button class="btn soft" id="addFurniture" type="button">+ Furniture</button>
               <button class="btn soft" id="renameFurniture" type="button">Rename</button>
+              <button class="btn soft" id="duplicateFurniture" type="button">Duplicate</button>
               <button class="btn danger" id="deleteFurniture" type="button">Delete</button>
             </div>
           </div>
@@ -44,7 +45,12 @@
             <div class="field"><label for="sd">Depth</label><input id="sd" type="number" min="0" step="0.1"></div>
             <div class="field"><label for="sh">Height</label><input id="sh" type="number" min="0" step="0.1"></div>
           </div>
-          <div class="actions"><button class="btn soft" id="saveStorage" type="button">Save</button><button class="btn danger" id="deleteStorage" type="button">Delete</button></div>
+          <div class="actions storageactions">
+            <button class="btn soft" id="saveStorage" type="button">Save</button>
+            <button class="btn soft" id="duplicateStorage" type="button">Duplicate</button>
+            <button class="btn soft" id="repeatStorage" type="button">Repeat…</button>
+            <button class="btn danger" id="deleteStorage" type="button">Delete</button>
+          </div>
           <div class="obstaclepanel">
             <div class="obstaclehead"><strong>Blocked zones</strong><button class="btn soft" id="addObstacle" type="button">+ Add</button></div>
             <div class="small" style="margin-bottom:8px">Use for rails, hinges, pipes or unusable corners. X is from the inside left edge; Y is from the inside front edge.</div>

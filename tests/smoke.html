@@ -93,6 +93,24 @@
       api.normalizeInstallState(installState);
       result(!installState.installedPlanIds.s1&&installState.installedPlanIds.s2==="p2","stale installed status is removed when chosen plan changes");
       result(installState.installOrder.length===2&&installState.installOrder[0]==="s2","install order is deduplicated and keeps chosen storages");
+      result(JSON.stringify(api.repeatStorageNames("Drawer",3))===JSON.stringify(["Drawer 2","Drawer 3","Drawer 4"]),"plain storage names repeat with readable numbering");
+      result(JSON.stringify(api.repeatStorageNames("Drawer 07",2))===JSON.stringify(["Drawer 08","Drawer 09"]),"numbered storage names preserve zero padding");
+      var seq=0,idFactory=function(prefix){seq+=1;return prefix+"-"+seq};
+      var storageClone=api.cloneStorageDefinition(
+        {id:"s1",name:"Drawer 1",w:67,d:26,h:13,furnitureId:"f1",obstacles:[{id:"o1",name:"Rail",x:1,y:2,w:3,d:4,h:5}]},
+        {name:"Drawer 2",idFactory:idFactory}
+      );
+      result(storageClone.id!=="s1"&&storageClone.name==="Drawer 2","storage clone gets a fresh ID and requested name");
+      result(storageClone.obstacles.length===1&&storageClone.obstacles[0].id!=="o1"&&storageClone.obstacles[0].name==="Rail","storage clone deep-copies blocked zones with fresh IDs");
+      var seq2=0,idFactory2=function(prefix){seq2+=1;return prefix+"-"+seq2};
+      var furnClone=api.cloneFurnitureDefinition(
+        {id:"f1",roomId:"r1",name:"Wardrobe"},
+        [{id:"s1",name:"Left drawer",w:10,d:10,h:5,furnitureId:"f1",obstacles:[]},{id:"s2",name:"Right drawer",w:10,d:10,h:5,furnitureId:"f1",obstacles:[]}],
+        {name:"Wardrobe copy",idFactory:idFactory2}
+      );
+      result(furnClone.furniture.id!=="f1"&&furnClone.storages.length===2,"furniture clone creates a fresh furniture and all child storage spaces");
+      result(furnClone.storages.every(function(x){return x.furnitureId===furnClone.furniture.id}),"cloned storage spaces point to the cloned furniture");
+      result(!("savedPlans" in furnClone)&&!furnClone.storages.some(function(x){return "installed" in x||"chosen" in x}),"structural clones do not carry planning or installation completion state");
       var legacy={storages:[{id:"s1",name:"Drawer",w:10,d:10,h:10}],boxes:[{id:"b1",name:"Box",w:5,d:5,h:5}],rooms:[],furniture:[],selectedStorage:"s1"};
       api.ensureHomeHierarchy(legacy);
       result(legacy.rooms.length===1,"legacy data gets a fallback room");
