@@ -302,6 +302,21 @@
               <span id="placementCoordUnit">cm</span>
             </div>
           </div>
+          <div class="editalign">
+            <label for="alignPlacementSelect">Quick align</label>
+            <div class="editalignline">
+              <select id="alignPlacementSelect" disabled>
+                <option value="">Choose…</option>
+                <option value="left">Left</option>
+                <option value="center-x">Horizontal center</option>
+                <option value="right">Right</option>
+                <option value="front">Front</option>
+                <option value="center-y">Depth center</option>
+                <option value="back">Back</option>
+              </select>
+              <button class="btn soft" id="alignPlacementBtn" type="button" disabled>Align</button>
+            </div>
+          </div>
           <div class="editsetting">
             <label for="editSnapStep">Snap</label>
             <div class="editsettingline"><input id="editSnapStep" type="number" min="0.01" step="0.01"><span id="editSnapUnit">cm</span></div>
@@ -335,6 +350,7 @@
               <li>Top view is useful for checking exact drawer-floor placement.</li>
               <li>Use Edit layout to drag or nudge boxes in Top view. Arrow keys move by one snap step; Shift + Arrow moves by five.</li>
               <li>Exact position lets you type X from the inside left edge, Y from the inside front edge, and Z from the floor.</li>
+              <li>Quick align snaps the selected organizer to an edge or center while still respecting collisions and stack support.</li>
               <li>Undo / Redo tracks up to 60 successful edits. Ctrl/Cmd+Z undoes; Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redoes.</li>
               <li>Replace organizer swaps a selected placement while keeping its purpose label and position when possible.</li>
               <li>Use Move to floor / Stack on support to change elevation without rebuilding the layout.</li>
