@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Storage Fit Smoke Tests</title>
+  <style>
+    body{font:15px/1.5 system-ui,sans-serif;max-width:900px;margin:40px auto;padding:0 20px}
+    .pass{color:#176b45}.fail{color:#a13232}code{background:#f3f3ef;padding:2px 5px;border-radius:5px}
+    iframe{position:absolute;width:1px;height:1px;opacity:0;pointer-events:none}
+  </style>
+</head>
+<body>
+  <h1>Storage Fit smoke tests</h1>
+  <p>Loads the real app and checks core browser-side helpers without a build step.</p>
+  <div id="results">Running…</div>
+  <iframe id="app" src="../index.html?smoke-test=1"></iframe>
+<script>
+(function(){
+  var backup={};
+  for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);backup[k]=localStorage.getItem(k);}
+  localStorage.clear();
+
+  var rows=[];
+  function result(ok,name,detail){rows.push({ok:ok,name:name,detail:detail||""});}
+  function same(a,b){return JSON.stringify(a)===JSON.stringify(b);}
+
+  var frame=document.getElementById("app");
+  frame.addEventListener("load",function(){
+    var w=frame.contentWindow;
+    try{
+      result(same(w.parseDimensionString("38 x 76 x 30 cm"),[38,76,30]),"compact dimensions");
+      result(same(w.parseLabeledDimensions("Width: 38 cm Depth: 76 cm Height: 30 cm"),[38,76,30]),"IKEA labeled dimensions");
+      var info=w.ikeaUrlInfo("https://www.ikea.com/ma/en/p/sockerbit-storage-box-with-lid-white-40522088/");
+      result(info.sku==="405.220.88","IKEA article number",info.sku||"missing");
+      result(same(w.normalizeProductDimensions([380,760,300],"mm"),[38,76,30]),"unit conversion mm to cm");
+      result(w.safeUrl("javascript:alert(1)")==="","unsafe URL rejection");
+      var valid={storages:[{id:"s",name:"Drawer",w:67,d:26,h:13,obstacles:[]}],boxes:[{id:"b",name:"Box",w:10,d:10,h:5}],savedPlans:[]};
+      result(w.validateBackupState(valid)==="","backup validation accepts valid state");
+      result(w.validateBackupState({storages:"bad",boxes:[]})!=="","backup validation rejects invalid state");
+    }catch(e){
+      result(false,"test harness exception",e.message);
+    }finally{
+      localStorage.clear();
+      Object.keys(backup).forEach(function(key){localStorage.setItem(key,backup[key]);});
+    }
+
+    var pass=rows.filter(function(x){return x.ok;}).length;
+    var html="<p><strong>"+pass+"/"+rows.length+" passed</strong></p><ul>";
+    html+=rows.map(function(r){
+      return '<li class="'+(r.ok?"pass":"fail")+'">'+(r.ok?"✓":"✗")+" "+r.name+(r.detail?" — <code>"+r.detail+"</code>":"")+"</li>";
+    }).join("");
+    html+="</ul>";
+    document.getElementById("results").innerHTML=html;
+  },{once:true});
+})();
+</script>
+</body>
+</html>
