@@ -308,7 +308,7 @@ function renderAll(){
   $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;$("enableStacking").checked=!!state.enableStacking;
   $("clearanceEnabled").checked=!!state.clearanceEnabled;$("clearance").value=state.clearance??0.5;$("fitTolerance").value=state.fitTolerance??0;
   $("clearanceField").style.display=state.clearanceEnabled?"block":"none";
-  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();loadBoxEditor();renderSavedPlans();renderBackupStats();resetResults();
+  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();loadBoxEditor();renderSavedPlans();renderHomeProcurement();renderBackupStats();resetResults();
 }
 function plannedStorageIds(){return new Set((state.savedPlans||[]).map(p=>p.storageId))}
 function renderHierarchy(){
@@ -966,6 +966,100 @@ function planMetrics(plan){
     ownedUsed:purchaseCostProfile(plan.layout||[]).ownedUsed
   };
 }
+function chosenPlanForStorage(storageId){
+  const id=state.chosenPlanIds?.[storageId];
+  return id?state.savedPlans.find(p=>p.id===id&&p.storageId===storageId)||null:null;
+}
+function isPlanChosen(plan){
+  return !!plan && state.chosenPlanIds?.[plan.storageId]===plan.id;
+}
+function toggleChosenPlan(planId){
+  const plan=state.savedPlans.find(p=>p.id===planId);if(!plan)return;
+  state.chosenPlanIds=state.chosenPlanIds||{};
+  if(state.chosenPlanIds[plan.storageId]===plan.id)delete state.chosenPlanIds[plan.storageId];
+  else state.chosenPlanIds[plan.storageId]=plan.id;
+}
+function chosenPlans(){
+  return Object.entries(state.chosenPlanIds||{})
+    .map(([storageId,planId])=>state.savedPlans.find(p=>p.id===planId&&p.storageId===storageId))
+    .filter(Boolean);
+}
+function projectProcurement(plans=chosenPlans()){
+  const counts={},storageUse={};
+  for(const plan of plans){
+    const perPlan=layoutCounts(plan.layout||[]);
+    for(const [id,qty] of Object.entries(perPlan)){
+      counts[id]=(counts[id]||0)+qty;
+      if(!storageUse[id])storageUse[id]=new Set();
+      storageUse[id].add(plan.storageId);
+    }
+  }
+  const rows=Object.entries(counts).map(([id,qty])=>{
+    const b=boxById(id),price=Math.max(0,Number(b?.price)||0),currency=(b?.currency||"MAD").toUpperCase();
+    const stock=purchaseBreakdown(qty,b?.ownedQty,price);
+    return {
+      id,name:b?.name||"Deleted item",sku:b?.sku||"",url:safeUrl(b?.url),
+      qty:stock.used,ownedQty:stock.owned,ownedUsed:stock.ownedUsed,buyQty:stock.buyQty,
+      price,currency,subtotal:stock.subtotal,storageCount:storageUse[id]?.size||0
+    };
+  }).sort((a,b)=>a.name.localeCompare(b.name));
+  const totals={};let missing=0,purchaseUnits=0,ownedUsed=0,totalRequired=0;
+  for(const r of rows){
+    totalRequired+=r.qty;purchaseUnits+=r.buyQty;ownedUsed+=r.ownedUsed;
+    if(r.buyQty<=0)continue;
+    if(r.price>0)totals[r.currency]=(totals[r.currency]||0)+r.subtotal;
+    else missing+=r.buyQty;
+  }
+  return {plans,rows,totals,missing,purchaseUnits,ownedUsed,totalRequired};
+}
+function projectTotalsText(summary){
+  if(summary.purchaseUnits===0)return "Nothing to buy";
+  const parts=Object.entries(summary.totals).map(([c,v])=>money(v,c));
+  if(!parts.length)return summary.missing?`${summary.missing} unpriced to buy`:"Nothing to buy";
+  return parts.join(" + ")+(summary.missing?` · ${summary.missing} unpriced`:"");
+}
+function renderHomeProcurement(){
+  const sec=$("homeProcurementSection");if(!sec)return;
+  const summary=projectProcurement();
+  if(!summary.plans.length){
+    sec.style.display="none";$("homeProcurementList").innerHTML="";return;
+  }
+  sec.style.display="block";
+  $("homeChosenCount").textContent=`${summary.plans.length} chosen storage${summary.plans.length===1?"":"s"}`;
+  $("homeProcurementSummary").innerHTML=`
+    <div class="projectstat"><div class="k">Chosen spaces</div><div class="v">${summary.plans.length}</div></div>
+    <div class="projectstat"><div class="k">Organizers required</div><div class="v">${summary.totalRequired}</div></div>
+    <div class="projectstat"><div class="k">Owned reused</div><div class="v">${summary.ownedUsed}</div></div>
+    <div class="projectstat"><div class="k">Project purchase</div><div class="v" style="font-size:13px">${esc(projectTotalsText(summary))}</div></div>`;
+  $("homeChosenPlans").innerHTML=summary.plans.map(plan=>{
+    const m=planMetrics(plan);
+    return `<span class="projectplan">${esc(m.storagePath)} · ${esc(plan.name)}</span>`;
+  }).join("");
+  $("homeProcurementList").innerHTML=summary.rows.map(r=>`<div class="homeshoprow">
+    <div><div class="shopname">${esc(r.name)}</div><div class="shopsub">${r.sku?esc(r.sku)+" · ":""}used in ${r.storageCount} storage${r.storageCount===1?"":"s"}</div></div>
+    <div class="shopnum">Use ×${r.qty}</div>
+    <div class="shopnum">Own ×${r.ownedUsed}</div>
+    <div class="shopnum"><strong>Buy ×${r.buyQty}</strong></div>
+    <div class="shopnum shopprice">${r.buyQty&&r.price>0?money(r.price,r.currency):"—"}</div>
+    <div class="shopnum shopsubtotal">${r.buyQty&&r.price>0?money(r.subtotal,r.currency):r.buyQty?"—":"✓"}</div>
+    <div class="shopaction">${r.buyQty&&r.url?`<a class="shoplink" href="${esc(r.url)}" target="_blank" rel="noopener">Product ↗</a>`:""}</div>
+  </div>`).join("") || '<div class="empty">No items in the chosen plans.</div>';
+}
+function homeShoppingExportPayload(){
+  const summary=projectProcurement();
+  return {
+    format:"storage-fit-home-shopping",
+    version:1,
+    exportedAt:new Date().toISOString(),
+    unit:state.unit,
+    chosenPlans:summary.plans.map(p=>({id:p.id,name:p.name,storageId:p.storageId,storagePath:planMetrics(p).storagePath})),
+    totals:summary.totals,
+    missingPriceUnits:summary.missing,
+    purchaseUnits:summary.purchaseUnits,
+    ownedUsed:summary.ownedUsed,
+    items:summary.rows.map(r=>({...r,url:safeUrl(r.url)}))
+  };
+}
 function updateCompareButton(){
   const btn=$("comparePlansBtn");if(!btn)return;
   const count=comparePlanIds.size;
@@ -991,7 +1085,7 @@ function renderCompareModal(){
   el.innerHTML=plans.map(plan=>{
     const m=planMetrics(plan),counts=layoutCounts(plan.layout||[]);
     const items=Object.entries(counts).map(([id,n])=>`<li>${esc(boxById(id)?.name||"Item")} ×${n}</li>`).join("");
-    const chosen=state.chosenPlanId===plan.id;
+    const chosen=isPlanChosen(plan);
     return `<article class="comparecard ${chosen?"chosen":""}">
       <div class="comparetitle">${esc(plan.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}</div>
       <div class="comparestorage">${esc(m.storagePath)} · ${esc(goalLabel(plan.goal))}</div>
@@ -1011,8 +1105,8 @@ function renderCompareModal(){
   }).join("");
 
   el.querySelectorAll("[data-compare-choose]").forEach(btn=>btn.addEventListener("click",()=>{
-    state.chosenPlanId=state.chosenPlanId===btn.dataset.compareChoose?null:btn.dataset.compareChoose;
-    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();renderCompareModal();
+    toggleChosenPlan(btn.dataset.compareChoose);
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();renderHomeProcurement();renderCompareModal();
   }));
   el.querySelectorAll("[data-compare-open]").forEach(btn=>btn.addEventListener("click",()=>{
     closeCompareModal();openSavedPlan(btn.dataset.compareOpen);
@@ -1040,14 +1134,14 @@ function renderSavedPlans(){
   const sec=$("savedPlansSection"),el=$("savedPlans");
   comparePlanIds=new Set([...comparePlanIds].filter(id=>state.savedPlans.some(p=>p.id===id)));
   if(!state.savedPlans.length){
-    sec.style.display="none";el.innerHTML="";state.chosenPlanId=null;comparePlanIds.clear();updateCompareButton();return;
+    sec.style.display="none";el.innerHTML="";state.chosenPlanIds={};comparePlanIds.clear();updateCompareButton();renderHomeProcurement();return;
   }
   sec.style.display="block";
   $("savedPlansCount").textContent=`${state.savedPlans.length} saved`;
   el.innerHTML=state.savedPlans.map(p=>{
     const m=planMetrics(p),counts=layoutCounts(p.layout||[]);
     const summary=Object.entries(counts).map(([id,n])=>`${esc(boxById(id)?.name||"Item")} ×${n}`).join(" · ");
-    const chosen=state.chosenPlanId===p.id,selected=comparePlanIds.has(p.id);
+    const chosen=isPlanChosen(p),selected=comparePlanIds.has(p.id);
     return `<div class="savedcard ${chosen?"chosen":""}">
       <div class="savedhead">
         <div>
@@ -1090,17 +1184,18 @@ function renderSavedPlans(){
     plan.note=note.trim();localStorage.setItem(KEY,JSON.stringify(state));renderSavedPlans();
   }));
   el.querySelectorAll("[data-choose-plan]").forEach(btn=>btn.addEventListener("click",()=>{
-    state.chosenPlanId=state.chosenPlanId===btn.dataset.choosePlan?null:btn.dataset.choosePlan;
-    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();
+    toggleChosenPlan(btn.dataset.choosePlan);
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();renderHomeProcurement();
   }));
   el.querySelectorAll("[data-delete-plan]").forEach(btn=>btn.addEventListener("click",()=>{
     const id=btn.dataset.deletePlan;
     state.savedPlans=state.savedPlans.filter(p=>p.id!==id);
     comparePlanIds.delete(id);
-    if(state.chosenPlanId===id)state.chosenPlanId=null;
-    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();updateSavePlanButton();
+    const deleted=state.savedPlans.find(p=>p.id===id);
+    if(deleted&&state.chosenPlanIds?.[deleted.storageId]===id)delete state.chosenPlanIds[deleted.storageId];
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();renderHomeProcurement();updateSavePlanButton();
   }));
-  updateCompareButton();
+  updateCompareButton();renderHomeProcurement();
 }
 function updateSavePlanButton(){
   const saved=currentPlanSaved();
