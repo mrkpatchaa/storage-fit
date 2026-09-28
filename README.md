@@ -243,3 +243,39 @@ The action saves and chooses the current layout for the source storage and every
 For safety, propagation skips any target that already has saved, chosen, or installed work. Compartments in another piece of furniture are never targeted automatically, even if their dimensions happen to match.
 
 This pairs with **Duplicate** / **Repeat…**: model one drawer, clone the structure, optimize once, then apply the chosen layout to all fresh identical siblings.
+
+
+## Custom dividers
+
+Not every storage space needs purchased boxes. Storage Fit can now model physical dividers inside a drawer, shelf, or compartment.
+
+For any storage space you can add:
+
+- **Vertical dividers** — run from front to back.
+- **Horizontal dividers** — run from left to right.
+
+Each divider has:
+
+- position from the relevant inside edge;
+- physical thickness;
+- physical height.
+
+Dividers are first-class storage geometry. The optimizer treats them as thin walls, so boxes cannot cross through them. Stacking, fit tolerance, manual editing, leftover-space detection, and usable-space calculations all respect divider geometry automatically.
+
+Views use a separate visual language:
+
+- red hatched shapes = blocked furniture zones such as rails or hinges;
+- blue solid shapes = intentional custom dividers.
+
+Dividers are preserved through:
+
+- full backups/restores;
+- cm/mm/in unit conversion;
+- storage duplication and bulk Repeat…;
+- furniture duplication;
+- saved-plan storage snapshots;
+- structural matching for **Apply to matching**.
+
+Structural propagation requires divider geometry to match too, so a drawer with a divider at 30 cm will not be treated as identical to one with the same divider at 31 cm.
+
+V23 migrates V22 automatically; existing storage spaces simply start with no dividers.
