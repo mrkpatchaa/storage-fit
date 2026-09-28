@@ -140,8 +140,11 @@
 
       <section class="card" id="savedPlansSection" style="display:none">
         <div class="galleryhead">
-          <div><h2>Saved plans</h2><div class="small">Pinned layouts stay here while you try other combinations.</div></div>
-          <div class="small" id="savedPlansCount"></div>
+          <div><h2>Saved plans</h2><div class="small">Shortlist plans, add context, choose a winner, or compare up to 3 side-by-side.</div></div>
+          <div class="savedtoolbar">
+            <span class="small" id="savedPlansCount"></span>
+            <button class="btn soft" id="comparePlansBtn" type="button" disabled>Compare</button>
+          </div>
         </div>
         <div class="savedplans" id="savedPlans"></div>
       </section>
@@ -153,6 +156,21 @@
         </div>
         <div class="gallery" id="gallery"></div>
       </section>
+
+      <div class="modal" id="compareModal" aria-hidden="true">
+        <div class="modalbackdrop" id="compareBackdrop"></div>
+        <div class="modalpanel comparepanel" role="dialog" aria-modal="true" aria-labelledby="compareTitle">
+          <div class="modaltoolbar">
+            <div><div class="modaltitle" id="compareTitle">Compare saved plans</div><div class="small">Same storage is easiest to compare, but mixed-storage comparisons are allowed.</div></div>
+            <button class="btn" id="closeCompareModal" type="button">Close</button>
+          </div>
+          <div class="modalbody">
+            <section class="card">
+              <div class="comparegrid" id="compareGrid"></div>
+            </section>
+          </div>
+        </div>
+      </div>
 
       <div class="modal" id="detailModal" aria-hidden="true">
         <div class="modalbackdrop" id="detailBackdrop"></div>

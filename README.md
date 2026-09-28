@@ -13,6 +13,7 @@ Storage Fit is a dependency-free browser tool for planning boxes and organizers 
 - Detects leftover rectangles and suggests saved items that fit them.
 - Imports public IKEA/product URLs when product metadata is available.
 - Saves plans, builds shopping lists, prints/exports layouts, and backs up/restores all browser data.
+- Turns saved plans into a shortlist: rename them, add notes, mark a chosen plan, and compare up to three side-by-side.
 
 ## Run locally
 
@@ -75,3 +76,15 @@ Stacking is deliberately conservative:
 - Storage height, blocked zones and true 3D box collisions are enforced.
 
 When stacking is enabled, **Best use of space** is scored by usable storage volume instead of floor coverage. Front, side and 3D views render each item's true elevation.
+
+
+## Saved-plan decision workspace
+
+Saved plans are more than bookmarks:
+
+- Rename a plan to something meaningful.
+- Add a short note such as “best for socks” or “buy only if on sale.”
+- Mark one saved plan as the **Chosen** plan.
+- Select two or three plans and compare utilization, item count, stacking, estimated cost, and item mix side-by-side.
+- Opening a saved plan restores the fit settings that were active when it was saved.
+- Saved-plan geometry is converted when you switch between cm, mm, and inches, so plan comparisons remain dimensionally consistent.

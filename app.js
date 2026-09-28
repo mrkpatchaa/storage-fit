@@ -1,7 +1,7 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v15";
-const PREV_KEYS = ["storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v16";
+const PREV_KEYS = ["storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -20,12 +20,16 @@ let currentGaps = [];
 let selectedGap = -1;
 let galleryWasCapped = false;
 let detailModalOpen = false;
+let compareModalOpen = false;
+let comparePlanIds = new Set();
 
 state.itemLimits = state.itemLimits || {};
 state.fitTolerance = Math.max(0, Number(state.fitTolerance)||0);
 state.enableStacking = !!state.enableStacking;
 state.optimizeGoal = ["fill","compartments","simple","balanced"].includes(state.optimizeGoal)?state.optimizeGoal:"fill";
 state.savedPlans = Array.isArray(state.savedPlans)?state.savedPlans:[];
+state.chosenPlanId = state.savedPlans.some(p=>p.id===state.chosenPlanId)?state.chosenPlanId:null;
+for(const p of state.savedPlans){p.note=String(p.note||"");p.settings=p.settings||null;}
 for(const b of state.boxes){
   if(!(b.id in state.itemLimits)) state.itemLimits[b.id] = null;
   b.price = Math.max(0,Number(b.price)||0);
@@ -50,7 +54,7 @@ for(const s of state.storages){
 
 function defaults(){
   return {
-    unit:"cm",clearance:0.5,fitTolerance:0,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],
+    unit:"cm",clearance:0.5,fitTolerance:0,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanId:null,
     storages:[
       {id:"s1",name:"Drawer 67 × 26 × 13",w:67,d:26,h:13,obstacles:[]},
       {id:"s2",name:"Shelf 81 × 40 × 27",w:81,d:40,h:27,obstacles:[]}
@@ -75,7 +79,7 @@ function loadState(){
           selectedTypes[b.id]=Boolean(old.selectedTypes?.[b.id] || (old.selections?.[b.id]||0)>0 || b.id===old.selectedBox);
         }
         return {
-          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],
+          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanId:old.chosenPlanId||null,
           clearanceEnabled:!!old.clearanceEnabled,storages:old.storages,boxes:old.boxes,
           selectedStorage:old.selectedStorage||old.storages[0]?.id||"",selectedTypes,
           itemLimits:Object.fromEntries(old.boxes.map(b=>[b.id, old.itemLimits?.[b.id] ?? null]))
@@ -109,6 +113,19 @@ function convertAllUnits(from,to){
     for(const o of (s.obstacles||[])){o.x=cv(o.x);o.y=cv(o.y);o.w=cv(o.w);o.d=cv(o.d);o.h=cv(o.h)}
   }
   for(const b of state.boxes){b.w=cv(b.w);b.d=cv(b.d);b.h=cv(b.h)}
+  for(const p of state.savedPlans||[]){
+    for(const q of p.layout||[]){q.x=cv(q.x);q.y=cv(q.y);q.z=cv(q.z||0);q.w=cv(q.w);q.d=cv(q.d);q.h=cv(q.h)}
+    if(p.settings){
+      p.settings.clearance=cv(p.settings.clearance||0);
+      p.settings.fitTolerance=cv(p.settings.fitTolerance||0);
+      p.settings.unit=to;
+    }
+    if(p.storageSnapshot){
+      p.storageSnapshot.w=cv(p.storageSnapshot.w);p.storageSnapshot.d=cv(p.storageSnapshot.d);p.storageSnapshot.h=cv(p.storageSnapshot.h);p.storageSnapshot.unit=to;
+      for(const o of p.storageSnapshot.obstacles||[]){o.x=cv(o.x);o.y=cv(o.y);o.w=cv(o.w);o.d=cv(o.d);o.h=cv(o.h)}
+    }
+    p.signature=planSignature(p.storageId,p.layout||[]);
+  }
   state.clearance=cv(state.clearance);
   state.fitTolerance=cv(state.fitTolerance);
   state.unit=to;
@@ -147,7 +164,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:15,
+    appVersion:16,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
@@ -634,6 +651,7 @@ function compareLayoutsForGoal(a,b,W,D){
   if(state.optimizeGoal==="balanced") return balanceScore(b)-balanceScore(a) || distinctTypes(b)-distinctTypes(a) || ub-ua || b.length-a.length;
   return ub-ua || b.length-a.length || distinctTypes(b)-distinctTypes(a);
 }
+
 function planSignature(storageId,layout){
   return `${storageId}|${canonicalLayout(layout)}`;
 }
@@ -643,43 +661,174 @@ function currentPlanSaved(){
   const sig=planSignature(s.id,layout);
   return state.savedPlans.some(p=>p.signature===sig);
 }
+function capturePlanSettings(){
+  return {
+    unit:state.unit,
+    clearanceEnabled:!!state.clearanceEnabled,
+    clearance:Math.max(0,Number(state.clearance)||0),
+    fitTolerance:Math.max(0,Number(state.fitTolerance)||0),
+    uprightOnly:state.uprightOnly!==false
+  };
+}
+function captureStorageSnapshot(s){
+  return s?JSON.parse(JSON.stringify({
+    id:s.id,name:s.name,w:s.w,d:s.d,h:s.h,unit:state.unit,obstacles:s.obstacles||[]
+  })):null;
+}
+function planMetrics(plan){
+  const s=plan.storageSnapshot||state.storages.find(x=>x.id===plan.storageId);
+  const settings=plan.settings||{clearanceEnabled:false,clearance:0,unit:state.unit};
+  const c=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
+  const W=Math.max(0,(Number(s?.w)||0)-2*c),D=Math.max(0,(Number(s?.d)||0)-2*c),H=Math.max(0,(Number(s?.h)||0)-2*c);
+  const obstacles=usableObstaclesFor(s,c);
+  const stackedCount=(plan.layout||[]).filter(p=>(p.z||0)>1e-9).length;
+  const usesStacking=plan.stacking ?? stackedCount>0;
+  const denom=usesStacking?usableVolume(W,D,H,obstacles):freeFloorArea(W,D,obstacles);
+  const used=usesStacking?occupiedVolume(plan.layout||[]):occupiedArea(plan.layout||[]);
+  const utilizationPct=denom>0?used/denom*100:0;
+  return {
+    storage:s,W,D,H,stackedCount,utilizationPct,
+    utilizationKind:usesStacking?"usable volume":"usable floor",
+    itemCount:(plan.layout||[]).length,
+    distinctTypes:distinctTypes(plan.layout||[]),
+    cost:totalsText(plan.layout||[])
+  };
+}
+function updateCompareButton(){
+  const btn=$("comparePlansBtn");if(!btn)return;
+  const count=comparePlanIds.size;
+  btn.disabled=count<2;
+  btn.textContent=count?`Compare (${count})`:"Compare";
+}
+function openCompareModal(){
+  if(comparePlanIds.size<2)return;
+  compareModalOpen=true;renderCompareModal();
+  $("compareModal").classList.add("open");
+  $("compareModal").setAttribute("aria-hidden","false");
+  document.body.classList.add("modal-open");
+}
+function closeCompareModal(){
+  compareModalOpen=false;
+  $("compareModal").classList.remove("open");
+  $("compareModal").setAttribute("aria-hidden","true");
+  if(!detailModalOpen)document.body.classList.remove("modal-open");
+}
+function renderCompareModal(){
+  const plans=[...comparePlanIds].map(id=>state.savedPlans.find(p=>p.id===id)).filter(Boolean).slice(0,3);
+  const el=$("compareGrid");
+  el.innerHTML=plans.map(plan=>{
+    const m=planMetrics(plan),counts=layoutCounts(plan.layout||[]);
+    const items=Object.entries(counts).map(([id,n])=>`<li>${esc(boxById(id)?.name||"Item")} ×${n}</li>`).join("");
+    const chosen=state.chosenPlanId===plan.id;
+    return `<article class="comparecard ${chosen?"chosen":""}">
+      <div class="comparetitle">${esc(plan.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}</div>
+      <div class="comparestorage">${esc(m.storage?.name||plan.storageName||"Storage")} · ${esc(goalLabel(plan.goal))}</div>
+      <div class="comparestats">
+        <div class="comparestat"><div class="k">Utilization</div><div class="v">${m.utilizationPct.toFixed(1)}%</div><div class="small">${esc(m.utilizationKind)}</div></div>
+        <div class="comparestat"><div class="k">Items</div><div class="v">${m.itemCount}</div><div class="small">${m.distinctTypes} type${m.distinctTypes===1?"":"s"}</div></div>
+        <div class="comparestat"><div class="k">Stacked</div><div class="v">${m.stackedCount}</div><div class="small">${plan.stacking?"stacking enabled":"floor-focused"}</div></div>
+        <div class="comparestat"><div class="k">Estimated cost</div><div class="v" style="font-size:12px">${esc(m.cost)}</div></div>
+      </div>
+      <div class="compareitems"><strong>Item mix</strong><ul>${items||"<li>No items</li>"}</ul></div>
+      ${plan.note?`<div class="comparnote">${esc(plan.note)}</div>`:""}
+      <div class="savedactions">
+        <button class="btn ${chosen?"primary":"soft"}" type="button" data-compare-choose="${plan.id}">${chosen?"Chosen ✓":"Choose this plan"}</button>
+        <button class="btn soft" type="button" data-compare-open="${plan.id}">Open</button>
+      </div>
+    </article>`;
+  }).join("");
+
+  el.querySelectorAll("[data-compare-choose]").forEach(btn=>btn.addEventListener("click",()=>{
+    state.chosenPlanId=state.chosenPlanId===btn.dataset.compareChoose?null:btn.dataset.compareChoose;
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();renderCompareModal();
+  }));
+  el.querySelectorAll("[data-compare-open]").forEach(btn=>btn.addEventListener("click",()=>{
+    closeCompareModal();openSavedPlan(btn.dataset.compareOpen);
+  }));
+}
+function openSavedPlan(planId){
+  const plan=state.savedPlans.find(p=>p.id===planId);if(!plan)return;
+  if(state.storages.some(s=>s.id===plan.storageId))state.selectedStorage=plan.storageId;
+  state.optimizeGoal=plan.goal||state.optimizeGoal;
+  state.enableStacking=plan.stacking ?? layoutUsesStacking(plan.layout);
+  if(plan.settings){
+    state.clearanceEnabled=!!plan.settings.clearanceEnabled;
+    state.clearance=Math.max(0,Number(plan.settings.clearance)||0);
+    state.fitTolerance=Math.max(0,Number(plan.settings.fitTolerance)||0);
+    state.uprightOnly=plan.settings.uprightOnly!==false;
+  }
+  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
+  renderAll();
+  layouts=[plan.layout.map(q=>({...q}))];
+  selectedLayout=0;selectedGap=-1;currentGaps=[];galleryWasCapped=false;
+  const sz=currentUsableSize();if(!sz)return;
+  renderGallery(sz.W,sz.D,sz.H,false);renderDetail(sz.W,sz.D,sz.H);openDetailModal();
+}
 function renderSavedPlans(){
   const sec=$("savedPlansSection"),el=$("savedPlans");
-  if(!state.savedPlans.length){sec.style.display="none";el.innerHTML="";return}
+  comparePlanIds=new Set([...comparePlanIds].filter(id=>state.savedPlans.some(p=>p.id===id)));
+  if(!state.savedPlans.length){
+    sec.style.display="none";el.innerHTML="";state.chosenPlanId=null;comparePlanIds.clear();updateCompareButton();return;
+  }
   sec.style.display="block";
   $("savedPlansCount").textContent=`${state.savedPlans.length} saved`;
-  el.innerHTML=state.savedPlans.map((p,i)=>{
-    const s=state.storages.find(x=>x.id===p.storageId);
-    const counts={};for(const item of p.layout)counts[item.typeId]=(counts[item.typeId]||0)+1;
+  el.innerHTML=state.savedPlans.map(p=>{
+    const m=planMetrics(p),counts=layoutCounts(p.layout||[]);
     const summary=Object.entries(counts).map(([id,n])=>`${esc(boxById(id)?.name||"Item")} ×${n}`).join(" · ");
-    return `<div class="savedcard">
+    const chosen=state.chosenPlanId===p.id,selected=comparePlanIds.has(p.id);
+    return `<div class="savedcard ${chosen?"chosen":""}">
       <div class="savedhead">
-        <div><div class="savedname">${esc(p.name)}</div><div class="savedmeta">${esc(s?.name||p.storageName||"Storage")} · ${p.layout.length} item${p.layout.length===1?"":"s"}</div><span class="goallabel">${esc(goalLabel(p.goal))}</span></div>
+        <div>
+          <div class="savedname">${esc(p.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}</div>
+          <div class="savedmeta">${esc(m.storage?.name||p.storageName||"Storage")} · ${m.itemCount} item${m.itemCount===1?"":"s"} · ${m.utilizationPct.toFixed(1)}% ${esc(m.utilizationKind)}</div>
+          <span class="goallabel">${esc(goalLabel(p.goal))}</span>
+        </div>
+        <label class="savedselect"><input type="checkbox" data-compare-plan="${p.id}" ${selected?"checked":""}> compare</label>
       </div>
       <div class="small" style="margin-top:8px">${summary||"Saved layout"}</div>
-      <div class="savedmeta" style="margin-top:6px">Estimated: ${esc(totalsText(p.layout))}</div>
+      <div class="savedmeta" style="margin-top:6px">Estimated: ${esc(m.cost)}${m.stackedCount?` · ${m.stackedCount} stacked`:""}</div>
+      ${p.note?`<div class="savednote">${esc(p.note)}</div>`:""}
       <div class="savedactions">
         <button class="btn soft" type="button" data-open-plan="${p.id}">Open</button>
+        <button class="btn soft" type="button" data-rename-plan="${p.id}">Rename</button>
+        <button class="btn soft" type="button" data-note-plan="${p.id}">${p.note?"Edit note":"Add note"}</button>
+        <button class="btn ${chosen?"primary":"soft"}" type="button" data-choose-plan="${p.id}">${chosen?"Chosen ✓":"Choose"}</button>
         <button class="btn danger" type="button" data-delete-plan="${p.id}">Delete</button>
       </div>
     </div>`;
   }).join("");
+
+  el.querySelectorAll("[data-compare-plan]").forEach(input=>input.addEventListener("change",()=>{
+    const id=input.dataset.comparePlan;
+    if(input.checked){
+      if(comparePlanIds.size>=3){input.checked=false;alert("You can compare up to 3 plans at a time.");return}
+      comparePlanIds.add(id);
+    }else comparePlanIds.delete(id);
+    updateCompareButton();
+  }));
+  el.querySelectorAll("[data-open-plan]").forEach(btn=>btn.addEventListener("click",()=>openSavedPlan(btn.dataset.openPlan)));
+  el.querySelectorAll("[data-rename-plan]").forEach(btn=>btn.addEventListener("click",()=>{
+    const plan=state.savedPlans.find(p=>p.id===btn.dataset.renamePlan);if(!plan)return;
+    const name=prompt("Plan name",plan.name);if(name===null)return;
+    plan.name=name.trim()||plan.name;localStorage.setItem(KEY,JSON.stringify(state));renderSavedPlans();
+  }));
+  el.querySelectorAll("[data-note-plan]").forEach(btn=>btn.addEventListener("click",()=>{
+    const plan=state.savedPlans.find(p=>p.id===btn.dataset.notePlan);if(!plan)return;
+    const note=prompt("Plan note",plan.note||"");if(note===null)return;
+    plan.note=note.trim();localStorage.setItem(KEY,JSON.stringify(state));renderSavedPlans();
+  }));
+  el.querySelectorAll("[data-choose-plan]").forEach(btn=>btn.addEventListener("click",()=>{
+    state.chosenPlanId=state.chosenPlanId===btn.dataset.choosePlan?null:btn.dataset.choosePlan;
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();
+  }));
   el.querySelectorAll("[data-delete-plan]").forEach(btn=>btn.addEventListener("click",()=>{
-    state.savedPlans=state.savedPlans.filter(p=>p.id!==btn.dataset.deletePlan);
+    const id=btn.dataset.deletePlan;
+    state.savedPlans=state.savedPlans.filter(p=>p.id!==id);
+    comparePlanIds.delete(id);
+    if(state.chosenPlanId===id)state.chosenPlanId=null;
     localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();updateSavePlanButton();
   }));
-  el.querySelectorAll("[data-open-plan]").forEach(btn=>btn.addEventListener("click",()=>{
-    const plan=state.savedPlans.find(p=>p.id===btn.dataset.openPlan);if(!plan)return;
-    if(state.storages.some(s=>s.id===plan.storageId))state.selectedStorage=plan.storageId;
-    state.optimizeGoal=plan.goal||state.optimizeGoal;
-    state.enableStacking=plan.stacking ?? layoutUsesStacking(plan.layout);
-    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
-    renderAll();
-    layouts=[plan.layout.map(q=>({...q}))];
-    selectedLayout=0;selectedGap=-1;currentGaps=[];galleryWasCapped=false;
-    const sz=currentUsableSize();if(!sz)return;
-    renderGallery(sz.W,sz.D,sz.H,false);renderDetail(sz.W,sz.D,sz.H);openDetailModal();
-  }));
+  updateCompareButton();
 }
 function updateSavePlanButton(){
   const saved=currentPlanSaved();
@@ -688,7 +837,7 @@ function updateSavePlanButton(){
 }
 
 function resetResults(){
-  layouts=[];selectedLayout=0;currentGaps=[];selectedGap=-1;galleryWasCapped=false;closeDetailModal();
+  layouts=[];selectedLayout=0;currentGaps=[];selectedGap=-1;galleryWasCapped=false;closeDetailModal();closeCompareModal();
   $("resultLabel").textContent="—";$("layoutCount").textContent="—";$("bestFill").textContent="—";$("searchState").textContent="Ready";
   $("message").className="message";$("message").textContent="Select the item types you want to use, then find arrangements.";
   $("gallerySection").style.display="none";$("detailSection").style.display="";
@@ -722,10 +871,9 @@ function placementSupported(p,placed,type){
 function rawObstacles(){
   return storage()?.obstacles||[];
 }
-function usableObstacles(){
-  const S=storage();if(!S)return [];
-  const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0;
-  const W=S.w-2*c,D=S.d-2*c,H=S.h-2*c;
+function usableObstaclesFor(S,clearance=0){
+  if(!S)return [];
+  const c=Math.max(0,Number(clearance)||0),W=S.w-2*c,D=S.d-2*c,H=S.h-2*c;
   return (S.obstacles||[]).map(o=>({
     id:o.id,name:o.name||"Blocked zone",z:0,
     x:Math.max(0,(Number(o.x)||0)-c),
@@ -734,6 +882,10 @@ function usableObstacles(){
     d:Math.max(0,Math.min(Number(o.d)||0,D-Math.max(0,(Number(o.y)||0)-c))),
     h:Math.max(0,Math.min(Number(o.h)||H,H))
   })).filter(o=>o.w>0&&o.d>0&&o.x<W&&o.y<D);
+}
+function usableObstacles(){
+  const S=storage(),c=state.clearanceEnabled?Math.max(0,state.clearance||0):0;
+  return usableObstaclesFor(S,c);
 }
 function freeFloorArea(W,D,obstacles){
   const obs=obstacles.filter(o=>o.w>0&&o.d>0);
@@ -1455,13 +1607,19 @@ $("savePlanBtn").addEventListener("click",()=>{
   const existing=state.savedPlans.find(p=>p.signature===signature);
   if(existing){
     state.savedPlans=state.savedPlans.filter(p=>p.id!==existing.id);
+    comparePlanIds.delete(existing.id);
+    if(state.chosenPlanId===existing.id)state.chosenPlanId=null;
   }else{
     const sameStorage=state.savedPlans.filter(p=>p.storageId===s.id).length+1;
     state.savedPlans.push({
       id:uid("plan"),
       name:`${s.name} · Plan ${sameStorage}`,
+      note:"",
       storageId:s.id,
       storageName:s.name,
+      storageSnapshot:captureStorageSnapshot(s),
+      settings:capturePlanSettings(),
+      savedAt:new Date().toISOString(),
       goal:state.optimizeGoal,
       stacking:state.enableStacking,
       signature,
@@ -1472,11 +1630,15 @@ $("savePlanBtn").addEventListener("click",()=>{
   renderSavedPlans();updateSavePlanButton();
 });
 
+$("comparePlansBtn").addEventListener("click",openCompareModal);
+$("closeCompareModal").addEventListener("click",closeCompareModal);
+$("compareBackdrop").addEventListener("click",closeCompareModal);
 $("closeDetailModal").addEventListener("click",closeDetailModal);
 $("detailBackdrop").addEventListener("click",closeDetailModal);
 document.addEventListener("keydown",e=>{
+  if(e.key==="Escape" && compareModalOpen){ closeCompareModal(); return; }
   if(e.key==="Escape" && detailModalOpen){ closeDetailModal(); return; }
-  if(!detailModalOpen) return;
+  if(!detailModalOpen||compareModalOpen) return;
   if(e.key==="ArrowLeft" && selectedLayout>0){
     selectedLayout--; selectedGap=-1; editMode=false; selectedEditItem=-1; editOriginalLayout=null; topDrag=null;
     rerenderSelectedLayout(true);
@@ -1627,7 +1789,12 @@ $("saveBox").addEventListener("click",()=>{
   save();renderAll()
 });
 $("deleteStorage").addEventListener("click",()=>{
-  if(!editingStorage)return;state.savedPlans=state.savedPlans.filter(p=>p.storageId!==editingStorage);state.storages=state.storages.filter(x=>x.id!==editingStorage);
+  if(!editingStorage)return;
+  const removedPlanIds=new Set(state.savedPlans.filter(p=>p.storageId===editingStorage).map(p=>p.id));
+  state.savedPlans=state.savedPlans.filter(p=>p.storageId!==editingStorage);
+  comparePlanIds=new Set([...comparePlanIds].filter(id=>!removedPlanIds.has(id)));
+  if(removedPlanIds.has(state.chosenPlanId))state.chosenPlanId=null;
+  state.storages=state.storages.filter(x=>x.id!==editingStorage);
   if(state.selectedStorage===editingStorage)state.selectedStorage=state.storages[0]?.id||"";
   editingStorage=state.selectedStorage||state.storages[0]?.id||"";save();renderAll()
 });
