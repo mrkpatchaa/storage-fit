@@ -390,6 +390,12 @@ function validateBackupState(candidate){
     ids.add(`s:${s.id}`);
     if(!isFiniteNonNegative(s.w)||!isFiniteNonNegative(s.d)||!isFiniteNonNegative(s.h))return `Storage “${s.name||s.id}” has invalid dimensions.`;
     if(s.obstacles!=null&&!Array.isArray(s.obstacles))return `Storage “${s.name||s.id}” has malformed blocked zones.`;
+    if(s.dividers!=null&&!Array.isArray(s.dividers))return `Storage “${s.name||s.id}” has malformed dividers.`;
+    for(const d of s.dividers||[]){
+      if(!d||typeof d!=="object"||!d.id)return `Storage “${s.name||s.id}” has a divider without an ID.`;
+      if(!["vertical","horizontal"].includes(d.orientation))return `Storage “${s.name||s.id}” has a divider with an invalid direction.`;
+      if(!isFiniteNonNegative(d.position)||!isFiniteNonNegative(d.thickness)||!isFiniteNonNegative(d.h))return `Storage “${s.name||s.id}” has invalid divider dimensions.`;
+    }
   }
   for(const b of candidate.boxes){
     if(!b||typeof b!=="object"||!b.id)return "An item is missing its ID.";
@@ -2485,20 +2491,20 @@ $("roomSelect").addEventListener("change",()=>{
   state.selectedFurniture=firstFurniture?.id||"";
   const firstStorage=state.storages.find(s=>s.furnitureId===state.selectedFurniture);
   state.selectedStorage=firstStorage?.id||"";editingStorage=firstStorage?.id||""
-  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();renderDividerEditor();resetResults();
 });
 $("furnitureSelect").addEventListener("change",()=>{
   state.selectedFurniture=$("furnitureSelect").value;
   const f=furnitureById(state.selectedFurniture);if(f)state.selectedRoom=f.roomId;
   const firstStorage=state.storages.find(s=>s.furnitureId===state.selectedFurniture);
   state.selectedStorage=firstStorage?.id||"";editingStorage=firstStorage?.id||""
-  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();renderDividerEditor();resetResults();
 });
 $("addRoom").addEventListener("click",()=>{
   const name=prompt("Room name","New room");if(name===null)return;
   const id=uid("room");state.rooms.push({id,name:name.trim()||"New room"});
   state.selectedRoom=id;state.selectedFurniture="";state.selectedStorage="";editingStorage="";
-  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();renderDividerEditor();resetResults();
 });
 $("renameRoom").addEventListener("click",()=>{
   const room=roomById(state.selectedRoom);if(!room)return;
@@ -2517,7 +2523,7 @@ $("addFurniture").addEventListener("click",()=>{
   const name=prompt("Furniture name","New furniture");if(name===null)return;
   const id=uid("furn");state.furniture.push({id,roomId:room.id,name:name.trim()||"New furniture"});
   state.selectedFurniture=id;state.selectedStorage="";editingStorage="";
-  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();renderDividerEditor();resetResults();
 });
 $("renameFurniture").addEventListener("click",()=>{
   const furniture=furnitureById(state.selectedFurniture);if(!furniture)return;
@@ -2545,7 +2551,7 @@ $("deleteFurniture").addEventListener("click",()=>{
 });
 
 $("generateBtn").addEventListener("click",findLayouts);
-$("storageSelect").addEventListener("change",()=>{state.selectedStorage=$("storageSelect").value;editingStorage=state.selectedStorage;if(state.selectedStorage)syncHierarchyToStorage(state.selectedStorage);save();renderHierarchy();renderStorageList();loadStorageEditor();renderObstacleEditor();resetResults()});
+$("storageSelect").addEventListener("change",()=>{state.selectedStorage=$("storageSelect").value;editingStorage=state.selectedStorage;if(state.selectedStorage)syncHierarchyToStorage(state.selectedStorage);save();renderHierarchy();renderStorageList();loadStorageEditor();renderObstacleEditor();renderDividerEditor();resetResults()});
 $("optimizeGoal").addEventListener("change",()=>{
   state.optimizeGoal=$("optimizeGoal").value;save();
   const sz=currentUsableSize();
@@ -2603,6 +2609,20 @@ $("addObstacle").addEventListener("click",()=>{
   s.obstacles.push({id:uid("o"),name:`Blocked zone ${n}`,x:0,y:0,w:5,d:5,h:Math.min(s.h||5,5)});
   save();renderObstacleEditor();renderStorageList();resetResults();
 });
+function addDivider(orientation){
+  const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
+  s.dividers=s.dividers||[];
+  const span=orientation==="horizontal"?s.d:s.w;
+  s.dividers.push({
+    id:uid("d"),orientation,
+    position:round6(span/2),
+    thickness:Math.max(0.01,state.unit==="mm"?5:state.unit==="in"?0.2:0.5),
+    h:s.h
+  });
+  save();renderDividerEditor();renderStorageList();resetResults();
+}
+$("addVerticalDivider").addEventListener("click",()=>addDivider("vertical"));
+$("addHorizontalDivider").addEventListener("click",()=>addDivider("horizontal"));
 
 
 
