@@ -650,6 +650,7 @@ function compareLayoutsForGoal(a,b,W,D){
   if(state.optimizeGoal==="balanced") return balanceScore(b)-balanceScore(a) || distinctTypes(b)-distinctTypes(a) || ub-ua || b.length-a.length;
   return ub-ua || b.length-a.length || distinctTypes(b)-distinctTypes(a);
 }
+
 function planSignature(storageId,layout){
   return `${storageId}|${canonicalLayout(layout)}`;
 }
@@ -659,43 +660,174 @@ function currentPlanSaved(){
   const sig=planSignature(s.id,layout);
   return state.savedPlans.some(p=>p.signature===sig);
 }
+function capturePlanSettings(){
+  return {
+    unit:state.unit,
+    clearanceEnabled:!!state.clearanceEnabled,
+    clearance:Math.max(0,Number(state.clearance)||0),
+    fitTolerance:Math.max(0,Number(state.fitTolerance)||0),
+    uprightOnly:state.uprightOnly!==false
+  };
+}
+function captureStorageSnapshot(s){
+  return s?JSON.parse(JSON.stringify({
+    id:s.id,name:s.name,w:s.w,d:s.d,h:s.h,unit:state.unit,obstacles:s.obstacles||[]
+  })):null;
+}
+function planMetrics(plan){
+  const s=plan.storageSnapshot||state.storages.find(x=>x.id===plan.storageId);
+  const settings=plan.settings||{clearanceEnabled:false,clearance:0,unit:state.unit};
+  const c=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
+  const W=Math.max(0,(Number(s?.w)||0)-2*c),D=Math.max(0,(Number(s?.d)||0)-2*c),H=Math.max(0,(Number(s?.h)||0)-2*c);
+  const obstacles=usableObstaclesFor(s,c);
+  const stackedCount=(plan.layout||[]).filter(p=>(p.z||0)>1e-9).length;
+  const usesStacking=plan.stacking ?? stackedCount>0;
+  const denom=usesStacking?usableVolume(W,D,H,obstacles):freeFloorArea(W,D,obstacles);
+  const used=usesStacking?occupiedVolume(plan.layout||[]):occupiedArea(plan.layout||[]);
+  const utilizationPct=denom>0?used/denom*100:0;
+  return {
+    storage:s,W,D,H,stackedCount,utilizationPct,
+    utilizationKind:usesStacking?"usable volume":"usable floor",
+    itemCount:(plan.layout||[]).length,
+    distinctTypes:distinctTypes(plan.layout||[]),
+    cost:totalsText(plan.layout||[])
+  };
+}
+function updateCompareButton(){
+  const btn=$("comparePlansBtn");if(!btn)return;
+  const count=comparePlanIds.size;
+  btn.disabled=count<2;
+  btn.textContent=count?`Compare (${count})`:"Compare";
+}
+function openCompareModal(){
+  if(comparePlanIds.size<2)return;
+  compareModalOpen=true;renderCompareModal();
+  $("compareModal").classList.add("open");
+  $("compareModal").setAttribute("aria-hidden","false");
+  document.body.classList.add("modal-open");
+}
+function closeCompareModal(){
+  compareModalOpen=false;
+  $("compareModal").classList.remove("open");
+  $("compareModal").setAttribute("aria-hidden","true");
+  if(!detailModalOpen)document.body.classList.remove("modal-open");
+}
+function renderCompareModal(){
+  const plans=[...comparePlanIds].map(id=>state.savedPlans.find(p=>p.id===id)).filter(Boolean).slice(0,3);
+  const el=$("compareGrid");
+  el.innerHTML=plans.map(plan=>{
+    const m=planMetrics(plan),counts=layoutCounts(plan.layout||[]);
+    const items=Object.entries(counts).map(([id,n])=>`<li>${esc(boxById(id)?.name||"Item")} ×${n}</li>`).join("");
+    const chosen=state.chosenPlanId===plan.id;
+    return `<article class="comparecard ${chosen?"chosen":""}">
+      <div class="comparetitle">${esc(plan.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}</div>
+      <div class="comparestorage">${esc(m.storage?.name||plan.storageName||"Storage")} · ${esc(goalLabel(plan.goal))}</div>
+      <div class="comparestats">
+        <div class="comparestat"><div class="k">Utilization</div><div class="v">${m.utilizationPct.toFixed(1)}%</div><div class="small">${esc(m.utilizationKind)}</div></div>
+        <div class="comparestat"><div class="k">Items</div><div class="v">${m.itemCount}</div><div class="small">${m.distinctTypes} type${m.distinctTypes===1?"":"s"}</div></div>
+        <div class="comparestat"><div class="k">Stacked</div><div class="v">${m.stackedCount}</div><div class="small">${plan.stacking?"stacking enabled":"floor-focused"}</div></div>
+        <div class="comparestat"><div class="k">Estimated cost</div><div class="v" style="font-size:12px">${esc(m.cost)}</div></div>
+      </div>
+      <div class="compareitems"><strong>Item mix</strong><ul>${items||"<li>No items</li>"}</ul></div>
+      ${plan.note?`<div class="comparnote">${esc(plan.note)}</div>`:""}
+      <div class="savedactions">
+        <button class="btn ${chosen?"primary":"soft"}" type="button" data-compare-choose="${plan.id}">${chosen?"Chosen ✓":"Choose this plan"}</button>
+        <button class="btn soft" type="button" data-compare-open="${plan.id}">Open</button>
+      </div>
+    </article>`;
+  }).join("");
+
+  el.querySelectorAll("[data-compare-choose]").forEach(btn=>btn.addEventListener("click",()=>{
+    state.chosenPlanId=state.chosenPlanId===btn.dataset.compareChoose?null:btn.dataset.compareChoose;
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();renderCompareModal();
+  }));
+  el.querySelectorAll("[data-compare-open]").forEach(btn=>btn.addEventListener("click",()=>{
+    closeCompareModal();openSavedPlan(btn.dataset.compareOpen);
+  }));
+}
+function openSavedPlan(planId){
+  const plan=state.savedPlans.find(p=>p.id===planId);if(!plan)return;
+  if(state.storages.some(s=>s.id===plan.storageId))state.selectedStorage=plan.storageId;
+  state.optimizeGoal=plan.goal||state.optimizeGoal;
+  state.enableStacking=plan.stacking ?? layoutUsesStacking(plan.layout);
+  if(plan.settings){
+    state.clearanceEnabled=!!plan.settings.clearanceEnabled;
+    state.clearance=Math.max(0,Number(plan.settings.clearance)||0);
+    state.fitTolerance=Math.max(0,Number(plan.settings.fitTolerance)||0);
+    state.uprightOnly=plan.settings.uprightOnly!==false;
+  }
+  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
+  renderAll();
+  layouts=[plan.layout.map(q=>({...q}))];
+  selectedLayout=0;selectedGap=-1;currentGaps=[];galleryWasCapped=false;
+  const sz=currentUsableSize();if(!sz)return;
+  renderGallery(sz.W,sz.D,sz.H,false);renderDetail(sz.W,sz.D,sz.H);openDetailModal();
+}
 function renderSavedPlans(){
   const sec=$("savedPlansSection"),el=$("savedPlans");
-  if(!state.savedPlans.length){sec.style.display="none";el.innerHTML="";return}
+  comparePlanIds=new Set([...comparePlanIds].filter(id=>state.savedPlans.some(p=>p.id===id)));
+  if(!state.savedPlans.length){
+    sec.style.display="none";el.innerHTML="";state.chosenPlanId=null;comparePlanIds.clear();updateCompareButton();return;
+  }
   sec.style.display="block";
   $("savedPlansCount").textContent=`${state.savedPlans.length} saved`;
-  el.innerHTML=state.savedPlans.map((p,i)=>{
-    const s=state.storages.find(x=>x.id===p.storageId);
-    const counts={};for(const item of p.layout)counts[item.typeId]=(counts[item.typeId]||0)+1;
+  el.innerHTML=state.savedPlans.map(p=>{
+    const m=planMetrics(p),counts=layoutCounts(p.layout||[]);
     const summary=Object.entries(counts).map(([id,n])=>`${esc(boxById(id)?.name||"Item")} ×${n}`).join(" · ");
-    return `<div class="savedcard">
+    const chosen=state.chosenPlanId===p.id,selected=comparePlanIds.has(p.id);
+    return `<div class="savedcard ${chosen?"chosen":""}">
       <div class="savedhead">
-        <div><div class="savedname">${esc(p.name)}</div><div class="savedmeta">${esc(s?.name||p.storageName||"Storage")} · ${p.layout.length} item${p.layout.length===1?"":"s"}</div><span class="goallabel">${esc(goalLabel(p.goal))}</span></div>
+        <div>
+          <div class="savedname">${esc(p.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}</div>
+          <div class="savedmeta">${esc(m.storage?.name||p.storageName||"Storage")} · ${m.itemCount} item${m.itemCount===1?"":"s"} · ${m.utilizationPct.toFixed(1)}% ${esc(m.utilizationKind)}</div>
+          <span class="goallabel">${esc(goalLabel(p.goal))}</span>
+        </div>
+        <label class="savedselect"><input type="checkbox" data-compare-plan="${p.id}" ${selected?"checked":""}> compare</label>
       </div>
       <div class="small" style="margin-top:8px">${summary||"Saved layout"}</div>
-      <div class="savedmeta" style="margin-top:6px">Estimated: ${esc(totalsText(p.layout))}</div>
+      <div class="savedmeta" style="margin-top:6px">Estimated: ${esc(m.cost)}${m.stackedCount?` · ${m.stackedCount} stacked`:""}</div>
+      ${p.note?`<div class="savednote">${esc(p.note)}</div>`:""}
       <div class="savedactions">
         <button class="btn soft" type="button" data-open-plan="${p.id}">Open</button>
+        <button class="btn soft" type="button" data-rename-plan="${p.id}">Rename</button>
+        <button class="btn soft" type="button" data-note-plan="${p.id}">${p.note?"Edit note":"Add note"}</button>
+        <button class="btn ${chosen?"primary":"soft"}" type="button" data-choose-plan="${p.id}">${chosen?"Chosen ✓":"Choose"}</button>
         <button class="btn danger" type="button" data-delete-plan="${p.id}">Delete</button>
       </div>
     </div>`;
   }).join("");
+
+  el.querySelectorAll("[data-compare-plan]").forEach(input=>input.addEventListener("change",()=>{
+    const id=input.dataset.comparePlan;
+    if(input.checked){
+      if(comparePlanIds.size>=3){input.checked=false;alert("You can compare up to 3 plans at a time.");return}
+      comparePlanIds.add(id);
+    }else comparePlanIds.delete(id);
+    updateCompareButton();
+  }));
+  el.querySelectorAll("[data-open-plan]").forEach(btn=>btn.addEventListener("click",()=>openSavedPlan(btn.dataset.openPlan)));
+  el.querySelectorAll("[data-rename-plan]").forEach(btn=>btn.addEventListener("click",()=>{
+    const plan=state.savedPlans.find(p=>p.id===btn.dataset.renamePlan);if(!plan)return;
+    const name=prompt("Plan name",plan.name);if(name===null)return;
+    plan.name=name.trim()||plan.name;localStorage.setItem(KEY,JSON.stringify(state));renderSavedPlans();
+  }));
+  el.querySelectorAll("[data-note-plan]").forEach(btn=>btn.addEventListener("click",()=>{
+    const plan=state.savedPlans.find(p=>p.id===btn.dataset.notePlan);if(!plan)return;
+    const note=prompt("Plan note",plan.note||"");if(note===null)return;
+    plan.note=note.trim();localStorage.setItem(KEY,JSON.stringify(state));renderSavedPlans();
+  }));
+  el.querySelectorAll("[data-choose-plan]").forEach(btn=>btn.addEventListener("click",()=>{
+    state.chosenPlanId=state.chosenPlanId===btn.dataset.choosePlan?null:btn.dataset.choosePlan;
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();
+  }));
   el.querySelectorAll("[data-delete-plan]").forEach(btn=>btn.addEventListener("click",()=>{
-    state.savedPlans=state.savedPlans.filter(p=>p.id!==btn.dataset.deletePlan);
+    const id=btn.dataset.deletePlan;
+    state.savedPlans=state.savedPlans.filter(p=>p.id!==id);
+    comparePlanIds.delete(id);
+    if(state.chosenPlanId===id)state.chosenPlanId=null;
     localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();updateSavePlanButton();
   }));
-  el.querySelectorAll("[data-open-plan]").forEach(btn=>btn.addEventListener("click",()=>{
-    const plan=state.savedPlans.find(p=>p.id===btn.dataset.openPlan);if(!plan)return;
-    if(state.storages.some(s=>s.id===plan.storageId))state.selectedStorage=plan.storageId;
-    state.optimizeGoal=plan.goal||state.optimizeGoal;
-    state.enableStacking=plan.stacking ?? layoutUsesStacking(plan.layout);
-    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
-    renderAll();
-    layouts=[plan.layout.map(q=>({...q}))];
-    selectedLayout=0;selectedGap=-1;currentGaps=[];galleryWasCapped=false;
-    const sz=currentUsableSize();if(!sz)return;
-    renderGallery(sz.W,sz.D,sz.H,false);renderDetail(sz.W,sz.D,sz.H);openDetailModal();
-  }));
+  updateCompareButton();
 }
 function updateSavePlanButton(){
   const saved=currentPlanSaved();
