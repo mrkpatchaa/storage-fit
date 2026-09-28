@@ -1,9 +1,9 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v27";
+const KEY = "storage-fit-planner-v28";
 const RECOVERY_KEY = "storage-fit-recovery-v1";
 const RECOVERY_LIMIT = 8;
-const PREV_KEYS = ["storage-fit-planner-v26","storage-fit-planner-v25","storage-fit-planner-v24","storage-fit-planner-v23","storage-fit-planner-v22","storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const PREV_KEYS = ["storage-fit-planner-v27","storage-fit-planner-v26","storage-fit-planner-v25","storage-fit-planner-v24","storage-fit-planner-v23","storage-fit-planner-v22","storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -29,6 +29,8 @@ let pendingImport = null;
 
 state.itemLimits = state.itemLimits || {};
 state.fitTolerance = Math.max(0, Number(state.fitTolerance)||0);
+state.editSnapStep = Math.max(0.01, Number(state.editSnapStep)||defaultEditSnapStep(state.unit));
+state.editShowGrid = state.editShowGrid !== false;
 state.enableStacking = !!state.enableStacking;
 state.optimizeGoal = ["fill","compartments","simple","balanced","cost","access"].includes(state.optimizeGoal)?state.optimizeGoal:"fill";
 state.savedPlans = Array.isArray(state.savedPlans)?state.savedPlans:[];
@@ -87,7 +89,7 @@ for(const p of state.savedPlans){
 
 function defaults(){
   return {
-    unit:"cm",clearance:0.5,fitTolerance:0,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanIds:{},shoppingBought:{},installedPlanIds:{},installOrder:[],
+    unit:"cm",clearance:0.5,fitTolerance:0,editSnapStep:0.5,editShowGrid:true,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanIds:{},shoppingBought:{},installedPlanIds:{},installOrder:[],
     rooms:[{id:"room1",name:"Bedroom"}],
     furniture:[{id:"furn1",roomId:"room1",name:"Wardrobe"}],
     selectedRoom:"room1",selectedFurniture:"furn1",
@@ -115,7 +117,7 @@ function loadState(){
           selectedTypes[b.id]=Boolean(old.selectedTypes?.[b.id] || (old.selections?.[b.id]||0)>0 || b.id===old.selectedBox);
         }
         return {
-          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanIds:old.chosenPlanIds&&typeof old.chosenPlanIds==="object"?old.chosenPlanIds:{},chosenPlanId:old.chosenPlanId||null,shoppingBought:old.shoppingBought&&typeof old.shoppingBought==="object"?old.shoppingBought:{},installedPlanIds:old.installedPlanIds&&typeof old.installedPlanIds==="object"?old.installedPlanIds:{},installOrder:Array.isArray(old.installOrder)?old.installOrder:[],
+          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,editSnapStep:old.editSnapStep??defaultEditSnapStep(old.unit||"cm"),editShowGrid:old.editShowGrid!==false,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanIds:old.chosenPlanIds&&typeof old.chosenPlanIds==="object"?old.chosenPlanIds:{},chosenPlanId:old.chosenPlanId||null,shoppingBought:old.shoppingBought&&typeof old.shoppingBought==="object"?old.shoppingBought:{},installedPlanIds:old.installedPlanIds&&typeof old.installedPlanIds==="object"?old.installedPlanIds:{},installOrder:Array.isArray(old.installOrder)?old.installOrder:[],
           clearanceEnabled:!!old.clearanceEnabled,rooms:Array.isArray(old.rooms)?old.rooms:[],furniture:Array.isArray(old.furniture)?old.furniture:[],
           selectedRoom:old.selectedRoom||"",selectedFurniture:old.selectedFurniture||"",
           storages:old.storages,boxes:old.boxes,
@@ -298,6 +300,7 @@ function convertAllUnits(from,to){
   }
   state.clearance=cv(state.clearance);
   state.fitTolerance=cv(state.fitTolerance);
+  state.editSnapStep=Math.max(0.01,cv(state.editSnapStep||0.5));
   state.unit=to;
 }
 
@@ -334,7 +337,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:27,
+    appVersion:28,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
@@ -396,7 +399,7 @@ function createRecoveryCheckpoint(reason,data=state){
   }
   const entry={
     id:uid("rec"),createdAt:new Date().toISOString(),reason:String(reason||"Recovery checkpoint").slice(0,120),
-    appVersion:27,data:snapshot
+    appVersion:28,data:snapshot
   };
   writeRecoveryJournal([entry,...journal]);renderRecoveryHistory();return entry;
 }
@@ -2384,6 +2387,10 @@ function topGeometry(W,D,width,height){
 }
 function svgTop(layout,W,D,width,height,labels=true,editable=false,selected=-1,highlightGap=null){
   const g=topGeometry(W,D,width,height),bad=editable?invalidEditIndices(layout,W,D):new Set(),obstacles=usableObstacles();
+  const gridStep=normalizeSnapStep(state.editSnapStep),gridPx=gridStep*g.scale;
+  const grid=editable&&state.editShowGrid&&gridPx>=2
+    ? `<defs><pattern id="edit-grid" x="${g.ox}" y="${g.oy}" width="${gridPx}" height="${gridPx}" patternUnits="userSpaceOnUse"><path d="M ${gridPx} 0 L 0 0 0 ${gridPx}" fill="none" stroke="#88929a" stroke-opacity=".18" stroke-width="1"/></pattern></defs><rect x="${g.ox}" y="${g.oy}" width="${W*g.scale}" height="${D*g.scale}" fill="url(#edit-grid)" pointer-events="none"/>`
+    : "";
   const obstacleRects=obstacles.map(o=>{
     const divider=o.kind==="divider",color=divider?"#416b8e":"#b23c3c",textColor=divider?"#31536f":"#8b2e2e";
     if(divider)return `<g>
@@ -2407,7 +2414,7 @@ function svgTop(layout,W,D,width,height,labels=true,editable=false,selected=-1,h
     </g>`;
   }).join("");
   const gapMark=highlightGap?`<rect x="${g.ox+highlightGap.x*g.scale}" y="${g.oy+highlightGap.y*g.scale}" width="${highlightGap.w*g.scale}" height="${highlightGap.d*g.scale}" fill="#166c45" fill-opacity=".08" stroke="#166c45" stroke-width="3" stroke-dasharray="8 5"/><text x="${g.ox+(highlightGap.x+highlightGap.w/2)*g.scale}" y="${g.oy+(highlightGap.y+highlightGap.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="800" fill="#166c45">${fmt(highlightGap.w)} × ${fmt(highlightGap.d)} ${esc(state.unit)}</text>`:"";
-  return `<svg class="preview" viewBox="0 0 ${width} ${height}" role="img" aria-label="Top view"><rect x="${g.ox}" y="${g.oy}" width="${W*g.scale}" height="${D*g.scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${obstacleRects}${gapMark}${rects}</svg>`;
+  return `<svg class="preview" viewBox="0 0 ${width} ${height}" role="img" aria-label="Top view"><rect x="${g.ox}" y="${g.oy}" width="${W*g.scale}" height="${D*g.scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${grid}${obstacleRects}${gapMark}${rects}</svg>`;
 }
 function shortName(s){return s.length>12?s.slice(0,10)+"…":s}
 function placementLabel(p){return String(p?.label||"").trim().slice(0,60)}
@@ -2507,6 +2514,12 @@ function renderDetail(W,D,H){
   labelInput.disabled=!editMode||!selectedPlacement;
   labelInput.value=selectedPlacement?placementLabel(selectedPlacement):"";
   labelInput.placeholder=selectedPlacement?"e.g. Socks":"Select a box, e.g. Socks";
+  $("editSnapStep").value=String(round6(normalizeSnapStep(state.editSnapStep)));
+  $("editSnapUnit").textContent=state.unit;
+  $("editShowGrid").checked=state.editShowGrid!==false;
+  const selectedType=selectedPlacement?boxById(selectedPlacement.typeId):null;
+  $("moveItemFloor").disabled=!editMode||!selectedPlacement||(Number(selectedPlacement.z)||0)<=1e-9;
+  $("stackItem").disabled=!editMode||!selectedPlacement||!state.enableStacking||!selectedType?.canBeStacked;
   $("detailViz").classList.toggle("is-3d",detailView==="iso"&&!editMode);
   let svg="";
   if(detailView==="front")svg=svgFront(layout,W,H);
@@ -2590,6 +2603,17 @@ function currentUsableSize(){
   return {W:S.w-2*c,D:S.d-2*c,H:S.h-2*c};
 }
 function selectedManualLayout(){return layouts[selectedLayout]}
+function defaultEditSnapStep(unit){
+  return unit==="mm"?5:unit==="in"?0.2:0.5;
+}
+function normalizeSnapStep(value){
+  const n=Number(value);
+  return Math.max(0.01,Math.min(10000,Number.isFinite(n)&&n>0?n:defaultEditSnapStep(state.unit)));
+}
+function snapValue(value,step=state.editSnapStep){
+  const s=normalizeSnapStep(step);
+  return round6(Math.round((Number(value)||0)/s)*s);
+}
 function editItemValid(layout,index,W,D){
   if(index<0||index>=layout.length)return false;
   const p=layout[index],gap=Math.max(0,state.fitTolerance||0),obstacles=usableObstacles(),H=currentUsableSize()?.H||Infinity;
@@ -2607,6 +2631,61 @@ function setEditStatus(msg,bad=false){
   $("editStatus").textContent=msg;
   $("editStatus").style.color=bad?"var(--bad)":"var(--muted)";
 }
+function clampSnappedValue(value,min,max,step=state.editSnapStep){
+  if(max<min)return min;
+  const snapped=snapValue(value,step);
+  return round6(Math.max(min,Math.min(max,snapped)));
+}
+function manualRelocationCandidates(layout,index,target,W,D,H){
+  if(!layout||index<0||index>=layout.length)return [];
+  const p=layout[index],type=boxById(p.typeId),others=layout.filter((_,i)=>i!==index);
+  if(!type)return [];
+  const gap=Math.max(0,state.fitTolerance||0),obstacles=usableObstacles(),all=[];
+  if(target==="floor")all.push({...p,z:0});
+  const generated=candidatePlacementsFor(others,type,[p.w,p.d,p.h],W,D,H,obstacles,gap)
+    .filter(q=>target==="stack"?(q.z||0)>1e-9:(q.z||0)<=1e-9);
+  all.push(...generated);
+  const seen=new Set(),unique=[];
+  for(const q of all){
+    const key=`${round6(q.x)}|${round6(q.y)}|${round6(q.z||0)}`;
+    if(seen.has(key))continue;seen.add(key);unique.push(q);
+  }
+  return unique.sort((a,b)=>{
+    const da=Math.abs(a.x-p.x)+Math.abs(a.y-p.y),db=Math.abs(b.x-p.x)+Math.abs(b.y-p.y);
+    return da-db||Math.abs((a.z||0)-(p.z||0))-Math.abs((b.z||0)-(p.z||0));
+  });
+}
+function relocateSelectedPlacement(target){
+  const layout=selectedManualLayout(),sz=currentUsableSize();
+  if(!editMode||!layout||!sz||selectedEditItem<0){setEditStatus("Select a box first.",true);return false}
+  const p=layout[selectedEditItem],type=boxById(p.typeId);
+  if(target==="stack"&&(!state.enableStacking||!type?.canBeStacked)){
+    setEditStatus("Enable stacking and allow this item to sit on another item first.",true);return false;
+  }
+  const old={x:p.x,y:p.y,z:Number(p.z)||0};
+  for(const q of manualRelocationCandidates(layout,selectedEditItem,target,sz.W,sz.D,sz.H)){
+    p.x=q.x;p.y=q.y;p.z=Number(q.z)||0;
+    if(editItemValid(layout,selectedEditItem,sz.W,sz.D)){
+      selectedGap=-1;updateSavePlanButton();
+      setEditStatus(target==="stack"?`Stacked at level ${placementStackLevel(p,layout.filter((_,i)=>i!==selectedEditItem))}.`:"Moved to floor.");
+      refreshCurrentDetail();return true;
+    }
+  }
+  p.x=old.x;p.y=old.y;p.z=old.z;
+  setEditStatus(target==="stack"?"No valid support is available for this item.":"No valid floor position is available.",true);
+  refreshCurrentDetail();return false;
+}
+function nudgeSelectedPlacement(dx,dy){
+  const layout=selectedManualLayout(),sz=currentUsableSize();
+  if(!editMode||detailView!=="top"||!layout||!sz||selectedEditItem<0)return false;
+  const p=layout[selectedEditItem],old={x:p.x,y:p.y},gap=Math.max(0,state.fitTolerance||0);
+  p.x=clampSnappedValue(p.x+dx,gap,sz.W-p.w-gap);
+  p.y=clampSnappedValue(p.y+dy,gap,sz.D-p.d-gap);
+  if(!editItemValid(layout,selectedEditItem,sz.W,sz.D)){
+    p.x=old.x;p.y=old.y;setEditStatus("Nudge rejected: collision, bounds, or stack support.",true);refreshCurrentDetail();return false;
+  }
+  selectedGap=-1;updateSavePlanButton();setEditStatus(`Moved to ${fmt(p.x)}, ${fmt(p.y)} ${state.unit}.`);refreshCurrentDetail();return true;
+}
 function refreshCurrentDetail(){
   const sz=currentUsableSize();if(sz&&layouts.length)renderDetail(sz.W,sz.D,sz.H);
 }
@@ -2623,7 +2702,7 @@ $("editLayoutBtn").addEventListener("click",()=>{
     editOriginalLayout=selectedManualLayout().map(p=>({...p}));
     selectedEditItem=-1;
     detailView="top";
-    setEditStatus("Click a box, drag it to move, or use the edit buttons. Stacked items keep their current elevation.");
+    setEditStatus("Click a box, drag it, use Arrow keys to nudge, or change its floor/stack level.");
   }
   refreshCurrentDetail();
 });
@@ -2637,6 +2716,25 @@ $("placementLabel").addEventListener("input",()=>{
 });
 $("placementLabel").addEventListener("keydown",e=>{
   if(e.key==="Enter"){e.preventDefault();$("placementLabel").blur()}
+});
+$("editSnapStep").addEventListener("change",()=>{
+  state.editSnapStep=normalizeSnapStep($("editSnapStep").value);
+  localStorage.setItem(KEY,JSON.stringify(state));refreshCurrentDetail();
+});
+$("editShowGrid").addEventListener("change",()=>{
+  state.editShowGrid=$("editShowGrid").checked;
+  localStorage.setItem(KEY,JSON.stringify(state));refreshCurrentDetail();
+});
+$("moveItemFloor").addEventListener("click",()=>relocateSelectedPlacement("floor"));
+$("stackItem").addEventListener("click",()=>relocateSelectedPlacement("stack"));
+
+document.addEventListener("keydown",e=>{
+  if(!editMode||detailView!=="top"||selectedEditItem<0)return;
+  if(e.target?.closest?.("input,textarea,select,button"))return;
+  const dir={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];
+  if(!dir)return;
+  const step=normalizeSnapStep(state.editSnapStep)*(e.shiftKey?5:1);
+  e.preventDefault();nudgeSelectedPlacement(dir[0]*step,dir[1]*step);
 });
 
 $("doneEdit").addEventListener("click",()=>{
@@ -2717,10 +2815,10 @@ $("detailViz").addEventListener("pointermove",e=>{
   const rect=svg.getBoundingClientRect(),g=topGeometry(sz.W,sz.D,760,430);
   const dx=(e.clientX-topDrag.startX)/rect.width*760/g.scale;
   const dy=(e.clientY-topDrag.startY)/rect.height*430/g.scale;
-  const snap=.5;
+  const snap=normalizeSnapStep(state.editSnapStep);
   const gap=Math.max(0,state.fitTolerance||0);
-  p.x=Math.max(gap,Math.min(sz.W-p.w-gap,Math.round((topDrag.origX+dx)/snap)*snap));
-  p.y=Math.max(gap,Math.min(sz.D-p.d-gap,Math.round((topDrag.origY+dy)/snap)*snap));
+  p.x=clampSnappedValue(topDrag.origX+dx,gap,sz.W-p.w-gap,snap);
+  p.y=clampSnappedValue(topDrag.origY+dy,gap,sz.D-p.d-gap,snap);
   setEditStatus(editItemValid(layout,selectedEditItem,sz.W,sz.D)?"Position valid.":"Collision — release to revert.",!editItemValid(layout,selectedEditItem,sz.W,sz.D));
   refreshCurrentDetail();
   e.preventDefault();
@@ -3158,6 +3256,10 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     maxStackLevelAllows,
     accessPenalty,
     compareAccess,
+    defaultEditSnapStep,
+    normalizeSnapStep,
+    snapValue,
+    clampSnappedValue,
     overlap3D,
     footprintContains
   };

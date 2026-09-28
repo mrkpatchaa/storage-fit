@@ -205,6 +205,10 @@
       result(normalizedRecovery.every(function(x){return x.data&&typeof x.reason==="string"}),"recovery journal filters malformed entries");
       var recoveryMeta=api.recoveryEntryMeta({data:{storages:[{},{}],boxes:[{}],savedPlans:[{},{},{}]}});
       result(recoveryMeta.storages===2&&recoveryMeta.items===1&&recoveryMeta.plans===3,"recovery checkpoint summary counts project contents");
+      result(api.defaultEditSnapStep("cm")===0.5&&api.defaultEditSnapStep("mm")===5&&api.defaultEditSnapStep("in")===0.2,"manual edit snap defaults preserve a practical physical scale across units");
+      result(api.snapValue(1.24,0.5)===1&&api.snapValue(1.26,0.5)===1.5,"manual edit snapping rounds to the configured step");
+      result(api.snapValue(0.037,0.01)===0.04,"manual edit snapping preserves fine precision");
+      result(api.clampSnappedValue(9.9,0,9,0.5)===9&&api.clampSnappedValue(-1,0,9,0.5)===0,"manual edit snapping respects storage bounds");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{

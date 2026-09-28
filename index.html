@@ -128,7 +128,7 @@
             <button class="btn soft" id="restoreAllBtn" type="button">Restore backup</button>
             <input id="restoreFileInput" type="file" accept=".json,application/json" hidden>
           </div>
-          <div class="datastatus" id="backupStatus">Backup includes rooms, furniture, storage spaces, blocked zones, custom dividers, items, handling preferences, placement labels, saved-plan validation snapshots, owned inventory, shopping progress, install order/status, product metadata, settings, quantity limits, saved plans, and chosen project plans.</div>
+          <div class="datastatus" id="backupStatus">Backup includes rooms, furniture, storage spaces, blocked zones, custom dividers, items, handling preferences, placement labels, manual-editing preferences, saved-plan validation snapshots, owned inventory, shopping progress, install order/status, product metadata, settings, quantity limits, saved plans, and chosen project plans.</div>
           <div class="recoverypanel">
             <div class="recoveryhead">
               <div><strong>Recovery</strong><div class="small">Automatic local checkpoints before destructive changes. Keeps the latest 8.</div></div>
@@ -281,6 +281,13 @@
             <label for="placementLabel">Purpose / label</label>
             <input id="placementLabel" type="text" maxlength="60" placeholder="Select a box, e.g. Socks" disabled>
           </div>
+          <div class="editsetting">
+            <label for="editSnapStep">Snap</label>
+            <div class="editsettingline"><input id="editSnapStep" type="number" min="0.01" step="0.01"><span id="editSnapUnit">cm</span></div>
+          </div>
+          <label class="editcheck"><input id="editShowGrid" type="checkbox" checked> Grid</label>
+          <button class="btn soft" id="moveItemFloor" type="button">Move to floor</button>
+          <button class="btn soft" id="stackItem" type="button">Stack on support</button>
           <button class="btn soft" id="rotateItem" type="button">Rotate 90°</button>
           <button class="btn soft" id="duplicateItem" type="button">Duplicate</button>
           <button class="btn danger" id="removeItem" type="button">Remove</button>
@@ -297,7 +304,9 @@
             <ul>
               <li>Front is the default view, followed by the draggable 3D view.</li>
               <li>Top view is useful for checking exact drawer-floor placement.</li>
-              <li>Use Edit layout to drag boxes in Top view and give individual organizers a purpose such as Socks or Cables.</li>
+              <li>Use Edit layout to drag or nudge boxes in Top view. Arrow keys move by one snap step; Shift + Arrow moves by five.</li>
+              <li>Use Move to floor / Stack on support to change elevation without rebuilding the layout.</li>
+              <li>Give individual organizers a purpose such as Socks or Cables.</li>
               <li>Striped red shapes are blocked zones and are never used by the optimizer.</li>
               <li>Stacked items show their elevation in Top view; Front, Side and 3D use their real vertical position.</li>
             </ul>
