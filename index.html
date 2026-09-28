@@ -40,8 +40,12 @@
             <input class="picker" id="smartUrl" type="url" placeholder="Paste IKEA or another product URL">
             <button class="btn primary" id="smartImportBtn" type="button">Import</button>
           </div>
-          <div class="smartstatus" id="smartStatus">Paste a public product page. The importer will try to fill name, dimensions, price, reference, image and link.</div>
+          <div class="smartstatus" id="smartStatus">Paste a public product page. Nothing is added until you review the detected details.</div>
           <div class="smartpreview" id="smartPreview"></div>
+        </div>
+        <div class="librarybar">
+          <input class="picker" id="itemSearch" type="search" placeholder="Search items by name, SKU or retailer">
+          <span class="small" id="itemSearchCount"></span>
         </div>
         <div class="list" id="boxList"></div>
         <div class="editor">
