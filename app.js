@@ -1018,20 +1018,22 @@ function currentExportPayload(){
   const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0;
   return {
     format:"storage-fit-plan",
-    version:1,
+    version:2,
     exportedAt:new Date().toISOString(),
     storage:{
       id:s.id,name:s.name,width:s.w,depth:s.d,height:s.h,unit:state.unit,
       wallClearance:state.clearanceEnabled?state.clearance:0,
       fitTolerance:state.fitTolerance,
-      obstacles:(s.obstacles||[]).map(o=>({...o}))
+      obstacles:(s.obstacles||[]).map(o=>({...o})),
+      dividers:(s.dividers||[]).map(d=>({...d}))
     },
     optimizationGoal:state.optimizeGoal,
     stackingEnabled:state.enableStacking,
     utilizationKind:utilizationNoun(layout),
     utilization:Number((utilization(layout,s.w-2*c,s.d-2*c,s.h-2*c)*100).toFixed(2)),
     items:shoppingRows(layout),
-    placements:layout.map(p=>({...p}))
+    contents:labeledPlacements(layout),
+    placements:layout.map(p=>({...p,label:placementLabel(p)}))
   };
 }
 function downloadJson(filename,data){
@@ -1051,6 +1053,7 @@ function buildPrintSheet(){
       <div class="printviz"><h2>Front view</h2>${svgFront(layout,W,H,640,340)}</div>
       <div class="printviz"><h2>Top view</h2>${svgTop(layout,W,D,640,340,true,false,-1,null)}</div>
     </div>
+    ${labeledPlacements(layout).length?`<h2>Contents / labels</h2><table><thead><tr><th>#</th><th>Purpose</th><th>Organizer</th><th>Position</th></tr></thead><tbody>${labeledPlacements(layout).map(x=>`<tr><td>${x.index+1}</td><td><strong>${esc(x.label)}</strong></td><td>${esc(x.itemName)}</td><td>${fmt(x.x)}, ${fmt(x.y)}${x.z>0?`, z ${fmt(x.z)}`:""} ${esc(state.unit)}</td></tr>`).join("")}</tbody></table>`:""}
     <h2>Shopping list</h2>
     <table><thead><tr><th>Item</th><th>Use</th><th>Owned</th><th>Buy</th><th>Unit price</th><th>Subtotal</th></tr></thead>
     <tbody>${rows.map(r=>`<tr><td>${esc(r.name)}${r.sku?` · ${esc(r.sku)}`:""}${r.url&&r.buyQty?`<br><a href="${esc(r.url)}">${esc(r.url)}</a>`:""}</td><td>${r.qty}</td><td>${r.ownedUsed}</td><td>${r.buyQty}</td><td>${r.buyQty&&r.price>0?money(r.price,r.currency):"—"}</td><td>${r.buyQty&&r.price>0?money(r.subtotal,r.currency):r.buyQty?"—":"✓"}</td></tr>`).join("")}</tbody></table>
@@ -1269,13 +1272,14 @@ function renderInstallDashboard(){
     <div class="installstat"><div class="k">Installed</div><div class="v">${installed}</div><div class="progressbar"><span style="width:${entries.length?Math.round(installed/entries.length*100):0}%"></span></div></div>`;
 
   $("installQueue").innerHTML=entries.map((entry,index)=>{
-    const plan=entry.plan,m=planMetrics(plan);
+    const plan=entry.plan,m=planMetrics(plan),contents=labeledPlacements(plan.layout||[]);
     const missing=entry.missing.map(x=>`${esc(boxById(x.id)?.name||"Item")} ×${x.qty}`).join(" · ");
     const label=entry.status==="installed"?"Installed":entry.status==="ready"?"Ready now":"Waiting for inventory";
     return `<div class="installcard ${entry.status}">
       <div>
         <div class="installtitle">${esc(m.storagePath)}</div>
         <div class="installmeta">${esc(plan.name)} · ${m.itemCount} organizer${m.itemCount===1?"":"s"}</div>
+        ${contents.length?`<div class="installmeta">Contents: ${contents.slice(0,4).map(x=>esc(x.label)).join(" · ")}${contents.length>4?` · +${contents.length-4} more`:""}</div>`:""}
         <span class="installstatus ${entry.status}">${label}</span>
         ${entry.status==="waiting"?`<div class="installmissing">Missing: ${missing}</div>`:""}
       </div>
@@ -2787,6 +2791,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeInstallState,
     computeInstallAllocation,
     repeatStorageNames,
+    canonicalPlanLayout,
+    labeledPlacements,
     dividerRectsForStorage,
     physicalObstaclesForStorage,
     storageStructureSignature,
