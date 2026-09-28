@@ -1085,7 +1085,7 @@ function buildPrintSheet(){
 }
 
 function goalLabel(goal=state.optimizeGoal){
-  return ({fill:"Best use of space",compartments:"Most compartments",simple:"Simplest setup",balanced:"Balanced mix",cost:"Cheapest to implement"})[goal]||"Best use of space";
+  return ({fill:"Best use of space",compartments:"Most compartments",simple:"Simplest setup",balanced:"Balanced mix",cost:"Cheapest to implement",access:"Easiest access"})[goal]||"Best use of space";
 }
 function balanceScore(layout){
   const counts=Object.values(layoutCounts(layout));
@@ -1095,13 +1095,21 @@ function balanceScore(layout){
   for(const c of counts){const p=c/total;entropy-=p*Math.log(p)}
   return entropy/Math.log(counts.length);
 }
+function accessPenalty(layout,D){
+  const preferred=(layout||[]).filter(p=>boxById(p.typeId)?.frontPriority);
+  if(!preferred.length)return 0;
+  const depth=Math.max(1e-9,Number(D)||1);
+  return preferred.reduce((sum,p)=>sum+Math.max(0,Math.min(1,(p.y+p.d/2)/depth)),0)/preferred.length;
+}
+function compareAccess(a,b,D){return accessPenalty(a,D)-accessPenalty(b,D)}
 function compareLayoutsForGoal(a,b,W,D){
-  const ua=utilization(a,W,D),ub=utilization(b,W,D);
-  if(state.optimizeGoal==="cost") return comparePurchaseCost(a,b,W,D);
-  if(state.optimizeGoal==="compartments") return b.length-a.length || ub-ua || distinctTypes(b)-distinctTypes(a);
-  if(state.optimizeGoal==="simple") return distinctTypes(a)-distinctTypes(b) || a.length-b.length || ub-ua;
-  if(state.optimizeGoal==="balanced") return balanceScore(b)-balanceScore(a) || distinctTypes(b)-distinctTypes(a) || ub-ua || b.length-a.length;
-  return ub-ua || b.length-a.length || distinctTypes(b)-distinctTypes(a);
+  const ua=utilization(a,W,D),ub=utilization(b,W,D),access=compareAccess(a,b,D);
+  if(state.optimizeGoal==="access") return access || ub-ua || b.length-a.length || distinctTypes(b)-distinctTypes(a);
+  if(state.optimizeGoal==="cost") return comparePurchaseCost(a,b,W,D) || access;
+  if(state.optimizeGoal==="compartments") return b.length-a.length || access || ub-ua || distinctTypes(b)-distinctTypes(a);
+  if(state.optimizeGoal==="simple") return distinctTypes(a)-distinctTypes(b) || access || a.length-b.length || ub-ua;
+  if(state.optimizeGoal==="balanced") return balanceScore(b)-balanceScore(a) || access || distinctTypes(b)-distinctTypes(a) || ub-ua || b.length-a.length;
+  return ub-ua || access || b.length-a.length || distinctTypes(b)-distinctTypes(a);
 }
 
 function planSignature(storageId,layout){
@@ -1640,9 +1648,12 @@ function resetResults(){
 }
 
 function orientations(item,forceUpright=state.uprightOnly){
-  const uprightOnly=forceUpright || item.uprightOnly!==false;
-  const raw=uprightOnly?[[item.w,item.d,item.h],[item.d,item.w,item.h]]:
-    [[item.w,item.d,item.h],[item.w,item.h,item.d],[item.d,item.w,item.h],[item.d,item.h,item.w],[item.h,item.w,item.d],[item.h,item.d,item.w]];
+  const uprightOnly=forceUpright || item.uprightOnly!==false,locked=!!item.floorRotationLocked;
+  const raw=uprightOnly
+    ? (locked?[[item.w,item.d,item.h]]:[[item.w,item.d,item.h],[item.d,item.w,item.h]])
+    : (locked
+      ? [[item.w,item.d,item.h],[item.w,item.h,item.d],[item.h,item.d,item.w]]
+      : [[item.w,item.d,item.h],[item.w,item.h,item.d],[item.d,item.w,item.h],[item.d,item.h,item.w],[item.h,item.w,item.d],[item.h,item.d,item.w]]);
   const seen=new Set();return raw.filter(o=>{const k=o.join("|");if(seen.has(k))return false;seen.add(k);return true});
 }
 function overlap(a,b,gap=0){return !(a.x+a.w+gap<=b.x || b.x+b.w+gap<=a.x || a.y+a.d+gap<=b.y || b.y+b.d+gap<=a.y)}
@@ -1658,10 +1669,22 @@ function supportingBaseFor(p,placed){
     return !!rule?.canSupportStack && Math.abs((Number(base.z)||0)+base.h-z)<=1e-9 && footprintContains(base,p);
   })||null;
 }
+function placementStackLevel(p,placed){
+  let current=p,level=1;
+  const seen=new Set();
+  while((Number(current.z)||0)>1e-9){
+    const base=supportingBaseFor(current,placed);
+    if(!base||seen.has(base))return Infinity;
+    seen.add(base);level++;current=base;
+  }
+  return level;
+}
 function placementSupported(p,placed,type){
   const z=Number(p.z)||0;
   if(z<=1e-9)return true;
-  return !!state.enableStacking && !!type?.canBeStacked && !!supportingBaseFor(p,placed);
+  if(!state.enableStacking||!type?.canBeStacked||!supportingBaseFor(p,placed))return false;
+  const level=placementStackLevel(p,placed);
+  return !type.maxStackLevel || level<=type.maxStackLevel;
 }
 function dividerRectsForStorage(S){
   if(!S)return [];
