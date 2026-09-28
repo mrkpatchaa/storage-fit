@@ -162,6 +162,25 @@
       result(api.compareAccess(near,far,10,lookup)<0,"access comparator ranks front-loaded layout first");
       var noPriority=function(){return {frontPriority:false}};
       result(api.accessPenalty(far,10,noPriority)===0,"items without front priority do not affect access scoring");
+      var healthStorage={id:"hs",name:"Health drawer",w:20,d:20,h:10,obstacles:[],dividers:[]};
+      var healthItem={id:"hb",name:"Health bin",w:5,d:5,h:5,uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:false,canSupportStack:false,maxStackLevel:null};
+      var healthPlan={
+        id:"hp",storageId:"hs",storageSnapshot:JSON.parse(JSON.stringify(healthStorage)),
+        itemSnapshots:{hb:api.itemPlanningSnapshot(healthItem)},
+        settings:{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true},
+        stacking:false,layout:[{typeId:"hb",x:0,y:0,z:0,w:5,d:5,h:5}]
+      };
+      var healthLookup=function(id){return id==="hb"?healthItem:null};
+      result(api.planHealthFromData(healthPlan,healthStorage,healthLookup).status==="current","unchanged saved plan stays current");
+      var widerStorage=JSON.parse(JSON.stringify(healthStorage));widerStorage.w=21;
+      var reviewHealth=api.planHealthFromData(healthPlan,widerStorage,healthLookup);
+      result(reviewHealth.status==="review"&&reviewHealth.canRevalidate===true,"harmless storage change requires review but can revalidate");
+      var blockedStorage=JSON.parse(JSON.stringify(healthStorage));blockedStorage.obstacles=[{id:"o",x:0,y:0,w:5,d:5,h:5}];
+      result(api.planHealthFromData(healthPlan,blockedStorage,healthLookup).status==="invalid","new obstacle invalidates a colliding saved plan");
+      var preferenceItem=JSON.parse(JSON.stringify(healthItem));preferenceItem.frontPriority=true;
+      result(api.planHealthFromData(healthPlan,healthStorage,function(){return preferenceItem}).status==="review","handling preference change marks a still-valid plan for review");
+      var resizedItem=JSON.parse(JSON.stringify(healthItem));resizedItem.w=6;
+      result(api.planHealthFromData(healthPlan,healthStorage,function(){return resizedItem}).status==="invalid","incompatible item dimension change invalidates saved placement");
       var legacy={storages:[{id:"s1",name:"Drawer",w:10,d:10,h:10}],boxes:[{id:"b1",name:"Box",w:5,d:5,h:5}],rooms:[],furniture:[],selectedStorage:"s1"};
       api.ensureHomeHierarchy(legacy);
       result(legacy.rooms.length===1,"legacy data gets a fallback room");
@@ -174,6 +193,8 @@
       result(api.validateBackupState(invalidDividerBackup)!=="","backup validation rejects invalid divider direction");
       var invalidStackBackup={storages:[{id:"s",name:"Drawer",w:10,d:10,h:10}],boxes:[{id:"b",name:"Box",w:2,d:2,h:2,maxStackLevel:10}]};
       result(api.validateBackupState(invalidStackBackup)!=="","backup validation rejects stack levels above the supported range");
+      var invalidSnapshotBackup={storages:[{id:"s",name:"Drawer",w:10,d:10,h:10}],boxes:[{id:"b",name:"Box",w:2,d:2,h:2}],savedPlans:[{id:"p",storageId:"s",itemSnapshots:[]} ]};
+      result(api.validateBackupState(invalidSnapshotBackup)!=="","backup validation rejects malformed saved-plan item snapshots");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{
