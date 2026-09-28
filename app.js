@@ -2681,6 +2681,18 @@ function renderDetail(W,D,H){
   labelInput.disabled=!editMode||!selectedPlacement;
   labelInput.value=selectedPlacement?placementLabel(selectedPlacement):"";
   labelInput.placeholder=selectedPlacement?"e.g. Socks":"Select a box, e.g. Socks";
+  const coordStep=String(round6(normalizeSnapStep(state.editSnapStep))),coords=[
+    ["placementX","x",W-selectedPlacement?.w],
+    ["placementY","y",D-selectedPlacement?.d],
+    ["placementZ","z",H-selectedPlacement?.h]
+  ];
+  for(const [id,key,max] of coords){
+    const input=$(id);input.disabled=!editMode||!selectedPlacement;
+    input.step=coordStep;input.min="0";
+    input.max=selectedPlacement?String(round6(Math.max(0,max))):"";
+    input.value=selectedPlacement?String(round6(Number(selectedPlacement[key])||0)):"";
+  }
+  $("placementCoordUnit").textContent=state.unit;
   $("editSnapStep").value=String(round6(normalizeSnapStep(state.editSnapStep)));
   $("editSnapUnit").textContent=state.unit;
   $("editShowGrid").checked=state.editShowGrid!==false;
@@ -2913,6 +2925,26 @@ function snapValue(value,step=state.editSnapStep){
   const s=normalizeSnapStep(step);
   return round6(Math.round((Number(value)||0)/s)*s);
 }
+function placementCoordinateCandidate(source,axis,value){
+  const n=Number(value);
+  if(!source||!["x","y","z"].includes(axis)||!Number.isFinite(n))return null;
+  return {...source,[axis]:round6(n)};
+}
+function applyPlacementCoordinate(axis,value){
+  const layout=selectedManualLayout(),sz=currentUsableSize();
+  if(!editMode||!layout||!sz||selectedEditItem<0)return false;
+  const current=layout[selectedEditItem],candidate=placementCoordinateCandidate(current,axis,value);
+  if(!candidate){setEditStatus("Enter a valid coordinate.",true);refreshCurrentDetail();return false}
+  if(Math.abs((Number(candidate[axis])||0)-(Number(current[axis])||0))<=1e-9){refreshCurrentDetail();return true}
+  const trial=cloneLayoutSnapshot(layout);trial[selectedEditItem]=candidate;
+  if(!editItemValid(trial,selectedEditItem,sz.W,sz.D)){
+    setEditStatus("Coordinate rejected: collision, bounds, or stack support.",true);refreshCurrentDetail();return false;
+  }
+  layouts[selectedLayout]=trial;selectedGap=-1;updateSavePlanButton();
+  recordEditHistory(`Set ${axis.toUpperCase()} coordinate`);
+  setEditStatus(`${axis.toUpperCase()} = ${fmt(candidate[axis])} ${state.unit}.`);
+  refreshCurrentDetail();return true;
+}
 function editItemValid(layout,index,W,D){
   if(index<0||index>=layout.length)return false;
   const p=layout[index],gap=Math.max(0,state.fitTolerance||0),obstacles=usableObstacles(),H=currentUsableSize()?.H||Infinity;
@@ -3018,6 +3050,10 @@ $("placementLabel").addEventListener("change",()=>recordEditHistory("Edit label"
 $("placementLabel").addEventListener("keydown",e=>{
   if(e.key==="Enter"){e.preventDefault();$("placementLabel").blur()}
 });
+for(const [id,axis] of [["placementX","x"],["placementY","y"],["placementZ","z"]]){
+  $(id).addEventListener("change",()=>applyPlacementCoordinate(axis,$(id).value));
+  $(id).addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();$(id).blur()}});
+}
 $("editSnapStep").addEventListener("change",()=>{
   state.editSnapStep=normalizeSnapStep($("editSnapStep").value);
   localStorage.setItem(KEY,JSON.stringify(state));refreshCurrentDetail();
@@ -3595,6 +3631,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeSnapStep,
     snapValue,
     clampSnappedValue,
+    placementCoordinateCandidate,
     makeEditHistory,
     appendEditHistoryState,
     stepEditHistoryState,
