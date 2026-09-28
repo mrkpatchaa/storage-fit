@@ -1439,7 +1439,8 @@ function findLayouts(){
   if(rejected.length){
     showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${rejected.map(x=>x.name).join(", ")} cannot fit at all and was excluded.${truncated?" Results are capped.":""}`,"warn");
   }else{
-    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${state.enableStacking?"Stacking rules enabled. ":""}${obstacles.length?`${obstacles.length} blocked zone${obstacles.length===1?"":"s"} avoided. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?"Results are capped to keep the browser responsive.":""}`,"good");
+    const costNote=state.optimizeGoal==="cost"?"Owned quantities reduce purchases; unpriced purchases are treated conservatively. Different currencies are not converted. ":"";
+    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${costNote}Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${state.enableStacking?"Stacking rules enabled. ":""}${obstacles.length?`${obstacles.length} blocked zone${obstacles.length===1?"":"s"} avoided. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?"Results are capped to keep the browser responsive.":""}`,"good");
   }
   selectedLayout=0;selectedGap=-1;currentGaps=[];
   editMode=false;
@@ -2131,6 +2132,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     safeUrl,
     validateBackupState,
     ensureHomeHierarchy,
+    purchaseBreakdown,
     overlap3D,
     footprintContains
   };
