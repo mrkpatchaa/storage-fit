@@ -1571,11 +1571,11 @@ function renderHomeProcurement(){
     return;
   }
   sec.style.display="block";
-  $("homeChosenCount").textContent=`${summary.plans.length} chosen storage${summary.plans.length===1?"":"s"}`;
+  $("homeChosenCount").textContent=summary.plans.length+" chosen storage"+(summary.plans.length===1?"":"s")+(summary.stalePlans.length?" · "+summary.stalePlans.length+" need review":"");
   $("receivePurchasesBtn").disabled=summary.boughtUnits<=0;
   $("receivePurchasesBtn").textContent=summary.boughtUnits?`Receive ${summary.boughtUnits} purchased`:"Receive purchases";
 
-  const ready=summary.purchaseUnits===0;
+  const ready=summary.purchaseUnits===0&&summary.stalePlans.length===0;
   $("homeProcurementSummary").innerHTML=`
     <div class="projectstat"><div class="k">Chosen spaces</div><div class="v">${summary.plans.length}</div></div>
     <div class="projectstat"><div class="k">Organizers required</div><div class="v">${summary.totalRequired}</div></div>
@@ -1585,7 +1585,7 @@ function renderHomeProcurement(){
 
   $("homeChosenPlans").innerHTML=summary.plans.map(plan=>{
     const m=planMetrics(plan);
-    return `<span class="projectplan">${esc(m.storagePath)} · ${esc(plan.name)}</span>`;
+    const health=planHealth(plan);return `<span class="projectplan">${esc(m.storagePath)} · ${esc(plan.name)}${health.status!=="current"?" · needs review":""}</span>`;
   }).join("");
 
   $("homeProcurementList").innerHTML=summary.rows.map(r=>`<div class="homeshoprow">
@@ -1629,10 +1629,11 @@ function homeShoppingExportPayload(){
   const summary=projectProcurement(),install=currentInstallAllocation();
   return {
     format:"storage-fit-home-shopping",
-    version:3,
+    version:4,
     exportedAt:new Date().toISOString(),
     unit:state.unit,
-    chosenPlans:summary.plans.map(p=>({id:p.id,name:p.name,storageId:p.storageId,storagePath:planMetrics(p).storagePath})),
+    chosenPlans:summary.plans.map(p=>{const h=planHealth(p);return {id:p.id,name:p.name,storageId:p.storageId,storagePath:planMetrics(p).storagePath,health:h.status,healthReasons:h.reasons}}),
+    staleChosenPlans:summary.stalePlans.length,
     totals:summary.totals,
     remainingTotals:summary.remainingTotals,
     missingPriceUnits:summary.missing,
@@ -1643,6 +1644,7 @@ function homeShoppingExportPayload(){
     ownedUsed:summary.ownedUsed,
     installQueue:install.entries.map((e,index)=>({
       order:index+1,storageId:e.storageId,planId:e.plan.id,storagePath:planMetrics(e.plan).storagePath,status:e.status,
+      health:(e.health||planHealth(e.plan)).status,healthReasons:(e.health||planHealth(e.plan)).reasons,
       missing:e.missing.map(x=>({itemId:x.id,name:boxById(x.id)?.name||"Item",qty:x.qty}))
     })),
     items:summary.rows.map(r=>({...r,url:safeUrl(r.url)}))
