@@ -1105,7 +1105,7 @@ function renderCompareModal(){
       <div class="compareitems"><strong>Item mix</strong><ul>${items||"<li>No items</li>"}</ul></div>
       ${plan.note?`<div class="comparnote">${esc(plan.note)}</div>`:""}
       <div class="savedactions">
-        <button class="btn ${chosen?"primary":"soft"}" type="button" data-compare-choose="${plan.id}">${chosen?"Chosen ✓":"Choose this plan"}</button>
+        <button class="btn ${chosen?"primary":"soft"}" type="button" data-compare-choose="${plan.id}">${chosen?"Chosen here ✓":"Choose for this storage"}</button>
         <button class="btn soft" type="button" data-compare-open="${plan.id}">Open</button>
       </div>
     </article>`;
@@ -1165,7 +1165,7 @@ function renderSavedPlans(){
         <button class="btn soft" type="button" data-open-plan="${p.id}">Open</button>
         <button class="btn soft" type="button" data-rename-plan="${p.id}">Rename</button>
         <button class="btn soft" type="button" data-note-plan="${p.id}">${p.note?"Edit note":"Add note"}</button>
-        <button class="btn ${chosen?"primary":"soft"}" type="button" data-choose-plan="${p.id}">${chosen?"Chosen ✓":"Choose"}</button>
+        <button class="btn ${chosen?"primary":"soft"}" type="button" data-choose-plan="${p.id}">${chosen?"Chosen here ✓":"Choose"}</button>
         <button class="btn danger" type="button" data-delete-plan="${p.id}">Delete</button>
       </div>
     </div>`;
@@ -1195,10 +1195,9 @@ function renderSavedPlans(){
     localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();renderHomeProcurement();
   }));
   el.querySelectorAll("[data-delete-plan]").forEach(btn=>btn.addEventListener("click",()=>{
-    const id=btn.dataset.deletePlan;
+    const id=btn.dataset.deletePlan,deleted=state.savedPlans.find(p=>p.id===id);
     state.savedPlans=state.savedPlans.filter(p=>p.id!==id);
     comparePlanIds.delete(id);
-    const deleted=state.savedPlans.find(p=>p.id===id);
     if(deleted&&state.chosenPlanIds?.[deleted.storageId]===id)delete state.chosenPlanIds[deleted.storageId];
     localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();renderHomeProcurement();updateSavePlanButton();
   }));
@@ -1988,7 +1987,7 @@ $("savePlanBtn").addEventListener("click",()=>{
   if(existing){
     state.savedPlans=state.savedPlans.filter(p=>p.id!==existing.id);
     comparePlanIds.delete(existing.id);
-    if(state.chosenPlanId===existing.id)state.chosenPlanId=null;
+    if(state.chosenPlanIds?.[existing.storageId]===existing.id)delete state.chosenPlanIds[existing.storageId];
   }else{
     const sameStorage=state.savedPlans.filter(p=>p.storageId===s.id).length+1;
     state.savedPlans.push({
@@ -2011,6 +2010,13 @@ $("savePlanBtn").addEventListener("click",()=>{
   renderSavedPlans();updateSavePlanButton();
 });
 
+$("exportHomeShoppingBtn").addEventListener("click",()=>{
+  const payload=homeShoppingExportPayload();
+  if(!payload.chosenPlans.length)return;
+  downloadJson("storage-fit-home-shopping.json",payload);
+  const btn=$("exportHomeShoppingBtn"),old=btn.textContent;btn.textContent="Exported ✓";
+  setTimeout(()=>{btn.textContent=old},1200);
+});
 $("comparePlansBtn").addEventListener("click",openCompareModal);
 $("closeCompareModal").addEventListener("click",closeCompareModal);
 $("compareBackdrop").addEventListener("click",closeCompareModal);
@@ -2219,7 +2225,7 @@ $("deleteStorage").addEventListener("click",()=>{
   const removedPlanIds=new Set(state.savedPlans.filter(p=>p.storageId===editingStorage).map(p=>p.id));
   state.savedPlans=state.savedPlans.filter(p=>p.storageId!==editingStorage);
   comparePlanIds=new Set([...comparePlanIds].filter(id=>!removedPlanIds.has(id)));
-  if(removedPlanIds.has(state.chosenPlanId))state.chosenPlanId=null;
+  if(state.chosenPlanIds?.[editingStorage])delete state.chosenPlanIds[editingStorage];
   state.storages=state.storages.filter(x=>x.id!==editingStorage);
   if(state.selectedStorage===editingStorage)state.selectedStorage=state.storages[0]?.id||"";
   editingStorage=state.selectedStorage||state.storages[0]?.id||"";
@@ -2244,6 +2250,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     validateBackupState,
     ensureHomeHierarchy,
     purchaseBreakdown,
+    aggregateRequiredCounts,
     overlap3D,
     footprintContains
   };
