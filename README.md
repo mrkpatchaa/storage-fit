@@ -677,3 +677,43 @@ Mirroring pairs naturally with the existing duplication tools:
 5. save/apply the reflected version where appropriate.
 
 Mirroring is a manual-layout operation only and introduces no new state schema. The app remains on V28.
+
+
+## Manual edit Undo / Redo
+
+Manual layout editing now has a session-scoped history with **Undo** and **Redo**.
+
+Undo/Redo covers successful changes to the active proposal, including:
+
+- dragging a placement;
+- keyboard nudging;
+- rotating an organizer;
+- moving an organizer to the floor;
+- stacking an organizer on a support;
+- duplicating or removing an organizer;
+- mirroring the whole layout;
+- editing a placement purpose label;
+- adding an organizer from a leftover-space suggestion;
+- resetting the proposal back to its original optimizer result.
+
+### Keyboard shortcuts
+
+While editing and not focused inside a form field:
+
+- **Ctrl/Cmd + Z** — Undo
+- **Ctrl/Cmd + Shift + Z** — Redo
+- **Ctrl/Cmd + Y** — Redo
+
+The toolbar also has explicit **Undo** / **Redo** buttons.
+
+### History semantics
+
+- one completed drag creates one history step, not one step per pointer movement;
+- identical snapshots are ignored;
+- invalid/rejected edits never enter history;
+- after Undo, making a new edit discards the old Redo branch;
+- history is capped at the latest **60** snapshots;
+- Reset proposal is itself undoable;
+- finishing the edit session clears the temporary history.
+
+The history is deliberately not persisted in backups or planner state. It is an editing-session safety tool; the finished layout remains the normal source of truth.
