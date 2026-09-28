@@ -109,6 +109,8 @@
       var dividerRects=api.dividerRectsForStorage(dividerStorage);
       result(dividerRects.length===2&&dividerRects[0].x===39&&dividerRects[0].w===2&&dividerRects[0].d===50,"vertical divider becomes a centered front-to-back physical wall");
       result(dividerRects[1].y===19.5&&dividerRects[1].d===1&&dividerRects[1].w===100,"horizontal divider becomes a centered left-to-right physical wall");
+      var edgeDivider=api.dividerRectsForStorage({id:"edge",w:10,d:10,h:5,dividers:[{id:"d",orientation:"vertical",position:0,thickness:2,h:5}]})[0];
+      result(edgeDivider.x===0&&edgeDivider.w===1,"divider thickness is clipped correctly at a storage wall");
       var physical=api.physicalObstaclesForStorage({id:"ps",w:100,d:50,h:12,obstacles:[{id:"o",x:1,y:1,w:2,d:2,h:2}],dividers:dividerStorage.dividers});
       result(physical.length===3&&physical.filter(function(x){return x.kind==="divider"}).length===2,"optimizer geometry combines blocked zones and dividers");
       var seqDivider=0,dividerClone=api.cloneStorageDefinition(dividerStorage,{idFactory:function(prefix){seqDivider+=1;return prefix+"-d"+seqDivider}});
