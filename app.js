@@ -30,16 +30,7 @@ state.fitTolerance = Math.max(0, Number(state.fitTolerance)||0);
 state.enableStacking = !!state.enableStacking;
 state.optimizeGoal = ["fill","compartments","simple","balanced","cost"].includes(state.optimizeGoal)?state.optimizeGoal:"fill";
 state.savedPlans = Array.isArray(state.savedPlans)?state.savedPlans:[];
-state.chosenPlanIds = state.chosenPlanIds && typeof state.chosenPlanIds==="object" && !Array.isArray(state.chosenPlanIds)?state.chosenPlanIds:{};
-if(state.chosenPlanId && state.savedPlans.some(p=>p.id===state.chosenPlanId)){
-  const legacy=state.savedPlans.find(p=>p.id===state.chosenPlanId);
-  if(legacy?.storageId && !state.chosenPlanIds[legacy.storageId])state.chosenPlanIds[legacy.storageId]=legacy.id;
-}
-delete state.chosenPlanId;
-for(const storageId of Object.keys(state.chosenPlanIds)){
-  const plan=state.savedPlans.find(p=>p.id===state.chosenPlanIds[storageId]&&p.storageId===storageId);
-  if(!plan)delete state.chosenPlanIds[storageId];
-}
+normalizeChosenPlanSelections(state);
 for(const p of state.savedPlans){p.note=String(p.note||"");p.settings=p.settings||null;}
 for(const b of state.boxes){
   if(!(b.id in state.itemLimits)) state.itemLimits[b.id] = null;
@@ -106,6 +97,20 @@ function loadState(){
     }
   }catch(e){}
   return defaults();
+}
+function normalizeChosenPlanSelections(target){
+  target.savedPlans=Array.isArray(target.savedPlans)?target.savedPlans:[];
+  target.chosenPlanIds=target.chosenPlanIds&&typeof target.chosenPlanIds==="object"&&!Array.isArray(target.chosenPlanIds)?target.chosenPlanIds:{};
+  if(target.chosenPlanId&&target.savedPlans.some(p=>p.id===target.chosenPlanId)){
+    const legacy=target.savedPlans.find(p=>p.id===target.chosenPlanId);
+    if(legacy?.storageId&&!target.chosenPlanIds[legacy.storageId])target.chosenPlanIds[legacy.storageId]=legacy.id;
+  }
+  delete target.chosenPlanId;
+  for(const storageId of Object.keys(target.chosenPlanIds)){
+    const plan=target.savedPlans.find(p=>p.id===target.chosenPlanIds[storageId]&&p.storageId===storageId);
+    if(!plan)delete target.chosenPlanIds[storageId];
+  }
+  return target.chosenPlanIds;
 }
 function ensureHomeHierarchy(target){
   target.rooms=Array.isArray(target.rooms)?target.rooms.filter(r=>r&&r.id):[];
@@ -264,8 +269,14 @@ function validateBackupState(candidate){
   if(!Array.isArray(candidate.storages))return "Backup has no storage-space list.";
   if(!Array.isArray(candidate.boxes))return "Backup has no item list.";
   if(candidate.savedPlans!=null&&!Array.isArray(candidate.savedPlans))return "Saved plans are malformed.";
+  if(candidate.chosenPlanIds!=null&&(typeof candidate.chosenPlanIds!=="object"||Array.isArray(candidate.chosenPlanIds)))return "Chosen plan selections are malformed.";
   if(candidate.rooms!=null&&!Array.isArray(candidate.rooms))return "Rooms are malformed.";
   if(candidate.furniture!=null&&!Array.isArray(candidate.furniture))return "Furniture is malformed.";
+  if(candidate.chosenPlanIds&&Array.isArray(candidate.savedPlans)){
+    for(const [storageId,planId] of Object.entries(candidate.chosenPlanIds)){
+      if(!candidate.savedPlans.some(p=>p?.id===planId&&p?.storageId===storageId))return "A chosen plan selection is invalid.";
+    }
+  }
   if(Array.isArray(candidate.rooms)&&Array.isArray(candidate.furniture)){
     const roomIds=new Set(candidate.rooms.map(r=>r?.id).filter(Boolean));
     if(candidate.furniture.some(f=>!f?.id||!roomIds.has(f.roomId)))return "A furniture entry points to a missing room.";
@@ -2248,6 +2259,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeProductDimensions,
     safeUrl,
     validateBackupState,
+    normalizeChosenPlanSelections,
     ensureHomeHierarchy,
     purchaseBreakdown,
     aggregateRequiredCounts,
