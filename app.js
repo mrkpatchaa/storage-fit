@@ -1,12 +1,13 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v17";
-const PREV_KEYS = ["storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v18";
+const PREV_KEYS = ["storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
 
 let state = loadState();
+ensureHomeHierarchy(state);
 let editingStorage = state.selectedStorage || state.storages[0]?.id || "";
 let editingBox = state.boxes[0]?.id || "";
 let layouts = [];
@@ -57,9 +58,12 @@ for(const s of state.storages){
 function defaults(){
   return {
     unit:"cm",clearance:0.5,fitTolerance:0,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanId:null,
+    rooms:[{id:"room1",name:"Bedroom"}],
+    furniture:[{id:"furn1",roomId:"room1",name:"Wardrobe"}],
+    selectedRoom:"room1",selectedFurniture:"furn1",
     storages:[
-      {id:"s1",name:"Drawer 67 × 26 × 13",w:67,d:26,h:13,obstacles:[]},
-      {id:"s2",name:"Shelf 81 × 40 × 27",w:81,d:40,h:27,obstacles:[]}
+      {id:"s1",name:"Drawer 67 × 26 × 13",w:67,d:26,h:13,furnitureId:"furn1",obstacles:[]},
+      {id:"s2",name:"Shelf 81 × 40 × 27",w:81,d:40,h:27,furnitureId:"furn1",obstacles:[]}
     ],
     boxes:[
       {id:"b1",name:"Box 30 × 25 × 12",w:30,d:25,h:12,uprightOnly:true,canBeStacked:false,canSupportStack:false},
@@ -82,7 +86,9 @@ function loadState(){
         }
         return {
           unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanId:old.chosenPlanId||null,
-          clearanceEnabled:!!old.clearanceEnabled,storages:old.storages,boxes:old.boxes,
+          clearanceEnabled:!!old.clearanceEnabled,rooms:Array.isArray(old.rooms)?old.rooms:[],furniture:Array.isArray(old.furniture)?old.furniture:[],
+          selectedRoom:old.selectedRoom||"",selectedFurniture:old.selectedFurniture||"",
+          storages:old.storages,boxes:old.boxes,
           selectedStorage:old.selectedStorage||old.storages[0]?.id||"",selectedTypes,
           itemLimits:Object.fromEntries(old.boxes.map(b=>[b.id, old.itemLimits?.[b.id] ?? null]))
         };
@@ -90,6 +96,47 @@ function loadState(){
     }
   }catch(e){}
   return defaults();
+}
+function ensureHomeHierarchy(target){
+  target.rooms=Array.isArray(target.rooms)?target.rooms.filter(r=>r&&r.id):[];
+  target.furniture=Array.isArray(target.furniture)?target.furniture.filter(f=>f&&f.id):[];
+
+  if(!target.rooms.length)target.rooms.push({id:"room-home",name:"Home"});
+  const roomIds=new Set(target.rooms.map(r=>r.id));
+  for(const f of target.furniture){
+    if(!roomIds.has(f.roomId))f.roomId=target.rooms[0].id;
+    f.name=String(f.name||"Furniture").trim()||"Furniture";
+  }
+  if(!target.furniture.length)target.furniture.push({id:"furniture-unassigned",roomId:target.rooms[0].id,name:"Unassigned furniture"});
+
+  const furnitureIds=new Set(target.furniture.map(f=>f.id));
+  const fallbackFurniture=target.furniture[0].id;
+  for(const s of target.storages||[]){
+    if(!furnitureIds.has(s.furnitureId))s.furnitureId=fallbackFurniture;
+  }
+
+  const selectedStorage=(target.storages||[]).find(s=>s.id===target.selectedStorage)||(target.storages||[])[0];
+  const selectedFurniture=target.furniture.find(f=>f.id===selectedStorage?.furnitureId)
+    ||target.furniture.find(f=>f.id===target.selectedFurniture)
+    ||target.furniture[0];
+  const selectedRoom=target.rooms.find(r=>r.id===selectedFurniture?.roomId)
+    ||target.rooms.find(r=>r.id===target.selectedRoom)
+    ||target.rooms[0];
+
+  target.selectedRoom=selectedRoom?.id||"";
+  target.selectedFurniture=selectedFurniture?.id||"";
+  if(selectedStorage)target.selectedStorage=selectedStorage.id;
+}
+function roomById(id){return state.rooms.find(r=>r.id===id)}
+function furnitureById(id){return state.furniture.find(f=>f.id===id)}
+function storageBreadcrumb(s){
+  const f=furnitureById(s?.furnitureId),r=roomById(f?.roomId);
+  return [r?.name,f?.name,s?.name].filter(Boolean).join(" → ");
+}
+function syncHierarchyToStorage(storageId){
+  const s=state.storages.find(x=>x.id===storageId);if(!s)return;
+  const f=furnitureById(s.furnitureId);if(!f)return;
+  state.selectedFurniture=f.id;state.selectedRoom=f.roomId;
 }
 function save(){
   state.unit=$("unit").value; state.uprightOnly=$("uprightOnly").checked; state.enableStacking=$("enableStacking").checked; state.optimizeGoal=$("optimizeGoal").value;
@@ -166,7 +213,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:17,
+    appVersion:18,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
