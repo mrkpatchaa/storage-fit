@@ -1,7 +1,7 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v15";
-const PREV_KEYS = ["storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v16";
+const PREV_KEYS = ["storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -20,12 +20,16 @@ let currentGaps = [];
 let selectedGap = -1;
 let galleryWasCapped = false;
 let detailModalOpen = false;
+let compareModalOpen = false;
+let comparePlanIds = new Set();
 
 state.itemLimits = state.itemLimits || {};
 state.fitTolerance = Math.max(0, Number(state.fitTolerance)||0);
 state.enableStacking = !!state.enableStacking;
 state.optimizeGoal = ["fill","compartments","simple","balanced"].includes(state.optimizeGoal)?state.optimizeGoal:"fill";
 state.savedPlans = Array.isArray(state.savedPlans)?state.savedPlans:[];
+state.chosenPlanId = state.savedPlans.some(p=>p.id===state.chosenPlanId)?state.chosenPlanId:null;
+for(const p of state.savedPlans){p.note=String(p.note||"");p.settings=p.settings||null;}
 for(const b of state.boxes){
   if(!(b.id in state.itemLimits)) state.itemLimits[b.id] = null;
   b.price = Math.max(0,Number(b.price)||0);
@@ -50,7 +54,7 @@ for(const s of state.storages){
 
 function defaults(){
   return {
-    unit:"cm",clearance:0.5,fitTolerance:0,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],
+    unit:"cm",clearance:0.5,fitTolerance:0,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanId:null,
     storages:[
       {id:"s1",name:"Drawer 67 × 26 × 13",w:67,d:26,h:13,obstacles:[]},
       {id:"s2",name:"Shelf 81 × 40 × 27",w:81,d:40,h:27,obstacles:[]}
@@ -75,7 +79,7 @@ function loadState(){
           selectedTypes[b.id]=Boolean(old.selectedTypes?.[b.id] || (old.selections?.[b.id]||0)>0 || b.id===old.selectedBox);
         }
         return {
-          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],
+          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanId:old.chosenPlanId||null,
           clearanceEnabled:!!old.clearanceEnabled,storages:old.storages,boxes:old.boxes,
           selectedStorage:old.selectedStorage||old.storages[0]?.id||"",selectedTypes,
           itemLimits:Object.fromEntries(old.boxes.map(b=>[b.id, old.itemLimits?.[b.id] ?? null]))
@@ -109,6 +113,18 @@ function convertAllUnits(from,to){
     for(const o of (s.obstacles||[])){o.x=cv(o.x);o.y=cv(o.y);o.w=cv(o.w);o.d=cv(o.d);o.h=cv(o.h)}
   }
   for(const b of state.boxes){b.w=cv(b.w);b.d=cv(b.d);b.h=cv(b.h)}
+  for(const p of state.savedPlans||[]){
+    for(const q of p.layout||[]){q.x=cv(q.x);q.y=cv(q.y);q.z=cv(q.z||0);q.w=cv(q.w);q.d=cv(q.d);q.h=cv(q.h)}
+    if(p.settings){
+      p.settings.clearance=cv(p.settings.clearance||0);
+      p.settings.fitTolerance=cv(p.settings.fitTolerance||0);
+      p.settings.unit=to;
+    }
+    if(p.storageSnapshot){
+      p.storageSnapshot.w=cv(p.storageSnapshot.w);p.storageSnapshot.d=cv(p.storageSnapshot.d);p.storageSnapshot.h=cv(p.storageSnapshot.h);p.storageSnapshot.unit=to;
+      for(const o of p.storageSnapshot.obstacles||[]){o.x=cv(o.x);o.y=cv(o.y);o.w=cv(o.w);o.d=cv(o.d);o.h=cv(o.h)}
+    }
+  }
   state.clearance=cv(state.clearance);
   state.fitTolerance=cv(state.fitTolerance);
   state.unit=to;
@@ -147,7 +163,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:15,
+    appVersion:16,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
@@ -722,10 +738,9 @@ function placementSupported(p,placed,type){
 function rawObstacles(){
   return storage()?.obstacles||[];
 }
-function usableObstacles(){
-  const S=storage();if(!S)return [];
-  const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0;
-  const W=S.w-2*c,D=S.d-2*c,H=S.h-2*c;
+function usableObstaclesFor(S,clearance=0){
+  if(!S)return [];
+  const c=Math.max(0,Number(clearance)||0),W=S.w-2*c,D=S.d-2*c,H=S.h-2*c;
   return (S.obstacles||[]).map(o=>({
     id:o.id,name:o.name||"Blocked zone",z:0,
     x:Math.max(0,(Number(o.x)||0)-c),
@@ -734,6 +749,10 @@ function usableObstacles(){
     d:Math.max(0,Math.min(Number(o.d)||0,D-Math.max(0,(Number(o.y)||0)-c))),
     h:Math.max(0,Math.min(Number(o.h)||H,H))
   })).filter(o=>o.w>0&&o.d>0&&o.x<W&&o.y<D);
+}
+function usableObstacles(){
+  const S=storage(),c=state.clearanceEnabled?Math.max(0,state.clearance||0):0;
+  return usableObstaclesFor(S,c);
 }
 function freeFloorArea(W,D,obstacles){
   const obs=obstacles.filter(o=>o.w>0&&o.d>0);
