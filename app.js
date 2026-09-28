@@ -666,6 +666,33 @@ function loadStorageEditor(){
 function defaultConstraintMeasure(unit=state.unit){
   return unit==="mm"?10:unit==="in"?0.4:1;
 }
+function mirrorStorageConstraintsData(S,axis){
+  if(!S||!["x","y"].includes(axis))return null;
+  const W=Math.max(0,Number(S.w)||0),D=Math.max(0,Number(S.d)||0);
+  if(W<=0||D<=0)return null;
+  const obstacles=(S.obstacles||[]).map(o=>{
+    const next={...o};
+    if(axis==="x")next.x=round6(Math.max(0,W-(Number(o.x)||0)-(Number(o.w)||0)));
+    else next.y=round6(Math.max(0,D-(Number(o.y)||0)-(Number(o.d)||0)));
+    return next;
+  });
+  const dividers=(S.dividers||[]).map(d=>{
+    const next={...d},position=Number(d.position)||0;
+    if(axis==="x"&&d.orientation==="vertical")next.position=round6(Math.max(0,Math.min(W,W-position)));
+    if(axis==="y"&&d.orientation==="horizontal")next.position=round6(Math.max(0,Math.min(D,D-position)));
+    return next;
+  });
+  return {obstacles,dividers};
+}
+function applyStorageConstraintMirror(axis){
+  const s=state.storages.find(x=>x.id===editingStorage);if(!s)return false;
+  if(!(s.obstacles?.length||s.dividers?.length)){alert("Add a blocked zone or divider first.");return false}
+  const mirrored=mirrorStorageConstraintsData(s,axis);if(!mirrored)return false;
+  createRecoveryCheckpoint(`Before mirroring constraints in “${s.name}”`);
+  s.obstacles=mirrored.obstacles;s.dividers=mirrored.dividers;
+  save();renderObstacleEditor();renderDividerEditor();renderStorageList();renderSavedPlans();resetResults();
+  return true;
+}
 function constraintTemplateZones(kind,S,params={},idFactory=uid){
   if(!S)return [];
   const W=Math.max(0,Number(S.w)||0),D=Math.max(0,Number(S.d)||0),H=Math.max(0,Number(S.h)||0);
@@ -3490,6 +3517,8 @@ $("addObstacle").addEventListener("click",()=>{
   save();renderObstacleEditor();renderStorageList();renderSavedPlans();resetResults();
 });
 $("applyConstraintTemplate").addEventListener("click",()=>applyConstraintTemplate($("constraintTemplate").value));
+$("mirrorStorageConstraintsX").addEventListener("click",()=>applyStorageConstraintMirror("x"));
+$("mirrorStorageConstraintsY").addEventListener("click",()=>applyStorageConstraintMirror("y"));
 function addDivider(orientation){
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
   s.dividers=s.dividers||[];
@@ -3646,6 +3675,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeRecoveryJournal,
     recoveryEntryMeta,
     defaultConstraintMeasure,
+    mirrorStorageConstraintsData,
     constraintTemplateZones,
     dividerRectsForStorage,
     physicalObstaclesForStorage,

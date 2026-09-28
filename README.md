@@ -844,3 +844,30 @@ Like exact-coordinate editing, alignment is transactional. Storage Fit tests the
 If the aligned placement would be invalid, nothing changes. Every successful alignment is one Undo/Redo history step.
 
 No state schema change is required; the app remains on V28.
+
+
+## Mirror storage constraints
+
+Storage geometry can now be mirrored independently of a layout.
+
+The storage editor provides:
+
+- **Mirror constraints L↔R**
+- **Mirror constraints F↔B**
+
+The transform mirrors all blocked zones and the relevant custom-divider positions:
+
+- left↔right reflects blocked-zone X coordinates and vertical-divider positions;
+- front↔back reflects blocked-zone Y coordinates and horizontal-divider positions;
+- divider orientation, thickness and height remain unchanged;
+- blocked-zone names, IDs and dimensions remain unchanged.
+
+This is useful after duplicating paired furniture where rails, hinges, lips or notches appear on the opposite side.
+
+Mirroring is applied to the same storage rather than creating new objects, so internal IDs are preserved. Mirroring twice on the same axis restores the original geometry.
+
+A local Recovery checkpoint is created immediately before the transformation.
+
+Because these are normal storage constraints, saved-plan health refreshes immediately: a previously saved plan can become Review or Invalid if the mirrored hardware conflicts with it.
+
+No state schema change is required; the app remains on V28.
