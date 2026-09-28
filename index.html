@@ -125,7 +125,7 @@
             <button class="btn soft" id="restoreAllBtn" type="button">Restore backup</button>
             <input id="restoreFileInput" type="file" accept=".json,application/json" hidden>
           </div>
-          <div class="datastatus" id="backupStatus">Backup includes rooms, furniture, storage spaces, blocked zones, custom dividers, items, owned inventory, shopping progress, install order/status, product metadata, settings, quantity limits, saved plans, and chosen project plans.</div>
+          <div class="datastatus" id="backupStatus">Backup includes rooms, furniture, storage spaces, blocked zones, custom dividers, items, placement labels, owned inventory, shopping progress, install order/status, product metadata, settings, quantity limits, saved plans, and chosen project plans.</div>
         </div>
       </section>
     </aside>
@@ -266,6 +266,10 @@
           <button class="reset3d" id="reset3d" type="button" disabled>Reset view</button>
         </div>
         <div class="editbar" id="editBar">
+          <div class="placementlabel">
+            <label for="placementLabel">Purpose / label</label>
+            <input id="placementLabel" type="text" maxlength="60" placeholder="Select a box, e.g. Socks" disabled>
+          </div>
           <button class="btn soft" id="rotateItem" type="button">Rotate 90°</button>
           <button class="btn soft" id="duplicateItem" type="button">Duplicate</button>
           <button class="btn danger" id="removeItem" type="button">Remove</button>
@@ -276,12 +280,13 @@
         <div class="detailviz" id="detailViz"></div>
         <div class="detailinfo">
           <div class="detailbox"><h3>Suggested quantities</h3><ul id="layoutItems"></ul></div>
+          <div class="detailbox"><h3>Contents / labels</h3><div id="layoutLabels" class="placementlabels"></div></div>
           <div class="detailbox">
             <h3>How to read it</h3>
             <ul>
               <li>Front is the default view, followed by the draggable 3D view.</li>
               <li>Top view is useful for checking exact drawer-floor placement.</li>
-              <li>Use Edit layout to drag boxes in Top view, then inspect the result again in Front or 3D.</li>
+              <li>Use Edit layout to drag boxes in Top view and give individual organizers a purpose such as Socks or Cables.</li>
               <li>Striped red shapes are blocked zones and are never used by the optimizer.</li>
               <li>Stacked items show their elevation in Top view; Front, Side and 3D use their real vertical position.</li>
             </ul>
