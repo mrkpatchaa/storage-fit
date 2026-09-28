@@ -1,7 +1,7 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v14";
-const PREV_KEYS = ["storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v15";
+const PREV_KEYS = ["storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -23,6 +23,7 @@ let detailModalOpen = false;
 
 state.itemLimits = state.itemLimits || {};
 state.fitTolerance = Math.max(0, Number(state.fitTolerance)||0);
+state.enableStacking = !!state.enableStacking;
 state.optimizeGoal = ["fill","compartments","simple","balanced"].includes(state.optimizeGoal)?state.optimizeGoal:"fill";
 state.savedPlans = Array.isArray(state.savedPlans)?state.savedPlans:[];
 for(const b of state.boxes){
@@ -32,6 +33,9 @@ for(const b of state.boxes){
   b.url = String(b.url||"").trim();
   b.image = String(b.image||"").trim();
   b.sku = String(b.sku||"").trim();
+  b.uprightOnly = b.uprightOnly !== false;
+  b.canBeStacked = !!b.canBeStacked;
+  b.canSupportStack = !!b.canSupportStack;
 }
 for(const s of state.storages){
   if(!Array.isArray(s.obstacles)) s.obstacles=[];
@@ -46,15 +50,15 @@ for(const s of state.storages){
 
 function defaults(){
   return {
-    unit:"cm",clearance:0.5,fitTolerance:0,uprightOnly:true,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],
+    unit:"cm",clearance:0.5,fitTolerance:0,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],
     storages:[
       {id:"s1",name:"Drawer 67 × 26 × 13",w:67,d:26,h:13,obstacles:[]},
       {id:"s2",name:"Shelf 81 × 40 × 27",w:81,d:40,h:27,obstacles:[]}
     ],
     boxes:[
-      {id:"b1",name:"Box 30 × 25 × 12",w:30,d:25,h:12},
-      {id:"b2",name:"Box 32 × 25 × 12",w:32,d:25,h:12},
-      {id:"b3",name:"Small box 20 × 13 × 10",w:20,d:13,h:10}
+      {id:"b1",name:"Box 30 × 25 × 12",w:30,d:25,h:12,uprightOnly:true,canBeStacked:false,canSupportStack:false},
+      {id:"b2",name:"Box 32 × 25 × 12",w:32,d:25,h:12,uprightOnly:true,canBeStacked:false,canSupportStack:false},
+      {id:"b3",name:"Small box 20 × 13 × 10",w:20,d:13,h:10,uprightOnly:true,canBeStacked:false,canSupportStack:false}
     ],
     selectedStorage:"s1",selectedTypes:{b1:true,b2:false,b3:false},itemLimits:{b1:null,b2:null,b3:null}
   };
@@ -71,7 +75,7 @@ function loadState(){
           selectedTypes[b.id]=Boolean(old.selectedTypes?.[b.id] || (old.selections?.[b.id]||0)>0 || b.id===old.selectedBox);
         }
         return {
-          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,uprightOnly:old.uprightOnly!==false,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],
+          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],
           clearanceEnabled:!!old.clearanceEnabled,storages:old.storages,boxes:old.boxes,
           selectedStorage:old.selectedStorage||old.storages[0]?.id||"",selectedTypes,
           itemLimits:Object.fromEntries(old.boxes.map(b=>[b.id, old.itemLimits?.[b.id] ?? null]))
@@ -82,7 +86,7 @@ function loadState(){
   return defaults();
 }
 function save(){
-  state.unit=$("unit").value; state.uprightOnly=$("uprightOnly").checked; state.optimizeGoal=$("optimizeGoal").value;
+  state.unit=$("unit").value; state.uprightOnly=$("uprightOnly").checked; state.enableStacking=$("enableStacking").checked; state.optimizeGoal=$("optimizeGoal").value;
   state.clearanceEnabled=$("clearanceEnabled").checked; state.clearance=Math.max(0,Number($("clearance").value)||0); state.fitTolerance=Math.max(0,Number($("fitTolerance").value)||0);
   localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
 }
@@ -143,7 +147,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:14,
+    appVersion:15,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
@@ -217,7 +221,7 @@ function restoreBackupState(candidate){
 }
 
 function renderAll(){
-  $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;
+  $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;$("enableStacking").checked=!!state.enableStacking;
   $("clearanceEnabled").checked=!!state.clearanceEnabled;$("clearance").value=state.clearance??0.5;$("fitTolerance").value=state.fitTolerance??0;
   $("clearanceField").style.display=state.clearanceEnabled?"block":"none";
   renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();loadBoxEditor();renderSavedPlans();renderBackupStats();resetResults();
@@ -234,7 +238,7 @@ function renderBoxList(){
   const el=$("boxList");
   if(!state.boxes.length){el.innerHTML='<div class="empty">No items yet.</div>';return}
   el.innerHTML=state.boxes.map(b=>`<div class="listitem ${b.id===editingBox?"active":""}" data-b="${b.id}">
-    <div class="itemmain">${safeUrl(b.image)?`<img class="itemthumb" src="${esc(safeUrl(b.image))}" alt="">`:""}<div><div class="listname">${esc(b.name)}</div><div class="dims">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}${b.price>0?` · ${esc(money(b.price,b.currency))}`:""}${b.sku?` · ${esc(b.sku)}`:""}</div></div></div>
+    <div class="itemmain">${safeUrl(b.image)?`<img class="itemthumb" src="${esc(safeUrl(b.image))}" alt="">`:""}<div><div class="listname">${esc(b.name)}</div><div class="dims">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}${b.price>0?` · ${esc(money(b.price,b.currency))}`:""}${b.sku?` · ${esc(b.sku)}`:""}${esc(itemRuleText(b))}</div></div></div>
     ${state.selectedTypes?.[b.id]?'<span class="badge">allowed</span>':""}</div>`).join("");
   el.querySelectorAll("[data-b]").forEach(n=>n.addEventListener("click",()=>{editingBox=n.dataset.b;loadBoxEditor();renderBoxList()}));
 }
@@ -251,7 +255,7 @@ function renderItemPicker(){
     const limited=Number.isFinite(limit) && limit>0;
     return `<div class="pickrow">
       <input aria-label="Allow ${esc(b.name)}" type="checkbox" data-type="${b.id}" ${selected?"checked":""}>
-      <span><span class="listname">${esc(b.name)}</span><span class="dims" style="display:block">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}</span></span>
+      <span><span class="listname">${esc(b.name)}</span><span class="dims" style="display:block">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}${esc(itemRuleText(b))}</span></span>
       <span class="limitcontrol">
         <select data-limit-mode="${b.id}" aria-label="Quantity mode for ${esc(b.name)}">
           <option value="unlimited" ${limited?"":"selected"}>Unlimited</option>
@@ -318,7 +322,9 @@ function loadBoxEditor(){
   const b=state.boxes.find(x=>x.id===editingBox);
   $("boxName").value=b?.name||"";$("bw").value=b?.w??"";$("bd").value=b?.d??"";$("bh").value=b?.h??"";
   $("boxPrice").value=b?.price||"";$("boxCurrency").value=b?.currency||"MAD";$("boxSku").value=b?.sku||"";$("boxUrl").value=b?.url||"";$("boxImage").value=b?.image||"";
+  $("boxUprightOnly").checked=b?.uprightOnly!==false;$("boxCanBeStacked").checked=!!b?.canBeStacked;$("boxCanSupportStack").checked=!!b?.canSupportStack;
 }
+function itemRuleText(b){const tags=[];if(b?.canBeStacked)tags.push("can stack");if(b?.canSupportStack)tags.push("supports");if(b?.uprightOnly===false)tags.push("may tip");return tags.length?` · ${tags.join(" · ")}`:""}
 function selectedBoxes(){return state.boxes.filter(b=>state.selectedTypes?.[b.id])}
 
 function ikeaUrlInfo(raw){
@@ -500,7 +506,8 @@ function applyImportedProduct(p){
     w:Number(p.w)||0,d:Number(p.d)||0,h:Number(p.h)||0,
     price:Math.max(0,Number(p.price)||0),
     currency:(p.currency||"MAD").toUpperCase().slice(0,6),
-    sku:p.sku||"",url:p.url||"",image:p.image||""
+    sku:p.sku||"",url:p.url||"",image:p.image||"",
+    uprightOnly:true,canBeStacked:false,canSupportStack:false
   };
   state.boxes.push(item);state.selectedTypes[id]=true;state.itemLimits[id]=null;editingBox=id;
   localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
@@ -577,7 +584,9 @@ function currentExportPayload(){
       obstacles:(s.obstacles||[]).map(o=>({...o}))
     },
     optimizationGoal:state.optimizeGoal,
-    utilization:Number((utilization(layout,s.w-2*c,s.d-2*c)*100).toFixed(2)),
+    stackingEnabled:state.enableStacking,
+    utilizationKind:utilizationNoun(layout),
+    utilization:Number((utilization(layout,s.w-2*c,s.d-2*c,s.h-2*c)*100).toFixed(2)),
     items:shoppingRows(layout),
     placements:layout.map(p=>({...p}))
   };
@@ -594,7 +603,7 @@ function buildPrintSheet(){
   const rows=shoppingRows(layout);
   $("printSheet").innerHTML=`<div class="printsheet">
     <h1>${esc(s.name)} — Layout ${selectedLayout+1}</h1>
-    <div class="printmeta">${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${esc(state.unit)} · ${esc(goalLabel())} · ${(utilization(layout,W,D)*100).toFixed(1)}% usable-floor utilization</div>
+    <div class="printmeta">${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${esc(state.unit)} · ${esc(goalLabel())} · ${(utilization(layout,W,D,H)*100).toFixed(1)}% ${esc(utilizationNoun(layout))} utilization</div>
     <div class="printgrid">
       <div class="printviz"><h2>Front view</h2>${svgFront(layout,W,H,640,340)}</div>
       <div class="printviz"><h2>Top view</h2>${svgTop(layout,W,D,640,340,true,false,-1,null)}</div>
@@ -663,6 +672,7 @@ function renderSavedPlans(){
     const plan=state.savedPlans.find(p=>p.id===btn.dataset.openPlan);if(!plan)return;
     if(state.storages.some(s=>s.id===plan.storageId))state.selectedStorage=plan.storageId;
     state.optimizeGoal=plan.goal||state.optimizeGoal;
+    state.enableStacking=plan.stacking ?? layoutUsesStacking(plan.layout);
     localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
     renderAll();
     layouts=[plan.layout.map(q=>({...q}))];
@@ -685,12 +695,30 @@ function resetResults(){
   const n=selectedBoxes().length;$("searchNote").textContent=n?`${n} item type${n===1?"":"s"} selected.`:"Select at least one item type.";
 }
 
-function orientations(item,uprightOnly){
+function orientations(item,forceUpright=state.uprightOnly){
+  const uprightOnly=forceUpright || item.uprightOnly!==false;
   const raw=uprightOnly?[[item.w,item.d,item.h],[item.d,item.w,item.h]]:
     [[item.w,item.d,item.h],[item.w,item.h,item.d],[item.d,item.w,item.h],[item.d,item.h,item.w],[item.h,item.w,item.d],[item.h,item.d,item.w]];
   const seen=new Set();return raw.filter(o=>{const k=o.join("|");if(seen.has(k))return false;seen.add(k);return true});
 }
 function overlap(a,b,gap=0){return !(a.x+a.w+gap<=b.x || b.x+b.w+gap<=a.x || a.y+a.d+gap<=b.y || b.y+b.d+gap<=a.y)}
+function zOverlap(a,b){const az=Number(a.z)||0,bz=Number(b.z)||0;return !(az+a.h<=bz+1e-9 || bz+b.h<=az+1e-9)}
+function overlap3D(a,b,gap=0){return overlap(a,b,gap)&&zOverlap(a,b)}
+function footprintContains(base,p){
+  return p.x>=base.x-1e-9&&p.y>=base.y-1e-9&&p.x+p.w<=base.x+base.w+1e-9&&p.y+p.d<=base.y+base.d+1e-9;
+}
+function supportingBaseFor(p,placed){
+  const z=Number(p.z)||0;if(z<=1e-9)return null;
+  return placed.find(base=>{
+    const rule=boxById(base.typeId);
+    return !!rule?.canSupportStack && Math.abs((Number(base.z)||0)+base.h-z)<=1e-9 && footprintContains(base,p);
+  })||null;
+}
+function placementSupported(p,placed,type){
+  const z=Number(p.z)||0;
+  if(z<=1e-9)return true;
+  return !!state.enableStacking && !!type?.canBeStacked && !!supportingBaseFor(p,placed);
+}
 function rawObstacles(){
   return storage()?.obstacles||[];
 }
@@ -699,7 +727,7 @@ function usableObstacles(){
   const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0;
   const W=S.w-2*c,D=S.d-2*c,H=S.h-2*c;
   return (S.obstacles||[]).map(o=>({
-    id:o.id,name:o.name||"Blocked zone",
+    id:o.id,name:o.name||"Blocked zone",z:0,
     x:Math.max(0,(Number(o.x)||0)-c),
     y:Math.max(0,(Number(o.y)||0)-c),
     w:Math.max(0,Math.min(Number(o.w)||0,W-Math.max(0,(Number(o.x)||0)-c))),
@@ -741,15 +769,39 @@ function candidatePoints(placed){
   const out=[];for(const y of [...ys].sort((a,b)=>a-b))for(const x of [...xs].sort((a,b)=>a-b))out.push([x,y]);return out;
 }
 function canonicalLayout(placed){
-  return placed.slice().sort((a,b)=>a.typeId.localeCompare(b.typeId)||a.x-b.x||a.y-b.y||a.w-b.w||a.d-b.d)
-    .map(p=>`${p.typeId}:${round6(p.x)},${round6(p.y)},${round6(p.w)},${round6(p.d)},${round6(p.h)}`).join(";");
+  return placed.slice().sort((a,b)=>a.typeId.localeCompare(b.typeId)||((a.z||0)-(b.z||0))||a.x-b.x||a.y-b.y||a.w-b.w||a.d-b.d)
+    .map(p=>`${p.typeId}:${round6(p.x)},${round6(p.y)},${round6(p.z||0)},${round6(p.w)},${round6(p.d)},${round6(p.h)}`).join(";");
 }
-function occupiedArea(layout){return layout.reduce((s,p)=>s+p.w*p.d,0)}
-function utilization(layout,W,D){return occupiedArea(layout)/Math.max(1e-9,freeFloorArea(W,D,usableObstacles()))}
+function occupiedArea(layout){return layout.filter(p=>(Number(p.z)||0)<=1e-9).reduce((s,p)=>s+p.w*p.d,0)}
+function occupiedVolume(layout){return layout.reduce((s,p)=>s+p.w*p.d*p.h,0)}
+function usableVolume(W,D,H,obstacles=usableObstacles()){
+  const xs=[0,W],ys=[0,D],zs=[0,H];
+  for(const o of obstacles){
+    xs.push(Math.max(0,o.x),Math.min(W,o.x+o.w));
+    ys.push(Math.max(0,o.y),Math.min(D,o.y+o.d));
+    zs.push(0,Math.min(H,o.h));
+  }
+  const X=[...new Set(xs)].sort((a,b)=>a-b),Y=[...new Set(ys)].sort((a,b)=>a-b),Z=[...new Set(zs)].sort((a,b)=>a-b);
+  let free=0;
+  for(let xi=0;xi<X.length-1;xi++)for(let yi=0;yi<Y.length-1;yi++)for(let zi=0;zi<Z.length-1;zi++){
+    const x1=X[xi],x2=X[xi+1],y1=Y[yi],y2=Y[yi+1],z1=Z[zi],z2=Z[zi+1];
+    if(x2<=x1||y2<=y1||z2<=z1)continue;
+    const mx=(x1+x2)/2,my=(y1+y2)/2,mz=(z1+z2)/2;
+    if(!obstacles.some(o=>mx>=o.x&&mx<o.x+o.w&&my>=o.y&&my<o.y+o.d&&mz>=0&&mz<o.h))free+=(x2-x1)*(y2-y1)*(z2-z1);
+  }
+  return Math.max(0,free);
+}
+function layoutUsesStacking(layout){return layout.some(p=>(Number(p.z)||0)>1e-9)}
+function utilization(layout,W,D,H=currentUsableSize()?.H||1){
+  if(state.enableStacking||layoutUsesStacking(layout))return occupiedVolume(layout)/Math.max(1e-9,usableVolume(W,D,H));
+  return occupiedArea(layout)/Math.max(1e-9,freeFloorArea(W,D,usableObstacles()));
+}
+function utilizationNoun(layout){return (state.enableStacking||layoutUsesStacking(layout))?"usable volume":"usable floor"}
 function forbiddenRects(layout,W,D){
   const gap=Math.max(0,state.fitTolerance||0);
   const rects=[];
   for(const p of layout){
+    if((Number(p.z)||0)>1e-9)continue;
     rects.push({
       x:Math.max(0,p.x-gap),y:Math.max(0,p.y-gap),
       w:Math.min(W,p.x+p.w+gap)-Math.max(0,p.x-gap),
@@ -839,6 +891,50 @@ function countSignature(layout){
   const c={};for(const p of layout)c[p.typeId]=(c[p.typeId]||0)+1;
   return Object.keys(c).sort().map(k=>`${k}:${c[k]}`).join("|");
 }
+function validPlacement(p,placed,type,W,D,H,obstacles,gap){
+  const z=Number(p.z)||0;
+  if(p.x<gap-1e-9||p.y<gap-1e-9||p.x+p.w+gap>W+1e-9||p.y+p.d+gap>D+1e-9||z<0||z+p.h>H+1e-9)return false;
+  if(obstacles.some(o=>overlap3D(p,o,gap)))return false;
+  if(placed.some(q=>overlap3D(p,q,gap)))return false;
+  return placementSupported(p,placed,type);
+}
+function candidatePlacementsFor(placed,type,o,W,D,H,obstacles,gap){
+  const out=[],seen=new Set();
+  const push=p=>{
+    const key=`${round6(p.x)}|${round6(p.y)}|${round6(p.z||0)}`;
+    if(seen.has(key)||!validPlacement(p,placed,type,W,D,H,obstacles,gap))return;
+    seen.add(key);out.push(p);
+  };
+
+  const floorPlaced=placed.filter(p=>(Number(p.z)||0)<=1e-9);
+  for(const [x,y] of candidatePointsFor(floorPlaced,obstacles,o[0],o[1],gap)){
+    push({typeId:type.id,name:type.name,x:round6(x),y:round6(y),z:0,w:o[0],d:o[1],h:o[2]});
+  }
+
+  if(state.enableStacking&&type.canBeStacked){
+    for(const base of placed){
+      const baseRule=boxById(base.typeId);
+      if(!baseRule?.canSupportStack)continue;
+      const z=round6((Number(base.z)||0)+base.h);
+      if(z+o[2]>H+1e-9||o[0]>base.w+1e-9||o[1]>base.d+1e-9)continue;
+      const xs=new Set([base.x,round6(base.x+base.w-o[0])]);
+      const ys=new Set([base.y,round6(base.y+base.d-o[1])]);
+      for(const q of placed){
+        if(Math.abs((Number(q.z)||0)-z)>1e-9)continue;
+        if(q.x>=base.x-1e-9&&q.y>=base.y-1e-9&&q.x+q.w<=base.x+base.w+1e-9&&q.y+q.d<=base.y+base.d+1e-9){
+          xs.add(round6(q.x+q.w+gap));ys.add(round6(q.y+q.d+gap));
+          xs.add(round6(q.x-o[0]-gap));ys.add(round6(q.y-o[1]-gap));
+        }
+      }
+      for(const y of [...ys])for(const x of [...xs]){
+        const p={typeId:type.id,name:type.name,x:round6(x),y:round6(y),z,w:o[0],d:o[1],h:o[2]};
+        if(footprintContains(base,p))push(p);
+      }
+    }
+  }
+  return out;
+}
+
 function canPlaceAny(placed,types,W,D){
   const points=candidatePoints(placed);
   for(const t of types) for(const o of t.oris) for(const [x,y] of points){
@@ -862,7 +958,7 @@ function findLayouts(){
   const types=selected.map(b=>({
     ...b,
     max:(Number.isFinite(state.itemLimits?.[b.id]) && state.itemLimits[b.id]>0) ? state.itemLimits[b.id] : null,
-    oris:orientations(b,state.uprightOnly).filter(o=>o[0]+2*gap<=W&&o[1]+2*gap<=D&&o[2]+gap<=H)
+    oris:orientations(b,state.uprightOnly).filter(o=>o[0]+2*gap<=W&&o[1]+2*gap<=D&&o[2]<=H+1e-9)
   })).filter(t=>t.oris.length);
 
   const rejected=selected.filter(b=>!types.some(t=>t.id===b.id));
@@ -887,11 +983,7 @@ function findLayouts(){
       const used=counts[t.id]||0;
       if(t.max!==null && used>=t.max) continue;
       for(const o of t.oris){
-        const points=candidatePointsFor(placed,obstacles,o[0],o[1],gap);
-        for(const [x,y] of points){
-          if(x<gap-1e-9||y<gap-1e-9||x+o[0]+gap>W+1e-9||y+o[1]+gap>D+1e-9||o[2]+gap>H+1e-9)continue;
-          const p={typeId:t.id,name:t.name,x:round6(x),y:round6(y),z:0,w:o[0],d:o[1],h:o[2]};
-          if(placed.some(q=>overlap(p,q,gap))||obstacles.some(ob=>overlap(p,ob,gap)))continue;
+        for(const p of candidatePlacementsFor(placed,t,o,W,D,H,obstacles,gap)){
           extended=true;
           recurse([...placed,p],{...counts,[t.id]:used+1});
           if(found.size>=LAYOUT_LIMIT*4){truncated=true;return}
@@ -926,13 +1018,13 @@ function findLayouts(){
 
   $("resultLabel").textContent=layouts.length?"Fits":"No layout";
   $("layoutCount").textContent=String(layouts.length);
-  $("bestFill").textContent=layouts.length?`${(utilization(layouts[0],W,D)*100).toFixed(1)}%`:"0%";
+  $("bestFill").textContent=layouts.length?`${(utilization(layouts[0],W,D,H)*100).toFixed(1)}%`:"0%";
   $("searchState").textContent=truncated?"Capped":"Complete";
 
   if(rejected.length){
     showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${rejected.map(x=>x.name).join(", ")} cannot fit at all and was excluded.${truncated?" Results are capped.":""}`,"warn");
   }else{
-    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${obstacles.length?`${obstacles.length} blocked zone${obstacles.length===1?"":"s"} avoided. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?"Results are capped to keep the browser responsive.":""}`,"good");
+    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${state.enableStacking?"Stacking rules enabled. ":""}${obstacles.length?`${obstacles.length} blocked zone${obstacles.length===1?"":"s"} avoided. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?"Results are capped to keep the browser responsive.":""}`,"good");
   }
   selectedLayout=0;selectedGap=-1;currentGaps=[];
   editMode=false;
@@ -942,10 +1034,10 @@ function findLayouts(){
 function distinctTypes(layout){
   return new Set(layout.map(p=>p.typeId)).size;
 }
-function proposalTags(layout,W,D){
+function proposalTags(layout,W,D,H=currentUsableSize()?.H||1){
   if(!layouts.length)return [];
-  const fill=utilization(layout,W,D);
-  const bestFill=Math.max(...layouts.map(l=>utilization(l,W,D)));
+  const fill=utilization(layout,W,D,H);
+  const bestFill=Math.max(...layouts.map(l=>utilization(l,W,D,H)));
   const mostItems=Math.max(...layouts.map(l=>l.length));
   const minTypes=Math.min(...layouts.map(l=>distinctTypes(l)));
   const maxTypes=Math.max(...layouts.map(l=>distinctTypes(l)));
@@ -954,7 +1046,8 @@ function proposalTags(layout,W,D){
   if(layout.length===mostItems) tags.push("Most compartments");
   if(distinctTypes(layout)===minTypes) tags.push("Simplest setup");
   if(maxTypes>1 && distinctTypes(layout)===maxTypes) tags.push("Most mixed");
-  return tags.slice(0,2);
+  if(layoutUsesStacking(layout)) tags.push("Uses stacking");
+  return tags.slice(0,3);
 }
 
 function showMessage(text,type){$("message").className=`message ${type||""}`;$("message").textContent=text}
@@ -971,7 +1064,7 @@ function renderGallery(W,D,H,truncated){
   $("gallerySubtitle").textContent=`${layouts.length} curated proposals${truncated?" (search capped)":""}, ordered for “${goalLabel()}”.`;
   const el=$("gallery");
   el.innerHTML=layouts.map((layout,i)=>`<button type="button" class="layoutcard ${i===selectedLayout?"selected":""}" data-layout="${i}">
-    <div class="layoutmeta"><div><strong>Layout ${i+1}</strong>${i===0?`<span class="proposalbadge">${esc(goalLabel())}</span>`:""}${proposalTags(layout,W,D).map(t=>`<span class="proposalbadge">${t}</span>`).join(" ")}</div><span>${(utilization(layout,W,D)*100).toFixed(1)}% usable floor</span></div>
+    <div class="layoutmeta"><div><strong>Layout ${i+1}</strong>${i===0?`<span class="proposalbadge">${esc(goalLabel())}</span>`:""}${proposalTags(layout,W,D,H).map(t=>`<span class="proposalbadge">${t}</span>`).join(" ")}</div><span>${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)}</span></div>
     ${svgTop(layout,W,D,360,210,false)}
     <div class="legend">${legendHtml(layout)}</div>
   </button>`).join("");
@@ -987,13 +1080,14 @@ function renderGallery(W,D,H,truncated){
 }
 
 function invalidEditIndices(layout,W,D){
-  const bad=new Set(),gap=Math.max(0,state.fitTolerance||0),obstacles=usableObstacles();
+  const bad=new Set(),gap=Math.max(0,state.fitTolerance||0),obstacles=usableObstacles(),H=currentUsableSize()?.H||Infinity;
   for(let i=0;i<layout.length;i++){
-    const p=layout[i];
-    if(p.x<gap-1e-9||p.y<gap-1e-9||p.x+p.w+gap>W+1e-9||p.y+p.d+gap>D+1e-9) bad.add(i);
-    if(obstacles.some(o=>overlap(p,o,gap)))bad.add(i);
+    const p=layout[i],others=layout.filter((_,j)=>j!==i),type=boxById(p.typeId);
+    if(p.x<gap-1e-9||p.y<gap-1e-9||p.x+p.w+gap>W+1e-9||p.y+p.d+gap>D+1e-9||(p.z||0)<0||(p.z||0)+p.h>H+1e-9)bad.add(i);
+    if(obstacles.some(o=>overlap3D(p,o,gap)))bad.add(i);
+    if(!placementSupported(p,others,type))bad.add(i);
     for(let j=i+1;j<layout.length;j++){
-      if(overlap(p,layout[j],gap)){bad.add(i);bad.add(j)}
+      if(overlap3D(p,layout[j],gap)){bad.add(i);bad.add(j)}
     }
   }
   return bad;
@@ -1009,14 +1103,14 @@ function svgTop(layout,W,D,width,height,labels=true,editable=false,selected=-1,h
     <rect x="${g.ox+o.x*g.scale}" y="${g.oy+o.y*g.scale}" width="${o.w*g.scale}" height="${o.d*g.scale}" fill="url(#hatch-${o.id})" stroke="#b23c3c" stroke-width="1.7"/>
     ${labels?`<text x="${g.ox+(o.x+o.w/2)*g.scale}" y="${g.oy+(o.y+o.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="10" fill="#8b2e2e">blocked</text>`:""}
   </g>`).join("");
-  const rects=layout.map((p,idx)=>{
+  const rects=layout.map((p,idx)=>({p,idx})).sort((a,b)=>(a.p.z||0)-(b.p.z||0)).map(({p,idx})=>{
     const invalid=bad.has(idx),active=idx===selected;
     const stroke=invalid?"#b23c3c":active?"#111":colorFor(p.typeId);
     const fill=invalid?"#b23c3c":colorFor(p.typeId);
     const sw=active?3:invalid?2.5:1.7;
     return `<g data-item="${editable?idx:""}" style="${editable?"cursor:move":""}">
       <rect data-item="${editable?idx:""}" x="${g.ox+p.x*g.scale}" y="${g.oy+p.y*g.scale}" width="${p.w*g.scale}" height="${p.d*g.scale}" rx="3" fill="${fill}" fill-opacity="${invalid?".28":".34"}" stroke="${stroke}" stroke-width="${sw}"/>
-      ${labels?`<text data-item="${editable?idx:""}" x="${g.ox+(p.x+p.w/2)*g.scale}" y="${g.oy+(p.y+p.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#222" pointer-events="${editable?"auto":"none"}">${esc(shortName(boxById(p.typeId)?.name||String(idx+1)))}</text>`:""}
+      ${labels?`<text data-item="${editable?idx:""}" x="${g.ox+(p.x+p.w/2)*g.scale}" y="${g.oy+(p.y+p.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#222" pointer-events="${editable?"auto":"none"}">${esc(shortName(boxById(p.typeId)?.name||String(idx+1)))}${(p.z||0)>0?` ↑${fmt(p.z)}${state.unit}`:""}</text>`:""}
     </g>`;
   }).join("");
   const gapMark=highlightGap?`<rect x="${g.ox+highlightGap.x*g.scale}" y="${g.oy+highlightGap.y*g.scale}" width="${highlightGap.w*g.scale}" height="${highlightGap.d*g.scale}" fill="#166c45" fill-opacity=".08" stroke="#166c45" stroke-width="3" stroke-dasharray="8 5"/><text x="${g.ox+(highlightGap.x+highlightGap.w/2)*g.scale}" y="${g.oy+(highlightGap.y+highlightGap.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="800" fill="#166c45">${fmt(highlightGap.w)} × ${fmt(highlightGap.d)} ${esc(state.unit)}</text>`:"";
@@ -1028,7 +1122,7 @@ function svgFront(layout,W,H,width=760,height=390){
   const obstacles=usableObstacles();
   const obs=obstacles.map(o=>`<rect x="${ox+o.x*scale}" y="${oy+(H-o.h)*scale}" width="${o.w*scale}" height="${o.h*scale}" fill="#b23c3c" fill-opacity=".12" stroke="#b23c3c" stroke-dasharray="5 4" stroke-width="1.5"/>`).join("");
   const sorted=layout.slice().sort((a,b)=>b.y-a.y||a.x-b.x);
-  const rects=sorted.map(p=>`<rect x="${ox+p.x*scale}" y="${oy+(H-p.h)*scale}" width="${p.w*scale}" height="${p.h*scale}" rx="2" fill="${colorFor(p.typeId)}" fill-opacity=".28" stroke="${colorFor(p.typeId)}" stroke-width="1.5"/>`).join("");
+  const rects=sorted.map(p=>`<rect x="${ox+p.x*scale}" y="${oy+(H-(p.z||0)-p.h)*scale}" width="${p.w*scale}" height="${p.h*scale}" rx="2" fill="${colorFor(p.typeId)}" fill-opacity=".28" stroke="${colorFor(p.typeId)}" stroke-width="1.5"/>`).join("");
   return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Front view"><rect x="${ox}" y="${oy}" width="${W*scale}" height="${H*scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${obs}${rects}</svg>`;
 }
 function svgSide(layout,D,H,width=760,height=390){
@@ -1036,7 +1130,7 @@ function svgSide(layout,D,H,width=760,height=390){
   const obstacles=usableObstacles();
   const obs=obstacles.map(o=>`<rect x="${ox+o.y*scale}" y="${oy+(H-o.h)*scale}" width="${o.d*scale}" height="${o.h*scale}" fill="#b23c3c" fill-opacity=".12" stroke="#b23c3c" stroke-dasharray="5 4" stroke-width="1.5"/>`).join("");
   const sorted=layout.slice().sort((a,b)=>b.x-a.x||a.y-b.y);
-  const rects=sorted.map(p=>`<rect x="${ox+p.y*scale}" y="${oy+(H-p.h)*scale}" width="${p.d*scale}" height="${p.h*scale}" rx="2" fill="${colorFor(p.typeId)}" fill-opacity=".28" stroke="${colorFor(p.typeId)}" stroke-width="1.5"/>`).join("");
+  const rects=sorted.map(p=>`<rect x="${ox+p.y*scale}" y="${oy+(H-(p.z||0)-p.h)*scale}" width="${p.d*scale}" height="${p.h*scale}" rx="2" fill="${colorFor(p.typeId)}" fill-opacity=".28" stroke="${colorFor(p.typeId)}" stroke-width="1.5"/>`).join("");
   return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Side view"><rect x="${ox}" y="${oy}" width="${D*scale}" height="${H*scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${obs}${rects}</svg>`;
 }
 
@@ -1067,16 +1161,17 @@ function obstacleCuboidSvg(o,P){
   return poly([A,B,F,E],"#b23c3c","#b23c3c",.10)+poly([B,C,G,F],"#b23c3c","#b23c3c",.14)+poly([E,F,G,H],"#b23c3c","#b23c3c",.18);
 }
 function cuboidSvg(p,P){
-  const A=P(p.x,p.y,0),B=P(p.x+p.w,p.y,0),C=P(p.x+p.w,p.y+p.d,0),D=P(p.x,p.y+p.d,0);
-  const E=P(p.x,p.y,p.h),F=P(p.x+p.w,p.y,p.h),G=P(p.x+p.w,p.y+p.d,p.h),H=P(p.x,p.y+p.d,p.h);
+  const z=Number(p.z)||0;
+  const A=P(p.x,p.y,z),B=P(p.x+p.w,p.y,z),C=P(p.x+p.w,p.y+p.d,z),D=P(p.x,p.y+p.d,z);
+  const E=P(p.x,p.y,z+p.h),F=P(p.x+p.w,p.y,z+p.h),G=P(p.x+p.w,p.y+p.d,z+p.h),H=P(p.x,p.y+p.d,z+p.h);
   const c=colorFor(p.typeId);
   return poly([A,B,F,E],c,c,.18)+poly([B,C,G,F],c,c,.24)+poly([E,F,G,H],c,c,.34);
 }
 function svgIso(layout,W,D,H,width=760,height=430){
   const P=isoTransform(W,D,H,width,height);
   const sorted=layout.slice().sort((a,b)=>{
-    const ac=isoCameraRaw(a.x+a.w/2,a.y+a.d/2,a.h/2,W,D,H)[1];
-    const bc=isoCameraRaw(b.x+b.w/2,b.y+b.d/2,b.h/2,W,D,H)[1];
+    const ac=isoCameraRaw(a.x+a.w/2,a.y+a.d/2,(a.z||0)+a.h/2,W,D,H)[1];
+    const bc=isoCameraRaw(b.x+b.w/2,b.y+b.d/2,(b.z||0)+b.h/2,W,D,H)[1];
     return bc-ac;
   });
   const floor=poly([P(0,0,0),P(W,0,0),P(W,D,0),P(0,D,0)],"#ffffff","#bbbbbb",1);
@@ -1092,7 +1187,8 @@ function renderDetail(W,D,H){
   const layout=layouts[selectedLayout];if(!layout)return;
   $("detailTitle").textContent=`Layout ${selectedLayout+1}`;
   updateModalNav();updateSavePlanButton();
-  $("detailSubtitle").textContent=`${(utilization(layout,W,D)*100).toFixed(1)}% usable-floor utilization · ${layout.length} item${layout.length===1?"":"s"}.`;
+  const stackedCount=layout.filter(p=>(p.z||0)>1e-9).length;
+  $("detailSubtitle").textContent=`${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)} utilization · ${layout.length} item${layout.length===1?"":"s"}${stackedCount?` · ${stackedCount} stacked`:""}.`;
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.view===detailView));
   $("reset3d").disabled=detailView!=="iso";
   $("editLayoutBtn").textContent=editMode?"Editing":"Edit layout";
@@ -1109,7 +1205,8 @@ function renderDetail(W,D,H){
   $("layoutItems").innerHTML=Object.entries(counts).map(([id,n])=>{
     const b=boxById(id),ps=layout.filter(p=>p.typeId===id);
     const os=[...new Set(ps.map(p=>`${fmt(p.w)} × ${fmt(p.d)} × ${fmt(p.h)}`))];
-    return `<li><strong>${esc(b?.name||id)} ×${n}</strong> — ${os.join(", ")} ${esc(state.unit)}</li>`;
+    const stacked=ps.filter(p=>(p.z||0)>1e-9).length;
+    return `<li><strong>${esc(b?.name||id)} ×${n}</strong> — ${os.join(", ")} ${esc(state.unit)}${stacked?` · ${stacked} stacked`:""}</li>`;
   }).join("");
 
   currentGaps=findEmptyRectangles(layout,W,D);
@@ -1179,11 +1276,16 @@ function currentUsableSize(){
 function selectedManualLayout(){return layouts[selectedLayout]}
 function editItemValid(layout,index,W,D){
   if(index<0||index>=layout.length)return false;
-  const p=layout[index],gap=Math.max(0,state.fitTolerance||0),obstacles=usableObstacles();
-  if(p.x<gap-1e-9||p.y<gap-1e-9||p.x+p.w+gap>W+1e-9||p.y+p.d+gap>D+1e-9)return false;
-  if(obstacles.some(o=>overlap(p,o,gap)))return false;
-  for(let i=0;i<layout.length;i++)if(i!==index&&overlap(p,layout[i],gap))return false;
-  return true;
+  const p=layout[index],gap=Math.max(0,state.fitTolerance||0),obstacles=usableObstacles(),H=currentUsableSize()?.H||Infinity;
+  const others=layout.filter((_,i)=>i!==index),type=boxById(p.typeId);
+  if(p.x<gap-1e-9||p.y<gap-1e-9||p.x+p.w+gap>W+1e-9||p.y+p.d+gap>D+1e-9||(p.z||0)<0||(p.z||0)+p.h>H+1e-9)return false;
+  if(obstacles.some(o=>overlap3D(p,o,gap)))return false;
+  if(others.some(q=>overlap3D(p,q,gap)))return false;
+  if(!placementSupported(p,others,type))return false;
+  return layout.every((q,i)=>{
+    if(i===index||(q.z||0)<=1e-9)return true;
+    return placementSupported(q,layout.filter((_,j)=>j!==i),boxById(q.typeId));
+  });
 }
 function setEditStatus(msg,bad=false){
   $("editStatus").textContent=msg;
@@ -1205,7 +1307,7 @@ $("editLayoutBtn").addEventListener("click",()=>{
     editOriginalLayout=selectedManualLayout().map(p=>({...p}));
     selectedEditItem=-1;
     detailView="top";
-    setEditStatus("Click a box, drag it to move, or use the edit buttons.");
+    setEditStatus("Click a box, drag it to move, or use the edit buttons. Stacked items keep their current elevation.");
   }
   refreshCurrentDetail();
 });
@@ -1239,9 +1341,16 @@ $("rotateItem").addEventListener("click",()=>{
 });
 
 $("removeItem").addEventListener("click",()=>{
-  const layout=selectedManualLayout();
-  if(!editMode||!layout||selectedEditItem<0){setEditStatus("Select a box first.",true);return}
-  layout.splice(selectedEditItem,1);selectedEditItem=-1;selectedGap=-1;setEditStatus("Item removed.");refreshCurrentDetail();
+  const layout=selectedManualLayout(),sz=currentUsableSize();
+  if(!editMode||!layout||selectedEditItem<0||!sz){setEditStatus("Select a box first.",true);return}
+  const [removed]=layout.splice(selectedEditItem,1);
+  const invalid=invalidEditIndices(layout,sz.W,sz.D);
+  if(invalid.size){
+    layout.splice(selectedEditItem,0,removed);
+    setEditStatus("Remove the items stacked above this one first.",true);
+    refreshCurrentDetail();return;
+  }
+  selectedEditItem=-1;selectedGap=-1;setEditStatus("Item removed.");refreshCurrentDetail();
 });
 
 $("duplicateItem").addEventListener("click",()=>{
@@ -1249,13 +1358,9 @@ $("duplicateItem").addEventListener("click",()=>{
   if(!editMode||!layout||!sz||selectedEditItem<0){setEditStatus("Select a box first.",true);return}
   const src=layout[selectedEditItem],max=allowedMaxFor(src.typeId);
   if(max!==null&&countType(layout,src.typeId)>=max){setEditStatus(`Maximum quantity (${max}) reached for this item.`,true);return}
-  const points=candidatePoints(layout);
-  for(const [x,y] of points){
-    const p={...src,x:round6(x),y:round6(y)};
-    const gap=Math.max(0,state.fitTolerance||0);
-    if(p.x>=gap-1e-9&&p.y>=gap-1e-9&&p.x+p.w+gap<=sz.W+1e-9&&p.y+p.d+gap<=sz.D+1e-9&&!layout.some(q=>overlap(p,q,gap))&&!usableObstacles().some(o=>overlap(p,o,gap))){
-      layout.push(p);selectedEditItem=layout.length-1;selectedGap=-1;setEditStatus("Duplicate added.");refreshCurrentDetail();return;
-    }
+  const type=boxById(src.typeId),gap=Math.max(0,state.fitTolerance||0);
+  for(const p of candidatePlacementsFor(layout,type,[src.w,src.d,src.h],sz.W,sz.D,sz.H,usableObstacles(),gap)){
+    layout.push(p);selectedEditItem=layout.length-1;selectedGap=-1;setEditStatus((p.z||0)>0?"Duplicate stacked.":"Duplicate added.");refreshCurrentDetail();return;
   }
   setEditStatus("No free position for another copy.",true);
 });
@@ -1358,6 +1463,7 @@ $("savePlanBtn").addEventListener("click",()=>{
       storageId:s.id,
       storageName:s.name,
       goal:state.optimizeGoal,
+      stacking:state.enableStacking,
       signature,
       layout:layout.map(q=>({...q}))
     });
@@ -1415,6 +1521,7 @@ $("unit").addEventListener("change",()=>{
   renderAll();
 });
 $("uprightOnly").addEventListener("change",()=>{state.uprightOnly=$("uprightOnly").checked;save();resetResults()});
+$("enableStacking").addEventListener("change",()=>{state.enableStacking=$("enableStacking").checked;save();resetResults()});
 $("clearanceEnabled").addEventListener("change",()=>{state.clearanceEnabled=$("clearanceEnabled").checked;$("clearanceField").style.display=state.clearanceEnabled?"block":"none";save();resetResults()});
 $("clearance").addEventListener("change",()=>{state.clearance=Math.max(0,Number($("clearance").value)||0);save();resetResults()});
 $("fitTolerance").addEventListener("change",()=>{state.fitTolerance=Math.max(0,Number($("fitTolerance").value)||0);save();resetResults()});
@@ -1504,7 +1611,7 @@ $("smartImportBtn").addEventListener("click",async()=>{
 });
 
 $("addBox").addEventListener("click",()=>{
-  const id=uid("b");state.boxes.push({id,name:"New item",w:30,d:20,h:10,price:0,currency:"MAD",sku:"",url:"",image:""});state.selectedTypes[id]=false;state.itemLimits[id]=null;editingBox=id;save();renderAll();$("boxName").focus();$("boxName").select()
+  const id=uid("b");state.boxes.push({id,name:"New item",w:30,d:20,h:10,price:0,currency:"MAD",sku:"",url:"",image:"",uprightOnly:true,canBeStacked:false,canSupportStack:false});state.selectedTypes[id]=false;state.itemLimits[id]=null;editingBox=id;save();renderAll();$("boxName").focus();$("boxName").select()
 });
 $("saveStorage").addEventListener("click",()=>{
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
@@ -1516,6 +1623,7 @@ $("saveBox").addEventListener("click",()=>{
   const b=state.boxes.find(x=>x.id===editingBox);if(!b)return;
   b.name=$("boxName").value.trim()||"Item";b.w=Math.max(0,Number($("bw").value)||0);b.d=Math.max(0,Number($("bd").value)||0);b.h=Math.max(0,Number($("bh").value)||0);
   b.price=Math.max(0,Number($("boxPrice").value)||0);b.currency=($("boxCurrency").value.trim().toUpperCase().slice(0,6)||"MAD");b.sku=$("boxSku").value.trim();b.url=$("boxUrl").value.trim();b.image=$("boxImage").value.trim();
+  b.uprightOnly=$("boxUprightOnly").checked;b.canBeStacked=$("boxCanBeStacked").checked;b.canSupportStack=$("boxCanSupportStack").checked;
   save();renderAll()
 });
 $("deleteStorage").addEventListener("click",()=>{
@@ -1527,6 +1635,19 @@ $("deleteBox").addEventListener("click",()=>{
   if(!editingBox)return;state.boxes=state.boxes.filter(x=>x.id!==editingBox);delete state.selectedTypes[editingBox];delete state.itemLimits[editingBox];
   editingBox=state.boxes[0]?.id||"";save();renderAll()
 });
+
+if(new URLSearchParams(location.search).has("smoke-test")){
+  window.StorageFitTest={
+    parseDimensionString,
+    parseLabeledDimensions,
+    ikeaUrlInfo,
+    normalizeProductDimensions,
+    safeUrl,
+    validateBackupState,
+    overlap3D,
+    footprintContains
+  };
+}
 
 renderAll();
 })();

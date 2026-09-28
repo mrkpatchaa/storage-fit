@@ -17,6 +17,18 @@ jobs:
       - name: Check JavaScript syntax
         run: node --check app.js
 
+      - name: Check smoke-test JavaScript syntax
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          source = Path("tests/smoke.html").read_text()
+          scripts = re.findall(r"<script>([\s\S]*?)</script>", source, flags=re.I)
+          assert scripts, "smoke test script is missing"
+          Path("/tmp/storage-fit-smoke.js").write_text("\n".join(scripts))
+          PY
+          node --check /tmp/storage-fit-smoke.js
+
       - name: Check static app structure
         run: |
           python3 - <<'PY'
