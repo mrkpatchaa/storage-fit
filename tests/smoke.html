@@ -137,6 +137,17 @@
       result(api.storageStructureSignature(withDivider)!==api.storageStructureSignature(movedDivider),"structural matching detects divider geometry changes");
       var siblings=api.matchingSiblingStorages(matchSource,[matchSource,sameGeometry,changedObstacle,otherFurniture]);
       result(siblings.length===1&&siblings[0].id==="s2","propagation targets only structurally identical siblings in the same furniture");
+      var unlabeled=[{typeId:"b1",x:0,y:0,z:0,w:5,d:5,h:5}];
+      var labeled=[{typeId:"b1",x:0,y:0,z:0,w:5,d:5,h:5,label:"Socks"}];
+      result(api.canonicalPlanLayout(unlabeled)!==api.canonicalPlanLayout(labeled),"placement label changes saved-plan identity");
+      result(api.canonicalPlanLayout(labeled)===api.canonicalPlanLayout([{typeId:"b1",x:0,y:0,z:0,w:5,d:5,h:5,label:"Socks"}]),"same placement label keeps saved-plan identity stable");
+      var labels=api.labeledPlacements([
+        {typeId:"b1",x:0,y:0,z:0,label:" Socks "},
+        {typeId:"b1",x:5,y:0,z:0,label:""},
+        {typeId:"b2",x:0,y:5,z:2,label:"Cables"}
+      ]);
+      result(labels.length===2&&labels[0].label==="Socks"&&labels[1].label==="Cables","label summary trims and excludes blank placement labels");
+      result(labels[1].z===2,"label summary preserves stacked placement elevation");
       var legacy={storages:[{id:"s1",name:"Drawer",w:10,d:10,h:10}],boxes:[{id:"b1",name:"Box",w:5,d:5,h:5}],rooms:[],furniture:[],selectedStorage:"s1"};
       api.ensureHomeHierarchy(legacy);
       result(legacy.rooms.length===1,"legacy data gets a fallback room");
