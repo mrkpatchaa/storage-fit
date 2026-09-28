@@ -778,3 +778,40 @@ The button is disabled until at least one placement has a purpose label.
 Printing uses the existing hidden print surface, so **Print plan** and **Print labels** share the same browser-native print flow without changing project data.
 
 No schema migration is required; the app remains on V28.
+
+
+## Exact placement coordinates
+
+Manual editing now exposes direct **X / Y / Z** measurements for the selected organizer.
+
+Coordinate meaning:
+
+- **X** — distance from the inside left edge of the usable storage space;
+- **Y** — distance from the inside front edge;
+- **Z** — elevation above the usable floor.
+
+Typed values are treated as exact measurements rather than being rounded to the editing grid. They are rounded only to six decimal places for numeric stability.
+
+The numeric input arrow steppers use the current manual **Snap** step for convenience, so the same editor can support both:
+- exact typed measurements;
+- quick snap-sized increments.
+
+### Transactional validation
+
+A coordinate change is tested on a cloned layout first.
+
+It is accepted only if the resulting complete layout still satisfies:
+
+- storage bounds and clearance;
+- fit tolerance;
+- blocked zones and dividers;
+- organizer collisions;
+- stacking permission/support;
+- maximum stack level;
+- dependent stacked items remaining supported.
+
+Invalid coordinates are rejected and the existing layout remains unchanged.
+
+Every successful coordinate change is a normal Undo/Redo history step.
+
+No state schema change is required; the app remains on V28.
