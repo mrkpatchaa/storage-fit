@@ -12,7 +12,7 @@ Storage Fit is a dependency-free browser tool for planning boxes and organizers 
 - Models blocked zones such as rails, hinges and unusable corners.
 - Detects leftover rectangles and suggests saved items that fit them.
 - Imports public IKEA/product URLs when product metadata is available, previews the result before saving, and detects existing catalog items by SKU or canonical product URL.
-- Saves plans, builds shopping lists, prints/exports layouts, and backs up/restores all browser data.
+- Saves plans, builds inventory-aware shopping lists, prints/exports layouts, and backs up/restores all browser data.
 - Turns saved plans into a shortlist: rename them, add notes, mark a chosen plan, and compare up to three side-by-side.
 
 ## Run locally
@@ -120,3 +120,22 @@ Examples:
 The sidebar focuses on one room/furniture context at a time, while the main storage picker can jump directly to any compartment using its full breadcrumb. A furniture-level progress indicator shows how many of its storage spaces already have saved plans.
 
 Existing V17 data migrates automatically into **Home → Unassigned furniture**, so introducing hierarchy does not require manual reassignment. Rooms or furniture that still contain children cannot be deleted until those children are moved or removed.
+
+
+## Owned inventory and purchase optimization
+
+Each item can store an **Owned quantity** independently from its layout **Max**:
+
+- **Max** limits how many copies the optimizer may place.
+- **Owned quantity** says how many copies you already have available for a candidate layout.
+
+The shopping list reports **Use / Own / Buy**, and totals only the additional units that need to be purchased.
+
+The **Cheapest to implement** optimization goal ranks layouts conservatively:
+
+- fewer unpriced units to buy is always preferred;
+- when both layouts use the same single currency, known purchase totals are compared directly;
+- currencies are never silently converted;
+- when currencies differ, the planner falls back to fewer units to buy, then better space utilization.
+
+A saved plan's purchase estimate uses the current item inventory, so if you later buy more organizers the plan can immediately show fewer remaining purchases. Owned inventory is currently evaluated per layout; home-wide allocation across several saved plans is intentionally left for a later procurement pass.
