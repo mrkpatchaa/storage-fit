@@ -182,18 +182,23 @@ function storageBreadcrumb(s){
   const f=furnitureById(s?.furnitureId),r=roomById(f?.roomId);
   return [r?.name,f?.name,s?.name].filter(Boolean).join(" → ");
 }
-function nextCopyName(base,existingNames=[]){
-  const clean=String(base||"Copy").trim()||"Copy",taken=new Set(existingNames.map(x=>String(x).toLowerCase()));
-  let candidate=`${clean} copy`,n=2;
-  while(taken.has(candidate.toLowerCase()))candidate=`${clean} copy ${n++}`;
+function uniqueSiblingName(preferred,existingNames=[]){
+  const clean=String(preferred||"Copy").trim()||"Copy",taken=new Set(existingNames.map(x=>String(x).toLowerCase()));
+  if(!taken.has(clean.toLowerCase()))return clean;
+  let n=2,candidate=`${clean} (${n})`;
+  while(taken.has(candidate.toLowerCase()))candidate=`${clean} (${++n})`;
   return candidate;
+}
+function nextCopyName(base,existingNames=[]){
+  const clean=String(base||"Copy").trim()||"Copy";
+  return uniqueSiblingName(`${clean} copy`,existingNames);
 }
 function repeatStorageNames(base,count){
   const clean=String(base||"Storage").trim()||"Storage",m=clean.match(/^(.*?)(\d+)$/);
   const prefix=m?m[1].trimEnd():clean,start=m?Number(m[2])+1:2,pad=m?m[2].length:0;
   return Array.from({length:Math.max(0,Math.floor(Number(count)||0))},(_,i)=>{
     const n=String(start+i).padStart(pad,"0");
-    return `${prefix}${prefix&&m?" ":""}${n}`;
+    return `${prefix}${prefix?" ":""}${n}`;
   });
 }
 function cloneStorageDefinition(source,{id=null,furnitureId=null,name=null,idFactory=uid}={}){
