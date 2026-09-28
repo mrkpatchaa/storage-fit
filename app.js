@@ -614,9 +614,28 @@ function loadBoxEditor(){
   const b=state.boxes.find(x=>x.id===editingBox);
   $("boxName").value=b?.name||"";$("bw").value=b?.w??"";$("bd").value=b?.d??"";$("bh").value=b?.h??"";
   $("boxPrice").value=b?.price||"";$("boxCurrency").value=b?.currency||"MAD";$("boxOwnedQty").value=b?.ownedQty??0;$("boxSku").value=b?.sku||"";$("boxUrl").value=b?.url||"";$("boxImage").value=b?.image||"";
-  $("boxUprightOnly").checked=b?.uprightOnly!==false;$("boxCanBeStacked").checked=!!b?.canBeStacked;$("boxCanSupportStack").checked=!!b?.canSupportStack;
+  $("boxUprightOnly").checked=b?.uprightOnly!==false;
+  $("boxFloorRotationLocked").checked=!!b?.floorRotationLocked;
+  $("boxFrontPriority").checked=!!b?.frontPriority;
+  $("boxCanBeStacked").checked=!!b?.canBeStacked;
+  $("boxCanSupportStack").checked=!!b?.canSupportStack;
+  $("boxMaxStackLevel").value=b?.maxStackLevel??"";
+  syncStackRuleControls();
 }
-function itemRuleText(b){const tags=[];if(b?.canBeStacked)tags.push("can stack");if(b?.canSupportStack)tags.push("supports");if(b?.uprightOnly===false)tags.push("may tip");return tags.length?` · ${tags.join(" · ")}`:""}
+function syncStackRuleControls(){
+  const enabled=$("boxCanBeStacked").checked;
+  $("boxMaxStackLevel").disabled=!enabled;
+}
+$("boxCanBeStacked").addEventListener("change",syncStackRuleControls);
+function itemRuleText(b){
+  const tags=[];
+  if(b?.floorRotationLocked)tags.push("rotation locked");
+  if(b?.frontPriority)tags.push("front priority");
+  if(b?.canBeStacked)tags.push(b.maxStackLevel?`stack ≤L${b.maxStackLevel}`:"can stack");
+  if(b?.canSupportStack)tags.push("supports");
+  if(b?.uprightOnly===false)tags.push("may tip");
+  return tags.length?` · ${tags.join(" · ")}`:"";
+}
 function selectedBoxes(){return state.boxes.filter(b=>state.selectedTypes?.[b.id])}
 
 function normalizedSku(value){
@@ -2755,7 +2774,13 @@ $("saveBox").addEventListener("click",()=>{
   const b=state.boxes.find(x=>x.id===editingBox);if(!b)return;
   b.name=$("boxName").value.trim()||"Item";b.w=Math.max(0,Number($("bw").value)||0);b.d=Math.max(0,Number($("bd").value)||0);b.h=Math.max(0,Number($("bh").value)||0);
   b.price=Math.max(0,Number($("boxPrice").value)||0);b.currency=($("boxCurrency").value.trim().toUpperCase().slice(0,6)||"MAD");b.ownedQty=Math.max(0,Math.min(999,Math.floor(Number($("boxOwnedQty").value)||0)));b.sku=$("boxSku").value.trim();b.url=$("boxUrl").value.trim();b.image=$("boxImage").value.trim();b.retailer=retailerName(b.url);
-  b.uprightOnly=$("boxUprightOnly").checked;b.canBeStacked=$("boxCanBeStacked").checked;b.canSupportStack=$("boxCanSupportStack").checked;
+  b.uprightOnly=$("boxUprightOnly").checked;
+  b.floorRotationLocked=$("boxFloorRotationLocked").checked;
+  b.frontPriority=$("boxFrontPriority").checked;
+  b.canBeStacked=$("boxCanBeStacked").checked;
+  b.canSupportStack=$("boxCanSupportStack").checked;
+  const rawLevel=$("boxMaxStackLevel").value.trim();
+  b.maxStackLevel=b.canBeStacked&&rawLevel?Math.max(1,Math.min(9,Math.floor(Number(rawLevel)||1))):null;
   save();renderAll()
 });
 $("deleteStorage").addEventListener("click",()=>{
