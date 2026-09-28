@@ -111,6 +111,14 @@
       result(furnClone.furniture.id!=="f1"&&furnClone.storages.length===2,"furniture clone creates a fresh furniture and all child storage spaces");
       result(furnClone.storages.every(function(x){return x.furnitureId===furnClone.furniture.id}),"cloned storage spaces point to the cloned furniture");
       result(!("savedPlans" in furnClone)&&!furnClone.storages.some(function(x){return "installed" in x||"chosen" in x}),"structural clones do not carry planning or installation completion state");
+      var matchSource={id:"s1",furnitureId:"f1",name:"Drawer A",w:67,d:26,h:13,obstacles:[{id:"o1",name:"Left rail",x:0,y:0,w:2,d:26,h:2}]};
+      var sameGeometry={id:"s2",furnitureId:"f1",name:"Drawer B",w:67,d:26,h:13,obstacles:[{id:"different",name:"Different label",x:0,y:0,w:2,d:26,h:2}]};
+      var changedObstacle={id:"s3",furnitureId:"f1",name:"Drawer C",w:67,d:26,h:13,obstacles:[{id:"o3",name:"Rail",x:0,y:0,w:3,d:26,h:2}]};
+      var otherFurniture={id:"s4",furnitureId:"f2",name:"Drawer D",w:67,d:26,h:13,obstacles:[{id:"o4",name:"Rail",x:0,y:0,w:2,d:26,h:2}]};
+      result(api.storageStructureSignature(matchSource)===api.storageStructureSignature(sameGeometry),"matching ignores obstacle IDs and labels");
+      result(api.storageStructureSignature(matchSource)!==api.storageStructureSignature(changedObstacle),"matching detects obstacle geometry changes");
+      var siblings=api.matchingSiblingStorages(matchSource,[matchSource,sameGeometry,changedObstacle,otherFurniture]);
+      result(siblings.length===1&&siblings[0].id==="s2","propagation targets only structurally identical siblings in the same furniture");
       var legacy={storages:[{id:"s1",name:"Drawer",w:10,d:10,h:10}],boxes:[{id:"b1",name:"Box",w:5,d:5,h:5}],rooms:[],furniture:[],selectedStorage:"s1"};
       api.ensureHomeHierarchy(legacy);
       result(legacy.rooms.length===1,"legacy data gets a fallback room");
