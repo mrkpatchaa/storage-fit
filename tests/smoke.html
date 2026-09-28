@@ -195,6 +195,16 @@
       result(api.validateBackupState(invalidStackBackup)!=="","backup validation rejects stack levels above the supported range");
       var invalidSnapshotBackup={storages:[{id:"s",name:"Drawer",w:10,d:10,h:10}],boxes:[{id:"b",name:"Box",w:2,d:2,h:2}],savedPlans:[{id:"p",storageId:"s",itemSnapshots:[]} ]};
       result(api.validateBackupState(invalidSnapshotBackup)!=="","backup validation rejects malformed saved-plan item snapshots");
+      var recoveryRows=[];
+      for(var ri=0;ri<10;ri++)recoveryRows.push({id:"r"+ri,createdAt:"2026-09-"+String(10+ri).padStart(2,"0")+"T10:00:00Z",reason:"Checkpoint "+ri,data:{storages:[],boxes:[],savedPlans:[]}});
+      recoveryRows.push(null,{id:"bad",createdAt:"bad",reason:"Missing data"});
+      recoveryRows.push({id:"r9",createdAt:"2026-10-01T10:00:00Z",reason:"Duplicate newer",data:{storages:[],boxes:[],savedPlans:[]}});
+      var normalizedRecovery=api.normalizeRecoveryJournal(recoveryRows);
+      result(normalizedRecovery.length===8,"recovery journal keeps only the latest 8 valid checkpoints");
+      result(normalizedRecovery[0].id==="r9"&&normalizedRecovery[0].reason==="Duplicate newer","recovery journal sorts newest first and deduplicates IDs");
+      result(normalizedRecovery.every(function(x){return x.data&&typeof x.reason==="string"}),"recovery journal filters malformed entries");
+      var recoveryMeta=api.recoveryEntryMeta({data:{storages:[{},{}],boxes:[{}],savedPlans:[{},{},{}]}});
+      result(recoveryMeta.storages===2&&recoveryMeta.items===1&&recoveryMeta.plans===3,"recovery checkpoint summary counts project contents");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{
