@@ -2636,6 +2636,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeInstallState,
     computeInstallAllocation,
     repeatStorageNames,
+    storageStructureSignature,
+    matchingSiblingStorages,
     cloneStorageDefinition,
     cloneFurnitureDefinition,
     nextCopyName,
