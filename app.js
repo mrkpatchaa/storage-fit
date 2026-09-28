@@ -1277,7 +1277,11 @@ function editItemValid(layout,index,W,D){
   if(p.x<gap-1e-9||p.y<gap-1e-9||p.x+p.w+gap>W+1e-9||p.y+p.d+gap>D+1e-9||(p.z||0)<0||(p.z||0)+p.h>H+1e-9)return false;
   if(obstacles.some(o=>overlap3D(p,o,gap)))return false;
   if(others.some(q=>overlap3D(p,q,gap)))return false;
-  return placementSupported(p,others,type);
+  if(!placementSupported(p,others,type))return false;
+  return layout.every((q,i)=>{
+    if(i===index||(q.z||0)<=1e-9)return true;
+    return placementSupported(q,layout.filter((_,j)=>j!==i),boxById(q.typeId));
+  });
 }
 function setEditStatus(msg,bad=false){
   $("editStatus").textContent=msg;
@@ -1333,9 +1337,16 @@ $("rotateItem").addEventListener("click",()=>{
 });
 
 $("removeItem").addEventListener("click",()=>{
-  const layout=selectedManualLayout();
-  if(!editMode||!layout||selectedEditItem<0){setEditStatus("Select a box first.",true);return}
-  layout.splice(selectedEditItem,1);selectedEditItem=-1;selectedGap=-1;setEditStatus("Item removed.");refreshCurrentDetail();
+  const layout=selectedManualLayout(),sz=currentUsableSize();
+  if(!editMode||!layout||selectedEditItem<0||!sz){setEditStatus("Select a box first.",true);return}
+  const [removed]=layout.splice(selectedEditItem,1);
+  const invalid=invalidEditIndices(layout,sz.W,sz.D);
+  if(invalid.size){
+    layout.splice(selectedEditItem,0,removed);
+    setEditStatus("Remove the items stacked above this one first.",true);
+    refreshCurrentDetail();return;
+  }
+  selectedEditItem=-1;selectedGap=-1;setEditStatus("Item removed.");refreshCurrentDetail();
 });
 
 $("duplicateItem").addEventListener("click",()=>{
@@ -1619,6 +1630,19 @@ $("deleteBox").addEventListener("click",()=>{
   if(!editingBox)return;state.boxes=state.boxes.filter(x=>x.id!==editingBox);delete state.selectedTypes[editingBox];delete state.itemLimits[editingBox];
   editingBox=state.boxes[0]?.id||"";save();renderAll()
 });
+
+if(new URLSearchParams(location.search).has("smoke-test")){
+  window.StorageFitTest={
+    parseDimensionString,
+    parseLabeledDimensions,
+    ikeaUrlInfo,
+    normalizeProductDimensions,
+    safeUrl,
+    validateBackupState,
+    overlap3D,
+    footprintContains
+  };
+}
 
 renderAll();
 })();
