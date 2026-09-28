@@ -661,6 +661,72 @@ function loadStorageEditor(){
   $("storageName").value=s?.name||"";$("sw").value=s?.w??"";$("sd").value=s?.d??"";$("sh").value=s?.h??"";
   if(s&&$("storageFurniture"))$("storageFurniture").value=s.furnitureId||state.selectedFurniture;
 }
+function defaultConstraintMeasure(unit=state.unit){
+  return unit==="mm"?10:unit==="in"?0.4:1;
+}
+function constraintTemplateZones(kind,S,params={},idFactory=uid){
+  if(!S)return [];
+  const W=Math.max(0,Number(S.w)||0),D=Math.max(0,Number(S.d)||0),H=Math.max(0,Number(S.h)||0);
+  if(W<=0||D<=0||H<=0)return [];
+  const h=Math.max(0.01,Math.min(H,Number(params.height)||H));
+  const zone=(name,x,y,w,d)=>({id:idFactory("o"),name,x:round6(x),y:round6(y),w:round6(w),d:round6(d),h:round6(h)});
+  if(kind==="side-runners"){
+    const w=Math.max(0.01,Math.min(W/2,Number(params.width)||defaultConstraintMeasure()));
+    return [
+      zone("Left runner",0,0,w,D),
+      zone("Right runner",W-w,0,w,D)
+    ];
+  }
+  if(kind==="rear-strip"){
+    const d=Math.max(0.01,Math.min(D,Number(params.depth)||defaultConstraintMeasure()));
+    return [zone("Rear obstruction",0,D-d,W,d)];
+  }
+  if(kind==="front-strip"){
+    const d=Math.max(0.01,Math.min(D,Number(params.depth)||defaultConstraintMeasure()));
+    return [zone("Front lip / track",0,0,W,d)];
+  }
+  if(kind==="corner-posts"){
+    const w=Math.max(0.01,Math.min(W/2,Number(params.width)||defaultConstraintMeasure()));
+    const d=Math.max(0.01,Math.min(D/2,Number(params.depth)||defaultConstraintMeasure()));
+    return [
+      zone("Front-left corner",0,0,w,d),
+      zone("Front-right corner",W-w,0,w,d),
+      zone("Rear-left corner",0,D-d,w,d),
+      zone("Rear-right corner",W-w,D-d,w,d)
+    ];
+  }
+  return [];
+}
+function promptConstraintMeasure(label,defaultValue,maxValue){
+  const raw=prompt(`${label} (${state.unit})`,String(round6(defaultValue)));
+  if(raw===null)return null;
+  const value=Number(raw);
+  if(!Number.isFinite(value)||value<=0){alert("Enter a positive measurement.");return null}
+  return Math.max(0.01,Math.min(maxValue,value));
+}
+function applyConstraintTemplate(kind){
+  const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
+  const base=defaultConstraintMeasure(),params={};
+  if(kind==="side-runners"){
+    const width=promptConstraintMeasure("Runner width from each side",Math.min(base,s.w/2),s.w/2);if(width===null)return;
+    const height=promptConstraintMeasure("Runner height",s.h,s.h);if(height===null)return;
+    params.width=width;params.height=height;
+  }else if(kind==="rear-strip"||kind==="front-strip"){
+    const depth=promptConstraintMeasure(kind==="rear-strip"?"Rear obstruction depth":"Front lip / track depth",Math.min(base,s.d),s.d);if(depth===null)return;
+    const height=promptConstraintMeasure("Obstruction height",s.h,s.h);if(height===null)return;
+    params.depth=depth;params.height=height;
+  }else if(kind==="corner-posts"){
+    const width=promptConstraintMeasure("Corner width",Math.min(base,s.w/2),s.w/2);if(width===null)return;
+    const depth=promptConstraintMeasure("Corner depth",Math.min(base,s.d/2),s.d/2);if(depth===null)return;
+    const height=promptConstraintMeasure("Corner height",s.h,s.h);if(height===null)return;
+    params.width=width;params.depth=depth;params.height=height;
+  }else return;
+  const zones=constraintTemplateZones(kind,s,params);
+  if(!zones.length)return;
+  s.obstacles=s.obstacles||[];s.obstacles.push(...zones);
+  save();renderObstacleEditor();renderStorageList();renderSavedPlans();resetResults();
+}
+
 function renderObstacleEditor(){
   const el=$("obstacleList"),s=state.storages.find(x=>x.id===editingStorage);
   if(!s){el.innerHTML='<div class="empty">Select a storage space.</div>';return}
@@ -3172,6 +3238,7 @@ $("addObstacle").addEventListener("click",()=>{
   s.obstacles.push({id:uid("o"),name:`Blocked zone ${n}`,x:0,y:0,w:5,d:5,h:Math.min(s.h||5,5)});
   save();renderObstacleEditor();renderStorageList();renderSavedPlans();resetResults();
 });
+$("applyConstraintTemplate").addEventListener("click",()=>applyConstraintTemplate($("constraintTemplate").value));
 function addDivider(orientation){
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
   s.dividers=s.dividers||[];
@@ -3326,6 +3393,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     planHealthFromData,
     normalizeRecoveryJournal,
     recoveryEntryMeta,
+    defaultConstraintMeasure,
+    constraintTemplateZones,
     dividerRectsForStorage,
     physicalObstaclesForStorage,
     storageStructureSignature,
