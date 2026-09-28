@@ -1362,6 +1362,14 @@ function printablePlacementLabels(layout,itemLookup=boxById){
     };
   }).filter(Boolean);
 }
+function projectPrintableLabels(plans,itemLookup=boxById,pathLookup=plan=>plan.storagePath||plan.storageName||plan.storageId||"Storage"){
+  return (plans||[]).flatMap(plan=>{
+    const storagePath=String(pathLookup(plan)||plan.storageName||"Storage");
+    return printablePlacementLabels(plan.layout||[],itemLookup).map(label=>({
+      ...label,planId:plan.id||"",planName:plan.name||"Plan",storageId:plan.storageId||"",storagePath
+    }));
+  });
+}
 function buildPrintSheet(){
   const layout=layouts[selectedLayout],s=storage();if(!layout||!s)return false;
   const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0,W=s.w-2*c,D=s.d-2*c,H=s.h-2*c;
@@ -1392,6 +1400,30 @@ function buildLabelPrintSheet(){
       <div class="labelmeta">Placement #${x.index} · ${fmt(x.w)} × ${fmt(x.d)} × ${fmt(x.h)} ${esc(state.unit)}${x.z>0?` · stacked at z ${fmt(x.z)} ${esc(state.unit)}`:""}</div>
       <div class="labelstorage">${esc(s.name)}</div>
     </article>`).join("")}</div>
+  </div>`;
+  return true;
+}
+function buildProjectLabelPrintSheet(){
+  const plans=chosenPlans().filter(plan=>planHealth(plan).status==="current");
+  const groups=plans.map(plan=>({
+    plan,
+    storagePath:planMetrics(plan).storagePath,
+    labels:printablePlacementLabels(plan.layout||[])
+  })).filter(group=>group.labels.length);
+  if(!groups.length)return false;
+  const total=groups.reduce((sum,g)=>sum+g.labels.length,0);
+  $("printSheet").innerHTML=`<div class="labelsheet projectlabelsheet">
+    <div class="labelsheethead"><h1>Storage Fit — Project organizer labels</h1><div class="printmeta">${total} label${total===1?"":"s"} · ${groups.length} storage space${groups.length===1?"":"s"} · ${esc(state.unit)}</div></div>
+    ${groups.map(group=>`<section class="labelgroup">
+      <h2>${esc(group.storagePath)}</h2>
+      <div class="labelgroupmeta">${esc(group.plan.name)}</div>
+      <div class="labelgrid">${group.labels.map(x=>`<article class="labelcard">
+        <div class="labelpurpose">${esc(x.purpose)}</div>
+        <div class="labelitem">${esc(x.itemName)}</div>
+        <div class="labelmeta">Placement #${x.index} · ${fmt(x.w)} × ${fmt(x.d)} × ${fmt(x.h)} ${esc(state.unit)}${x.z>0?` · stacked at z ${fmt(x.z)} ${esc(state.unit)}`:""}</div>
+        <div class="labelstorage">${esc(group.storagePath)}</div>
+      </article>`).join("")}</div>
+    </section>`).join("")}
   </div>`;
   return true;
 }
@@ -1868,13 +1900,17 @@ function renderHomeProcurement(){
   const summary=projectProcurement();
   if(!summary.plans.length){
     sec.style.display="none";$("homeProcurementList").innerHTML="";
-    $("receivePurchasesBtn").disabled=true;
+    $("receivePurchasesBtn").disabled=true;$("printProjectLabelsBtn").disabled=true;
     return;
   }
   sec.style.display="block";
   $("homeChosenCount").textContent=summary.plans.length+" chosen storage"+(summary.plans.length===1?"":"s")+(summary.stalePlans.length?" · "+summary.stalePlans.length+" need review":"");
   $("receivePurchasesBtn").disabled=summary.boughtUnits<=0;
   $("receivePurchasesBtn").textContent=summary.boughtUnits?`Receive ${summary.boughtUnits} purchased`:"Receive purchases";
+  const currentPlans=summary.plans.filter(plan=>planHealth(plan).status==="current");
+  const projectLabels=projectPrintableLabels(currentPlans,boxById,plan=>planMetrics(plan).storagePath);
+  $("printProjectLabelsBtn").disabled=projectLabels.length===0;
+  $("printProjectLabelsBtn").title=projectLabels.length?`Print ${projectLabels.length} labels from current chosen plans`:"Add purpose labels to a Current chosen plan first";
 
   const ready=summary.purchaseUnits===0&&summary.stalePlans.length===0;
   $("homeProcurementSummary").innerHTML=`
@@ -3350,6 +3386,10 @@ $("receivePurchasesBtn").addEventListener("click",()=>{
   btn.textContent=`Received ${received} ✓`;
   renderAll();
 });
+$("printProjectLabelsBtn").addEventListener("click",()=>{
+  if(!buildProjectLabelPrintSheet()){alert("Add purpose labels to at least one Current chosen plan first.");return}
+  window.print();
+});
 $("exportHomeShoppingBtn").addEventListener("click",()=>{
   const payload=homeShoppingExportPayload();
   if(!payload.chosenPlans.length)return;
@@ -3668,6 +3708,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     canonicalPlanLayout,
     labeledPlacements,
     printablePlacementLabels,
+    projectPrintableLabels,
     itemPlanningSnapshot,
     itemPlanningSignature,
     validatePlanLayoutAgainst,
