@@ -754,3 +754,27 @@ This is useful when:
 - a support item needs to be changed while preserving the rest of the layout.
 
 No state schema change is required; the app remains on V28.
+
+
+## Print organizer labels
+
+Placement purposes can now become physical labels for the actual organizers.
+
+From any selected layout, **Print labels** builds an A4 cut-sheet containing one card for every placement that has a purpose label.
+
+Each printed label includes:
+
+- purpose / contents name;
+- organizer type;
+- placement number;
+- organizer dimensions;
+- stack elevation when relevant;
+- storage-space name.
+
+Only purposeful placements are included. Unlabeled duplicate boxes are intentionally skipped so the sheet stays useful instead of filling with generic labels.
+
+The button is disabled until at least one placement has a purpose label.
+
+Printing uses the existing hidden print surface, so **Print plan** and **Print labels** share the same browser-native print flow without changing project data.
+
+No schema migration is required; the app remains on V28.
