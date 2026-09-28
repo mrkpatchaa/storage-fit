@@ -1900,8 +1900,8 @@ $("furnitureSelect").addEventListener("change",()=>{
 $("addRoom").addEventListener("click",()=>{
   const name=prompt("Room name","New room");if(name===null)return;
   const id=uid("room");state.rooms.push({id,name:name.trim()||"New room"});
-  state.selectedRoom=id;state.selectedFurniture="";
-  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();resetResults();
+  state.selectedRoom=id;state.selectedFurniture="";state.selectedStorage="";editingStorage="";
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
 });
 $("renameRoom").addEventListener("click",()=>{
   const room=roomById(state.selectedRoom);if(!room)return;
@@ -1919,7 +1919,8 @@ $("addFurniture").addEventListener("click",()=>{
   const room=roomById(state.selectedRoom);if(!room){alert("Add a room first.");return}
   const name=prompt("Furniture name","New furniture");if(name===null)return;
   const id=uid("furn");state.furniture.push({id,roomId:room.id,name:name.trim()||"New furniture"});
-  state.selectedFurniture=id;localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();resetResults();
+  state.selectedFurniture=id;state.selectedStorage="";editingStorage="";
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
 });
 $("renameFurniture").addEventListener("click",()=>{
   const furniture=furnitureById(state.selectedFurniture);if(!furniture)return;
