@@ -156,6 +156,14 @@
       result(printLabels.length===2&&printLabels[0].index===1&&printLabels[1].index===3,"print labels include only purposeful placements while preserving placement numbers");
       result(printLabels[0].purpose==="Socks"&&printLabels[0].itemName==="Cotton box","print labels trim purposes and resolve organizer names");
       result(printLabels[1].z===6&&printLabels[1].w===12&&printLabels[1].d===8&&printLabels[1].h===4,"print labels preserve stacked elevation and dimensions");
+      var projectLabels=api.projectPrintableLabels([
+        {id:"p1",name:"Drawer plan",storageId:"s1",layout:[{typeId:"b1",w:20,d:10,h:6,z:0,label:"Socks"},{typeId:"b1",w:20,d:10,h:6,z:0,label:""}]},
+        {id:"p2",name:"Shelf plan",storageId:"s2",layout:[{typeId:"b2",w:12,d:8,h:4,z:2,label:"Cables"}]}
+      ],function(id){return {name:id==="b1"?"Cotton box":"Small tray"}},function(plan){return plan.storageId==="s1"?"Bedroom → Wardrobe → Drawer":"Office → Shelf"});
+      result(projectLabels.length===2,"project label aggregation skips unlabeled placements across plans");
+      result(projectLabels[0].storagePath==="Bedroom → Wardrobe → Drawer"&&projectLabels[1].storagePath==="Office → Shelf","project labels preserve per-plan storage paths");
+      result(projectLabels[0].planId==="p1"&&projectLabels[1].planName==="Shelf plan","project labels retain plan identity for grouping");
+      result(projectLabels[1].purpose==="Cables"&&projectLabels[1].z===2,"project labels preserve purpose and stack elevation");
       var lockedUpright={w:30,d:20,h:10,uprightOnly:true,floorRotationLocked:true};
       var freeUpright={w:30,d:20,h:10,uprightOnly:true,floorRotationLocked:false};
       result(api.orientations(lockedUpright,true).length===1,"rotation-locked upright items keep one floor orientation");
