@@ -355,3 +355,60 @@ V25 migrates V24 automatically. Existing items default to:
 - floor rotation unlocked;
 - no front priority;
 - no maximum stack level.
+
+
+## Saved-plan health and revalidation
+
+Saved plans now remember the physical assumptions they were validated against.
+
+Each saved plan captures:
+
+- storage width, depth and height;
+- blocked-zone and divider geometry;
+- the dimensions of every organizer used by the layout;
+- relevant organizer handling rules such as orientation, stacking, support, access preference and stack-level cap;
+- the layout's own clearance, tolerance and upright settings.
+
+Storage Fit continuously compares those snapshots with current data and assigns one of three health states:
+
+- **Current** — nothing relevant changed and the saved layout remains valid.
+- **Review** — something changed, but the exact saved layout still physically works. The plan can be **Revalidated** in one click.
+- **Invalid** — the saved layout no longer works with current geometry or organizer rules. It must be opened and edited/regenerated before it can be trusted again.
+
+Examples of **Review**:
+- a drawer becomes wider without disturbing the layout;
+- a front-access preference changes while placements still fit;
+- a divider moves in a way that does not touch the saved layout.
+
+Examples of **Invalid**:
+- a new hinge/blocked zone overlaps an organizer;
+- a storage dimension shrinks past a saved placement;
+- an organizer's dimensions change so the saved orientation no longer matches;
+- stack/support rules no longer allow a saved stacked placement.
+
+### Safety in execution
+
+A stale non-installed chosen plan is intentionally conservative:
+
+- it does not consume install-queue inventory;
+- it cannot be marked installed;
+- it is excluded from whole-home shopping quantities/costs;
+- the project summary reports that a chosen plan needs review.
+
+This prevents buying organizers or starting installation from outdated assumptions.
+
+Already-installed plans remain recorded as installed. If their source assumptions later change, the install queue shows a warning instead of erasing real-world completion.
+
+Newly choosing a stale saved plan is blocked until it is Current again. A **Review** plan can become Current via **Revalidate**; an **Invalid** plan must be rebuilt or edited.
+
+### Migration and export
+
+V26 migrates V25 automatically. Existing saved plans receive a baseline snapshot from the current storage/item definitions on first V26 load, so they begin Current rather than being falsely flagged.
+
+Whole-home shopping JSON moves to version 4 and includes:
+
+- health state/reasons for every chosen plan;
+- count of stale chosen plans;
+- install-queue health and reasons.
+
+Full backups preserve validation snapshots and timestamps.
