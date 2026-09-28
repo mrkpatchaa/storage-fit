@@ -1892,6 +1892,7 @@ function renderSavedPlans(){
   }));
   el.querySelectorAll("[data-delete-plan]").forEach(btn=>btn.addEventListener("click",()=>{
     const id=btn.dataset.deletePlan,deleted=state.savedPlans.find(p=>p.id===id);
+    createRecoveryCheckpoint(`Before deleting saved plan “${deleted?.name||"Plan"}”`);
     state.savedPlans=state.savedPlans.filter(p=>p.id!==id);
     comparePlanIds.delete(id);
     if(deleted&&state.chosenPlanIds?.[deleted.storageId]===id)delete state.chosenPlanIds[deleted.storageId];
@@ -2887,6 +2888,7 @@ $("renameRoom").addEventListener("click",()=>{
 $("deleteRoom").addEventListener("click",()=>{
   const room=roomById(state.selectedRoom);if(!room||state.rooms.length<=1)return;
   if(state.furniture.some(f=>f.roomId===room.id)){alert("Move or delete the furniture in this room first.");return}
+  createRecoveryCheckpoint(`Before deleting room “${room.name}”`);
   state.rooms=state.rooms.filter(r=>r.id!==room.id);
   state.selectedRoom=state.rooms[0]?.id||"";state.selectedFurniture=state.furniture.find(f=>f.roomId===state.selectedRoom)?.id||"";
   localStorage.setItem(KEY,JSON.stringify(state));renderAll();
@@ -2917,6 +2919,7 @@ $("duplicateFurniture").addEventListener("click",()=>{
 $("deleteFurniture").addEventListener("click",()=>{
   const furniture=furnitureById(state.selectedFurniture);if(!furniture||state.furniture.length<=1)return;
   if(state.storages.some(s=>s.furnitureId===furniture.id)){alert("Move or delete the storage spaces in this furniture first.");return}
+  createRecoveryCheckpoint(`Before deleting furniture “${furniture.name}”`);
   state.furniture=state.furniture.filter(f=>f.id!==furniture.id);
   const next=state.furniture.find(f=>f.roomId===state.selectedRoom)||state.furniture[0]||null;
   state.selectedFurniture=next?.id||"";if(next)state.selectedRoom=next.roomId;
@@ -2999,6 +3002,8 @@ $("addHorizontalDivider").addEventListener("click",()=>addDivider("horizontal"))
 
 
 
+$("clearRecoveryBtn").addEventListener("click",clearRecoveryHistory);
+
 $("backupAllBtn").addEventListener("click",()=>{
   const payload=backupPayload();
   downloadTextFile(backupFilename(),JSON.stringify(payload,null,2));
@@ -3022,9 +3027,8 @@ $("restoreFileInput").addEventListener("change",async()=>{
     const ok=confirm(`Restore this backup?\n\n${s} storage space${s===1?"":"s"}\n${b} item${b===1?"":"s"}\n${p} saved plan${p===1?"":"s"}\n\nThis will replace the data currently stored in this browser.`);
     if(!ok){setBackupStatus("Restore cancelled.");return}
 
-    // Automatic emergency rollback snapshot of the current browser data.
-    localStorage.setItem(`${KEY}-pre-restore`,JSON.stringify(backupPayload()));
-    setBackupStatus("Backup validated. Restoring…","good");
+    createRecoveryCheckpoint(`Before restoring backup “${file.name}”`);
+    setBackupStatus("Backup validated. Recovery checkpoint created. Restoring…","good");
     restoreBackupState(candidate);
   }catch(err){
     setBackupStatus(`Restore failed: ${err?.message||"invalid backup file"}`,"warn");
@@ -3087,6 +3091,8 @@ $("saveBox").addEventListener("click",()=>{
 });
 $("deleteStorage").addEventListener("click",()=>{
   if(!editingStorage)return;
+  const deletingStorage=state.storages.find(s=>s.id===editingStorage);
+  createRecoveryCheckpoint(`Before deleting storage “${deletingStorage?.name||"Storage"}”`);
   const removedPlanIds=new Set(state.savedPlans.filter(p=>p.storageId===editingStorage).map(p=>p.id));
   state.savedPlans=state.savedPlans.filter(p=>p.storageId!==editingStorage);
   comparePlanIds=new Set([...comparePlanIds].filter(id=>!removedPlanIds.has(id)));
@@ -3103,6 +3109,8 @@ $("deleteBox").addEventListener("click",()=>{
   if(!editingBox)return;
   const usedBySaved=state.savedPlans.some(p=>(p.layout||[]).some(q=>q.typeId===editingBox));
   if(usedBySaved){alert("This item is used by a saved plan. Remove or replace it in saved plans before deleting it.");return}
+  const deletingItem=state.boxes.find(b=>b.id===editingBox);
+  createRecoveryCheckpoint(`Before deleting item “${deletingItem?.name||"Item"}”`);
   state.boxes=state.boxes.filter(x=>x.id!==editingBox);delete state.selectedTypes[editingBox];delete state.itemLimits[editingBox];delete state.shoppingBought[editingBox];
   editingBox=state.boxes[0]?.id||"";save();renderAll()
 });
