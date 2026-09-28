@@ -1606,13 +1606,19 @@ $("savePlanBtn").addEventListener("click",()=>{
   const existing=state.savedPlans.find(p=>p.signature===signature);
   if(existing){
     state.savedPlans=state.savedPlans.filter(p=>p.id!==existing.id);
+    comparePlanIds.delete(existing.id);
+    if(state.chosenPlanId===existing.id)state.chosenPlanId=null;
   }else{
     const sameStorage=state.savedPlans.filter(p=>p.storageId===s.id).length+1;
     state.savedPlans.push({
       id:uid("plan"),
       name:`${s.name} · Plan ${sameStorage}`,
+      note:"",
       storageId:s.id,
       storageName:s.name,
+      storageSnapshot:captureStorageSnapshot(s),
+      settings:capturePlanSettings(),
+      savedAt:new Date().toISOString(),
       goal:state.optimizeGoal,
       stacking:state.enableStacking,
       signature,
@@ -1623,11 +1629,15 @@ $("savePlanBtn").addEventListener("click",()=>{
   renderSavedPlans();updateSavePlanButton();
 });
 
+$("comparePlansBtn").addEventListener("click",openCompareModal);
+$("closeCompareModal").addEventListener("click",closeCompareModal);
+$("compareBackdrop").addEventListener("click",closeCompareModal);
 $("closeDetailModal").addEventListener("click",closeDetailModal);
 $("detailBackdrop").addEventListener("click",closeDetailModal);
 document.addEventListener("keydown",e=>{
+  if(e.key==="Escape" && compareModalOpen){ closeCompareModal(); return; }
   if(e.key==="Escape" && detailModalOpen){ closeDetailModal(); return; }
-  if(!detailModalOpen) return;
+  if(!detailModalOpen||compareModalOpen) return;
   if(e.key==="ArrowLeft" && selectedLayout>0){
     selectedLayout--; selectedGap=-1; editMode=false; selectedEditItem=-1; editOriginalLayout=null; topDrag=null;
     rerenderSelectedLayout(true);
