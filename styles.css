@@ -64,6 +64,13 @@ h1{font-size:clamp(30px,5vw,48px);line-height:1;letter-spacing:-.045em;margin:0}
   #printSheet th:nth-child(n+2),#printSheet td:nth-child(n+2){text-align:right}
   #printSheet a{color:#111;text-decoration:none}
   #printSheet .printtotal{font-size:14px;font-weight:800;margin-top:10px;text-align:right}
+  #printSheet .labelsheethead{margin-bottom:8mm}
+  #printSheet .labelgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6mm}
+  #printSheet .labelcard{border:1.5px solid #222;border-radius:3mm;padding:6mm;min-height:36mm;display:flex;flex-direction:column;justify-content:center;break-inside:avoid;page-break-inside:avoid}
+  #printSheet .labelpurpose{font-size:22px;line-height:1.05;font-weight:900;letter-spacing:-.02em;margin-bottom:3mm}
+  #printSheet .labelitem{font-size:12px;font-weight:750;margin-bottom:2mm}
+  #printSheet .labelmeta{font-size:10px;color:#555;line-height:1.4}
+  #printSheet .labelstorage{font-size:10px;color:#777;margin-top:3mm;padding-top:2mm;border-top:1px solid #ddd}
 }
 
 .sharepage{background:var(--bg);color:var(--ink);min-height:100vh}
