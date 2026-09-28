@@ -1,7 +1,7 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v14";
-const PREV_KEYS = ["storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v15";
+const PREV_KEYS = ["storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -23,6 +23,7 @@ let detailModalOpen = false;
 
 state.itemLimits = state.itemLimits || {};
 state.fitTolerance = Math.max(0, Number(state.fitTolerance)||0);
+state.enableStacking = !!state.enableStacking;
 state.optimizeGoal = ["fill","compartments","simple","balanced"].includes(state.optimizeGoal)?state.optimizeGoal:"fill";
 state.savedPlans = Array.isArray(state.savedPlans)?state.savedPlans:[];
 for(const b of state.boxes){
@@ -32,6 +33,9 @@ for(const b of state.boxes){
   b.url = String(b.url||"").trim();
   b.image = String(b.image||"").trim();
   b.sku = String(b.sku||"").trim();
+  b.uprightOnly = b.uprightOnly !== false;
+  b.canBeStacked = !!b.canBeStacked;
+  b.canSupportStack = !!b.canSupportStack;
 }
 for(const s of state.storages){
   if(!Array.isArray(s.obstacles)) s.obstacles=[];
@@ -46,15 +50,15 @@ for(const s of state.storages){
 
 function defaults(){
   return {
-    unit:"cm",clearance:0.5,fitTolerance:0,uprightOnly:true,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],
+    unit:"cm",clearance:0.5,fitTolerance:0,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],
     storages:[
       {id:"s1",name:"Drawer 67 × 26 × 13",w:67,d:26,h:13,obstacles:[]},
       {id:"s2",name:"Shelf 81 × 40 × 27",w:81,d:40,h:27,obstacles:[]}
     ],
     boxes:[
-      {id:"b1",name:"Box 30 × 25 × 12",w:30,d:25,h:12},
-      {id:"b2",name:"Box 32 × 25 × 12",w:32,d:25,h:12},
-      {id:"b3",name:"Small box 20 × 13 × 10",w:20,d:13,h:10}
+      {id:"b1",name:"Box 30 × 25 × 12",w:30,d:25,h:12,uprightOnly:true,canBeStacked:false,canSupportStack:false},
+      {id:"b2",name:"Box 32 × 25 × 12",w:32,d:25,h:12,uprightOnly:true,canBeStacked:false,canSupportStack:false},
+      {id:"b3",name:"Small box 20 × 13 × 10",w:20,d:13,h:10,uprightOnly:true,canBeStacked:false,canSupportStack:false}
     ],
     selectedStorage:"s1",selectedTypes:{b1:true,b2:false,b3:false},itemLimits:{b1:null,b2:null,b3:null}
   };
@@ -71,7 +75,7 @@ function loadState(){
           selectedTypes[b.id]=Boolean(old.selectedTypes?.[b.id] || (old.selections?.[b.id]||0)>0 || b.id===old.selectedBox);
         }
         return {
-          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,uprightOnly:old.uprightOnly!==false,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],
+          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],
           clearanceEnabled:!!old.clearanceEnabled,storages:old.storages,boxes:old.boxes,
           selectedStorage:old.selectedStorage||old.storages[0]?.id||"",selectedTypes,
           itemLimits:Object.fromEntries(old.boxes.map(b=>[b.id, old.itemLimits?.[b.id] ?? null]))
@@ -82,7 +86,7 @@ function loadState(){
   return defaults();
 }
 function save(){
-  state.unit=$("unit").value; state.uprightOnly=$("uprightOnly").checked; state.optimizeGoal=$("optimizeGoal").value;
+  state.unit=$("unit").value; state.uprightOnly=$("uprightOnly").checked; state.enableStacking=$("enableStacking").checked; state.optimizeGoal=$("optimizeGoal").value;
   state.clearanceEnabled=$("clearanceEnabled").checked; state.clearance=Math.max(0,Number($("clearance").value)||0); state.fitTolerance=Math.max(0,Number($("fitTolerance").value)||0);
   localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
 }
@@ -143,7 +147,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:14,
+    appVersion:15,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
@@ -217,7 +221,7 @@ function restoreBackupState(candidate){
 }
 
 function renderAll(){
-  $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;
+  $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;$("enableStacking").checked=!!state.enableStacking;
   $("clearanceEnabled").checked=!!state.clearanceEnabled;$("clearance").value=state.clearance??0.5;$("fitTolerance").value=state.fitTolerance??0;
   $("clearanceField").style.display=state.clearanceEnabled?"block":"none";
   renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();loadBoxEditor();renderSavedPlans();renderBackupStats();resetResults();
@@ -318,6 +322,7 @@ function loadBoxEditor(){
   const b=state.boxes.find(x=>x.id===editingBox);
   $("boxName").value=b?.name||"";$("bw").value=b?.w??"";$("bd").value=b?.d??"";$("bh").value=b?.h??"";
   $("boxPrice").value=b?.price||"";$("boxCurrency").value=b?.currency||"MAD";$("boxSku").value=b?.sku||"";$("boxUrl").value=b?.url||"";$("boxImage").value=b?.image||"";
+  $("boxUprightOnly").checked=b?.uprightOnly!==false;$("boxCanBeStacked").checked=!!b?.canBeStacked;$("boxCanSupportStack").checked=!!b?.canSupportStack;
 }
 function selectedBoxes(){return state.boxes.filter(b=>state.selectedTypes?.[b.id])}
 
@@ -500,7 +505,8 @@ function applyImportedProduct(p){
     w:Number(p.w)||0,d:Number(p.d)||0,h:Number(p.h)||0,
     price:Math.max(0,Number(p.price)||0),
     currency:(p.currency||"MAD").toUpperCase().slice(0,6),
-    sku:p.sku||"",url:p.url||"",image:p.image||""
+    sku:p.sku||"",url:p.url||"",image:p.image||"",
+    uprightOnly:true,canBeStacked:false,canSupportStack:false
   };
   state.boxes.push(item);state.selectedTypes[id]=true;state.itemLimits[id]=null;editingBox=id;
   localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
@@ -1415,6 +1421,7 @@ $("unit").addEventListener("change",()=>{
   renderAll();
 });
 $("uprightOnly").addEventListener("change",()=>{state.uprightOnly=$("uprightOnly").checked;save();resetResults()});
+$("enableStacking").addEventListener("change",()=>{state.enableStacking=$("enableStacking").checked;save();resetResults()});
 $("clearanceEnabled").addEventListener("change",()=>{state.clearanceEnabled=$("clearanceEnabled").checked;$("clearanceField").style.display=state.clearanceEnabled?"block":"none";save();resetResults()});
 $("clearance").addEventListener("change",()=>{state.clearance=Math.max(0,Number($("clearance").value)||0);save();resetResults()});
 $("fitTolerance").addEventListener("change",()=>{state.fitTolerance=Math.max(0,Number($("fitTolerance").value)||0);save();resetResults()});
@@ -1504,7 +1511,7 @@ $("smartImportBtn").addEventListener("click",async()=>{
 });
 
 $("addBox").addEventListener("click",()=>{
-  const id=uid("b");state.boxes.push({id,name:"New item",w:30,d:20,h:10,price:0,currency:"MAD",sku:"",url:"",image:""});state.selectedTypes[id]=false;state.itemLimits[id]=null;editingBox=id;save();renderAll();$("boxName").focus();$("boxName").select()
+  const id=uid("b");state.boxes.push({id,name:"New item",w:30,d:20,h:10,price:0,currency:"MAD",sku:"",url:"",image:"",uprightOnly:true,canBeStacked:false,canSupportStack:false});state.selectedTypes[id]=false;state.itemLimits[id]=null;editingBox=id;save();renderAll();$("boxName").focus();$("boxName").select()
 });
 $("saveStorage").addEventListener("click",()=>{
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
@@ -1516,6 +1523,7 @@ $("saveBox").addEventListener("click",()=>{
   const b=state.boxes.find(x=>x.id===editingBox);if(!b)return;
   b.name=$("boxName").value.trim()||"Item";b.w=Math.max(0,Number($("bw").value)||0);b.d=Math.max(0,Number($("bd").value)||0);b.h=Math.max(0,Number($("bh").value)||0);
   b.price=Math.max(0,Number($("boxPrice").value)||0);b.currency=($("boxCurrency").value.trim().toUpperCase().slice(0,6)||"MAD");b.sku=$("boxSku").value.trim();b.url=$("boxUrl").value.trim();b.image=$("boxImage").value.trim();
+  b.uprightOnly=$("boxUprightOnly").checked;b.canBeStacked=$("boxCanBeStacked").checked;b.canSupportStack=$("boxCanSupportStack").checked;
   save();renderAll()
 });
 $("deleteStorage").addEventListener("click",()=>{
