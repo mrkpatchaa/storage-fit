@@ -55,6 +55,12 @@
       result(api.overlap3D(base,colliding,0)===true,"3D overlap detects vertical penetration");
       result(api.footprintContains(base,touching)===true,"full-footprint support accepted");
       result(api.footprintContains(base,overhang)===false,"overhanging stack rejected");
+      var legacy={storages:[{id:"s1",name:"Drawer",w:10,d:10,h:10}],boxes:[{id:"b1",name:"Box",w:5,d:5,h:5}],rooms:[],furniture:[],selectedStorage:"s1"};
+      api.ensureHomeHierarchy(legacy);
+      result(legacy.rooms.length===1,"legacy data gets a fallback room");
+      result(legacy.furniture.length===1,"legacy data gets fallback furniture");
+      result(legacy.storages[0].furnitureId===legacy.furniture[0].id,"legacy storage is assigned to fallback furniture");
+      result(legacy.selectedRoom===legacy.rooms[0].id&&legacy.selectedFurniture===legacy.furniture[0].id,"hierarchy selection follows the active storage");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{

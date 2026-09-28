@@ -1,12 +1,13 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v17";
-const PREV_KEYS = ["storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v18";
+const PREV_KEYS = ["storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
 
 let state = loadState();
+ensureHomeHierarchy(state);
 let editingStorage = state.selectedStorage || state.storages[0]?.id || "";
 let editingBox = state.boxes[0]?.id || "";
 let layouts = [];
@@ -57,9 +58,12 @@ for(const s of state.storages){
 function defaults(){
   return {
     unit:"cm",clearance:0.5,fitTolerance:0,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanId:null,
+    rooms:[{id:"room1",name:"Bedroom"}],
+    furniture:[{id:"furn1",roomId:"room1",name:"Wardrobe"}],
+    selectedRoom:"room1",selectedFurniture:"furn1",
     storages:[
-      {id:"s1",name:"Drawer 67 × 26 × 13",w:67,d:26,h:13,obstacles:[]},
-      {id:"s2",name:"Shelf 81 × 40 × 27",w:81,d:40,h:27,obstacles:[]}
+      {id:"s1",name:"Drawer 67 × 26 × 13",w:67,d:26,h:13,furnitureId:"furn1",obstacles:[]},
+      {id:"s2",name:"Shelf 81 × 40 × 27",w:81,d:40,h:27,furnitureId:"furn1",obstacles:[]}
     ],
     boxes:[
       {id:"b1",name:"Box 30 × 25 × 12",w:30,d:25,h:12,uprightOnly:true,canBeStacked:false,canSupportStack:false},
@@ -82,7 +86,9 @@ function loadState(){
         }
         return {
           unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanId:old.chosenPlanId||null,
-          clearanceEnabled:!!old.clearanceEnabled,storages:old.storages,boxes:old.boxes,
+          clearanceEnabled:!!old.clearanceEnabled,rooms:Array.isArray(old.rooms)?old.rooms:[],furniture:Array.isArray(old.furniture)?old.furniture:[],
+          selectedRoom:old.selectedRoom||"",selectedFurniture:old.selectedFurniture||"",
+          storages:old.storages,boxes:old.boxes,
           selectedStorage:old.selectedStorage||old.storages[0]?.id||"",selectedTypes,
           itemLimits:Object.fromEntries(old.boxes.map(b=>[b.id, old.itemLimits?.[b.id] ?? null]))
         };
@@ -90,6 +96,47 @@ function loadState(){
     }
   }catch(e){}
   return defaults();
+}
+function ensureHomeHierarchy(target){
+  target.rooms=Array.isArray(target.rooms)?target.rooms.filter(r=>r&&r.id):[];
+  target.furniture=Array.isArray(target.furniture)?target.furniture.filter(f=>f&&f.id):[];
+
+  if(!target.rooms.length)target.rooms.push({id:"room-home",name:"Home"});
+  const roomIds=new Set(target.rooms.map(r=>r.id));
+  for(const f of target.furniture){
+    if(!roomIds.has(f.roomId))f.roomId=target.rooms[0].id;
+    f.name=String(f.name||"Furniture").trim()||"Furniture";
+  }
+  if(!target.furniture.length)target.furniture.push({id:"furniture-unassigned",roomId:target.rooms[0].id,name:"Unassigned furniture"});
+
+  const furnitureIds=new Set(target.furniture.map(f=>f.id));
+  const fallbackFurniture=target.furniture[0].id;
+  for(const s of target.storages||[]){
+    if(!furnitureIds.has(s.furnitureId))s.furnitureId=fallbackFurniture;
+  }
+
+  const selectedStorage=(target.storages||[]).find(s=>s.id===target.selectedStorage)||(target.storages||[])[0];
+  const selectedFurniture=target.furniture.find(f=>f.id===selectedStorage?.furnitureId)
+    ||target.furniture.find(f=>f.id===target.selectedFurniture)
+    ||target.furniture[0];
+  const selectedRoom=target.rooms.find(r=>r.id===selectedFurniture?.roomId)
+    ||target.rooms.find(r=>r.id===target.selectedRoom)
+    ||target.rooms[0];
+
+  target.selectedRoom=selectedRoom?.id||"";
+  target.selectedFurniture=selectedFurniture?.id||"";
+  if(selectedStorage)target.selectedStorage=selectedStorage.id;
+}
+function roomById(id){return state.rooms.find(r=>r.id===id)}
+function furnitureById(id){return state.furniture.find(f=>f.id===id)}
+function storageBreadcrumb(s){
+  const f=furnitureById(s?.furnitureId),r=roomById(f?.roomId);
+  return [r?.name,f?.name,s?.name].filter(Boolean).join(" → ");
+}
+function syncHierarchyToStorage(storageId){
+  const s=state.storages.find(x=>x.id===storageId);if(!s)return;
+  const f=furnitureById(s.furnitureId);if(!f)return;
+  state.selectedFurniture=f.id;state.selectedRoom=f.roomId;
 }
 function save(){
   state.unit=$("unit").value; state.uprightOnly=$("uprightOnly").checked; state.enableStacking=$("enableStacking").checked; state.optimizeGoal=$("optimizeGoal").value;
@@ -166,7 +213,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:17,
+    appVersion:18,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
@@ -207,6 +254,14 @@ function validateBackupState(candidate){
   if(!Array.isArray(candidate.storages))return "Backup has no storage-space list.";
   if(!Array.isArray(candidate.boxes))return "Backup has no item list.";
   if(candidate.savedPlans!=null&&!Array.isArray(candidate.savedPlans))return "Saved plans are malformed.";
+  if(candidate.rooms!=null&&!Array.isArray(candidate.rooms))return "Rooms are malformed.";
+  if(candidate.furniture!=null&&!Array.isArray(candidate.furniture))return "Furniture is malformed.";
+  if(Array.isArray(candidate.rooms)&&Array.isArray(candidate.furniture)){
+    const roomIds=new Set(candidate.rooms.map(r=>r?.id).filter(Boolean));
+    if(candidate.furniture.some(f=>!f?.id||!roomIds.has(f.roomId)))return "A furniture entry points to a missing room.";
+    const furnitureIds=new Set(candidate.furniture.map(f=>f.id));
+    if(candidate.storages.some(s=>s.furnitureId&&!furnitureIds.has(s.furnitureId)))return "A storage space points to missing furniture.";
+  }
 
   const ids=new Set();
   for(const s of candidate.storages){
@@ -243,15 +298,53 @@ function renderAll(){
   $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;$("enableStacking").checked=!!state.enableStacking;
   $("clearanceEnabled").checked=!!state.clearanceEnabled;$("clearance").value=state.clearance??0.5;$("fitTolerance").value=state.fitTolerance??0;
   $("clearanceField").style.display=state.clearanceEnabled?"block":"none";
-  renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();loadBoxEditor();renderSavedPlans();renderBackupStats();resetResults();
+  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();loadBoxEditor();renderSavedPlans();renderBackupStats();resetResults();
+}
+function plannedStorageIds(){return new Set((state.savedPlans||[]).map(p=>p.storageId))}
+function renderHierarchy(){
+  const roomSelect=$("roomSelect"),furnitureSelect=$("furnitureSelect"),storageFurniture=$("storageFurniture");
+  const room=roomById(state.selectedRoom)||state.rooms[0];
+  if(room)state.selectedRoom=room.id;
+  const roomFurniture=state.furniture.filter(f=>f.roomId===state.selectedRoom);
+  let furniture=furnitureById(state.selectedFurniture);
+  if(!furniture||furniture.roomId!==state.selectedRoom)furniture=roomFurniture[0]||null;
+  state.selectedFurniture=furniture?.id||"";
+
+  roomSelect.innerHTML=state.rooms.map(r=>`<option value="${r.id}">${esc(r.name)}</option>`).join("");
+  roomSelect.value=state.selectedRoom;
+
+  furnitureSelect.innerHTML=roomFurniture.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join("");
+  if(state.selectedFurniture)furnitureSelect.value=state.selectedFurniture;
+
+  const furnitureOptions=state.rooms.flatMap(r=>state.furniture.filter(f=>f.roomId===r.id).map(f=>`<option value="${f.id}">${esc(r.name)} → ${esc(f.name)}</option>`)).join("");
+  storageFurniture.innerHTML=furnitureOptions;
+
+  const planned=plannedStorageIds(),allCount=state.storages.length,plannedCount=state.storages.filter(s=>planned.has(s.id)).length;
+  $("homeProgress").textContent=allCount?`${plannedCount}/${allCount} planned`:"No storage yet";
+
+  const currentSpaces=state.storages.filter(s=>s.furnitureId===state.selectedFurniture);
+  if(!currentSpaces.some(s=>s.id===editingStorage))editingStorage=currentSpaces[0]?.id||"";
+  const currentPlanned=currentSpaces.filter(s=>planned.has(s.id)).length;
+  const pct=currentSpaces.length?Math.round(currentPlanned/currentSpaces.length*100):0;
+  $("furnitureProgress").innerHTML=currentSpaces.length
+    ? `${currentPlanned} of ${currentSpaces.length} storage space${currentSpaces.length===1?"":"s"} has a saved plan.<div class="progressbar"><span style="width:${pct}%"></span></div>`
+    : "No storage spaces in this furniture yet.";
+
+  $("deleteRoom").disabled=state.rooms.length<=1;
+  $("deleteFurniture").disabled=state.furniture.length<=1;
 }
 function renderStorageList(){
-  const el=$("storageList");
-  if(!state.storages.length){el.innerHTML='<div class="empty">No storage spaces yet.</div>';return}
-  el.innerHTML=state.storages.map(s=>`<div class="listitem ${s.id===editingStorage?"active":""}" data-s="${s.id}">
-    <div><div class="listname">${esc(s.name)}</div><div class="dims">${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${esc(state.unit)}${s.obstacles?.length?` · ${s.obstacles.length} blocked`:""}</div></div>
-    ${s.id===state.selectedStorage?'<span class="badge">selected</span>':""}</div>`).join("");
-  el.querySelectorAll("[data-s]").forEach(n=>n.addEventListener("click",()=>{editingStorage=n.dataset.s;loadStorageEditor();renderObstacleEditor();renderStorageList()}));
+  const el=$("storageList"),filtered=state.storages.filter(s=>s.furnitureId===state.selectedFurniture);
+  if(!filtered.length){el.innerHTML='<div class="empty">No storage spaces in this furniture yet.</div>';return}
+  const planned=plannedStorageIds();
+  el.innerHTML=filtered.map(s=>`<div class="listitem ${s.id===editingStorage?"active":""}" data-s="${s.id}">
+    <div><div class="listname">${esc(s.name)}</div><div class="dims">${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${esc(state.unit)}${s.obstacles?.length?` · ${s.obstacles.length} blocked`:""}<div class="crumb">${planned.has(s.id)?"saved plan available":"not planned yet"}</div></div></div>
+    ${s.id===state.selectedStorage?'<span class="badge">selected</span>':planned.has(s.id)?'<span class="badge">planned</span>':""}</div>`).join("");
+  el.querySelectorAll("[data-s]").forEach(n=>n.addEventListener("click",()=>{
+    editingStorage=n.dataset.s;state.selectedStorage=n.dataset.s;syncHierarchyToStorage(n.dataset.s);
+    localStorage.setItem(KEY,JSON.stringify(state));
+    renderHierarchy();renderStorageSelect();loadStorageEditor();renderObstacleEditor();renderStorageList();resetResults();
+  }));
 }
 function renderBoxList(){
   const el=$("boxList"),query=String($("itemSearch")?.value||"").trim().toLowerCase();
@@ -268,8 +361,9 @@ function renderBoxList(){
   el.querySelectorAll("[data-b]").forEach(n=>n.addEventListener("click",()=>{editingBox=n.dataset.b;loadBoxEditor();renderBoxList()}));
 }
 function renderStorageSelect(){
-  const el=$("storageSelect");el.innerHTML=state.storages.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join("");
-  if(state.selectedStorage) el.value=state.selectedStorage;
+  const el=$("storageSelect");
+  el.innerHTML='<option value="">Select a storage space</option>'+state.storages.map(s=>`<option value="${s.id}">${esc(storageBreadcrumb(s))}</option>`).join("");
+  el.value=state.selectedStorage||"";
 }
 function renderItemPicker(){
   const el=$("itemPicker");state.selectedTypes=state.selectedTypes||{};state.itemLimits=state.itemLimits||{};
@@ -310,7 +404,9 @@ function renderItemPicker(){
   }));
 }
 function loadStorageEditor(){
-  const s=state.storages.find(x=>x.id===editingStorage);$("storageName").value=s?.name||"";$("sw").value=s?.w??"";$("sd").value=s?.d??"";$("sh").value=s?.h??"";
+  const s=state.storages.find(x=>x.id===editingStorage);
+  $("storageName").value=s?.name||"";$("sw").value=s?.w??"";$("sd").value=s?.d??"";$("sh").value=s?.h??"";
+  if(s&&$("storageFurniture"))$("storageFurniture").value=s.furnitureId||state.selectedFurniture;
 }
 function renderObstacleEditor(){
   const el=$("obstacleList"),s=state.storages.find(x=>x.id===editingStorage);
@@ -794,11 +890,12 @@ function capturePlanSettings(){
 }
 function captureStorageSnapshot(s){
   return s?JSON.parse(JSON.stringify({
-    id:s.id,name:s.name,w:s.w,d:s.d,h:s.h,unit:state.unit,obstacles:s.obstacles||[]
+    id:s.id,name:s.name,furnitureId:s.furnitureId,w:s.w,d:s.d,h:s.h,unit:state.unit,obstacles:s.obstacles||[]
   })):null;
 }
 function planMetrics(plan){
-  const s=plan.storageSnapshot||state.storages.find(x=>x.id===plan.storageId);
+  const liveStorage=state.storages.find(x=>x.id===plan.storageId);
+  const s=plan.storageSnapshot||liveStorage;
   const settings=plan.settings||{clearanceEnabled:false,clearance:0,unit:state.unit};
   const c=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
   const W=Math.max(0,(Number(s?.w)||0)-2*c),D=Math.max(0,(Number(s?.d)||0)-2*c),H=Math.max(0,(Number(s?.h)||0)-2*c);
@@ -809,7 +906,7 @@ function planMetrics(plan){
   const used=usesStacking?occupiedVolume(plan.layout||[]):occupiedArea(plan.layout||[]);
   const utilizationPct=denom>0?used/denom*100:0;
   return {
-    storage:s,W,D,H,stackedCount,utilizationPct,
+    storage:s,storagePath:liveStorage?storageBreadcrumb(liveStorage):(plan.storagePath||plan.storageName||s?.name||"Storage"),W,D,H,stackedCount,utilizationPct,
     utilizationKind:usesStacking?"usable volume":"usable floor",
     itemCount:(plan.layout||[]).length,
     distinctTypes:distinctTypes(plan.layout||[]),
@@ -844,7 +941,7 @@ function renderCompareModal(){
     const chosen=state.chosenPlanId===plan.id;
     return `<article class="comparecard ${chosen?"chosen":""}">
       <div class="comparetitle">${esc(plan.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}</div>
-      <div class="comparestorage">${esc(m.storage?.name||plan.storageName||"Storage")} · ${esc(goalLabel(plan.goal))}</div>
+      <div class="comparestorage">${esc(m.storagePath)} · ${esc(goalLabel(plan.goal))}</div>
       <div class="comparestats">
         <div class="comparestat"><div class="k">Utilization</div><div class="v">${m.utilizationPct.toFixed(1)}%</div><div class="small">${esc(m.utilizationKind)}</div></div>
         <div class="comparestat"><div class="k">Items</div><div class="v">${m.itemCount}</div><div class="small">${m.distinctTypes} type${m.distinctTypes===1?"":"s"}</div></div>
@@ -902,7 +999,7 @@ function renderSavedPlans(){
       <div class="savedhead">
         <div>
           <div class="savedname">${esc(p.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}</div>
-          <div class="savedmeta">${esc(m.storage?.name||p.storageName||"Storage")} · ${m.itemCount} item${m.itemCount===1?"":"s"} · ${m.utilizationPct.toFixed(1)}% ${esc(m.utilizationKind)}</div>
+          <div class="savedmeta">${esc(m.storagePath)} · ${m.itemCount} item${m.itemCount===1?"":"s"} · ${m.utilizationPct.toFixed(1)}% ${esc(m.utilizationKind)}</div>
           <span class="goallabel">${esc(goalLabel(p.goal))}</span>
         </div>
         <label class="savedselect"><input type="checkbox" data-compare-plan="${p.id}" ${selected?"checked":""}> compare</label>
@@ -1739,6 +1836,7 @@ $("savePlanBtn").addEventListener("click",()=>{
       note:"",
       storageId:s.id,
       storageName:s.name,
+      storagePath:storageBreadcrumb(s),
       storageSnapshot:captureStorageSnapshot(s),
       settings:capturePlanSettings(),
       savedAt:new Date().toISOString(),
@@ -1785,8 +1883,62 @@ document.querySelectorAll(".tab").forEach(btn=>btn.addEventListener("click",()=>
   const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0;renderDetail(S.w-2*c,S.d-2*c,S.h-2*c);
 }));
 
+$("roomSelect").addEventListener("change",()=>{
+  state.selectedRoom=$("roomSelect").value;
+  const firstFurniture=state.furniture.find(f=>f.roomId===state.selectedRoom);
+  state.selectedFurniture=firstFurniture?.id||"";
+  const firstStorage=state.storages.find(s=>s.furnitureId===state.selectedFurniture);
+  state.selectedStorage=firstStorage?.id||"";editingStorage=firstStorage?.id||""
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
+});
+$("furnitureSelect").addEventListener("change",()=>{
+  state.selectedFurniture=$("furnitureSelect").value;
+  const f=furnitureById(state.selectedFurniture);if(f)state.selectedRoom=f.roomId;
+  const firstStorage=state.storages.find(s=>s.furnitureId===state.selectedFurniture);
+  state.selectedStorage=firstStorage?.id||"";editingStorage=firstStorage?.id||""
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
+});
+$("addRoom").addEventListener("click",()=>{
+  const name=prompt("Room name","New room");if(name===null)return;
+  const id=uid("room");state.rooms.push({id,name:name.trim()||"New room"});
+  state.selectedRoom=id;state.selectedFurniture="";state.selectedStorage="";editingStorage="";
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
+});
+$("renameRoom").addEventListener("click",()=>{
+  const room=roomById(state.selectedRoom);if(!room)return;
+  const name=prompt("Room name",room.name);if(name===null)return;
+  room.name=name.trim()||room.name;localStorage.setItem(KEY,JSON.stringify(state));renderAll();
+});
+$("deleteRoom").addEventListener("click",()=>{
+  const room=roomById(state.selectedRoom);if(!room||state.rooms.length<=1)return;
+  if(state.furniture.some(f=>f.roomId===room.id)){alert("Move or delete the furniture in this room first.");return}
+  state.rooms=state.rooms.filter(r=>r.id!==room.id);
+  state.selectedRoom=state.rooms[0]?.id||"";state.selectedFurniture=state.furniture.find(f=>f.roomId===state.selectedRoom)?.id||"";
+  localStorage.setItem(KEY,JSON.stringify(state));renderAll();
+});
+$("addFurniture").addEventListener("click",()=>{
+  const room=roomById(state.selectedRoom);if(!room){alert("Add a room first.");return}
+  const name=prompt("Furniture name","New furniture");if(name===null)return;
+  const id=uid("furn");state.furniture.push({id,roomId:room.id,name:name.trim()||"New furniture"});
+  state.selectedFurniture=id;state.selectedStorage="";editingStorage="";
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
+});
+$("renameFurniture").addEventListener("click",()=>{
+  const furniture=furnitureById(state.selectedFurniture);if(!furniture)return;
+  const name=prompt("Furniture name",furniture.name);if(name===null)return;
+  furniture.name=name.trim()||furniture.name;localStorage.setItem(KEY,JSON.stringify(state));renderAll();
+});
+$("deleteFurniture").addEventListener("click",()=>{
+  const furniture=furnitureById(state.selectedFurniture);if(!furniture||state.furniture.length<=1)return;
+  if(state.storages.some(s=>s.furnitureId===furniture.id)){alert("Move or delete the storage spaces in this furniture first.");return}
+  state.furniture=state.furniture.filter(f=>f.id!==furniture.id);
+  const next=state.furniture.find(f=>f.roomId===state.selectedRoom)||state.furniture[0]||null;
+  state.selectedFurniture=next?.id||"";if(next)state.selectedRoom=next.roomId;
+  localStorage.setItem(KEY,JSON.stringify(state));renderAll();
+});
+
 $("generateBtn").addEventListener("click",findLayouts);
-$("storageSelect").addEventListener("change",()=>{state.selectedStorage=$("storageSelect").value;editingStorage=state.selectedStorage;save();renderStorageList();loadStorageEditor();renderObstacleEditor();resetResults()});
+$("storageSelect").addEventListener("change",()=>{state.selectedStorage=$("storageSelect").value;editingStorage=state.selectedStorage;if(state.selectedStorage)syncHierarchyToStorage(state.selectedStorage);save();renderHierarchy();renderStorageList();loadStorageEditor();renderObstacleEditor();resetResults()});
 $("optimizeGoal").addEventListener("change",()=>{
   state.optimizeGoal=$("optimizeGoal").value;save();
   const sz=currentUsableSize();
@@ -1811,8 +1963,9 @@ $("clearance").addEventListener("change",()=>{state.clearance=Math.max(0,Number(
 $("fitTolerance").addEventListener("change",()=>{state.fitTolerance=Math.max(0,Number($("fitTolerance").value)||0);save();resetResults()});
 
 $("addStorage").addEventListener("click",()=>{
-  const id=uid("s");state.storages.push({id,name:"New storage",w:60,d:40,h:20,obstacles:[]});editingStorage=id;
-  if(!state.selectedStorage)state.selectedStorage=id;save();renderAll();$("storageName").focus();$("storageName").select()
+  if(!state.selectedFurniture){alert("Add or select a piece of furniture first.");return}
+  const id=uid("s");state.storages.push({id,name:"New storage",w:60,d:40,h:20,furnitureId:state.selectedFurniture,obstacles:[]});
+  editingStorage=id;state.selectedStorage=id;save();renderAll();$("storageName").focus();$("storageName").select()
 });
 $("addObstacle").addEventListener("click",()=>{
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
@@ -1889,6 +2042,7 @@ $("addBox").addEventListener("click",()=>{
 $("saveStorage").addEventListener("click",()=>{
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
   s.name=$("storageName").value.trim()||"Storage";s.w=Math.max(0,Number($("sw").value)||0);s.d=Math.max(0,Number($("sd").value)||0);s.h=Math.max(0,Number($("sh").value)||0);
+  s.furnitureId=$("storageFurniture").value||s.furnitureId||state.selectedFurniture;
   s.obstacles=s.obstacles||[];for(const o of s.obstacles){o.x=Math.min(o.x,s.w);o.y=Math.min(o.y,s.d);o.w=Math.min(o.w,Math.max(0,s.w-o.x));o.d=Math.min(o.d,Math.max(0,s.d-o.y));o.h=Math.min(o.h,s.h)}
   save();renderAll()
 });
@@ -1897,7 +2051,7 @@ $("saveBox").addEventListener("click",()=>{
   b.name=$("boxName").value.trim()||"Item";b.w=Math.max(0,Number($("bw").value)||0);b.d=Math.max(0,Number($("bd").value)||0);b.h=Math.max(0,Number($("bh").value)||0);
   b.price=Math.max(0,Number($("boxPrice").value)||0);b.currency=($("boxCurrency").value.trim().toUpperCase().slice(0,6)||"MAD");b.sku=$("boxSku").value.trim();b.url=$("boxUrl").value.trim();b.image=$("boxImage").value.trim();b.retailer=retailerName(b.url);
   b.uprightOnly=$("boxUprightOnly").checked;b.canBeStacked=$("boxCanBeStacked").checked;b.canSupportStack=$("boxCanSupportStack").checked;
-  save();renderAll()
+  syncHierarchyToStorage(s.id);save();renderAll()
 });
 $("deleteStorage").addEventListener("click",()=>{
   if(!editingStorage)return;
@@ -1907,7 +2061,9 @@ $("deleteStorage").addEventListener("click",()=>{
   if(removedPlanIds.has(state.chosenPlanId))state.chosenPlanId=null;
   state.storages=state.storages.filter(x=>x.id!==editingStorage);
   if(state.selectedStorage===editingStorage)state.selectedStorage=state.storages[0]?.id||"";
-  editingStorage=state.selectedStorage||state.storages[0]?.id||"";save();renderAll()
+  editingStorage=state.selectedStorage||state.storages[0]?.id||"";
+  if(state.selectedStorage)syncHierarchyToStorage(state.selectedStorage);
+  save();renderAll()
 });
 $("deleteBox").addEventListener("click",()=>{
   if(!editingBox)return;state.boxes=state.boxes.filter(x=>x.id!==editingBox);delete state.selectedTypes[editingBox];delete state.itemLimits[editingBox];
@@ -1925,6 +2081,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeProductDimensions,
     safeUrl,
     validateBackupState,
+    ensureHomeHierarchy,
     overlap3D,
     footprintContains
   };
