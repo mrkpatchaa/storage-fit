@@ -1,7 +1,7 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v22";
-const PREV_KEYS = ["storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v23";
+const PREV_KEYS = ["storage-fit-planner-v22","storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -49,12 +49,20 @@ for(const b of state.boxes){
 }
 for(const s of state.storages){
   if(!Array.isArray(s.obstacles)) s.obstacles=[];
+  if(!Array.isArray(s.dividers)) s.dividers=[];
   for(const o of s.obstacles){
     o.id=o.id||uid("o");
     o.name=o.name||"Blocked zone";
     o.x=Math.max(0,Number(o.x)||0);o.y=Math.max(0,Number(o.y)||0);
     o.w=Math.max(0,Number(o.w)||0);o.d=Math.max(0,Number(o.d)||0);
     o.h=Math.max(0,Number(o.h)||s.h||0);
+  }
+  for(const d of s.dividers){
+    d.id=d.id||uid("d");
+    d.orientation=d.orientation==="horizontal"?"horizontal":"vertical";
+    d.position=Math.min(Math.max(0,Number(d.position)||0),d.orientation==="horizontal"?s.d:s.w);
+    d.thickness=Math.max(0.01,Number(d.thickness)||0.5);
+    d.h=Math.max(0.01,Number(d.h)||s.h||0.01);
   }
 }
 
@@ -65,8 +73,8 @@ function defaults(){
     furniture:[{id:"furn1",roomId:"room1",name:"Wardrobe"}],
     selectedRoom:"room1",selectedFurniture:"furn1",
     storages:[
-      {id:"s1",name:"Drawer 67 × 26 × 13",w:67,d:26,h:13,furnitureId:"furn1",obstacles:[]},
-      {id:"s2",name:"Shelf 81 × 40 × 27",w:81,d:40,h:27,furnitureId:"furn1",obstacles:[]}
+      {id:"s1",name:"Drawer 67 × 26 × 13",w:67,d:26,h:13,furnitureId:"furn1",obstacles:[],dividers:[]},
+      {id:"s2",name:"Shelf 81 × 40 × 27",w:81,d:40,h:27,furnitureId:"furn1",obstacles:[],dividers:[]}
     ],
     boxes:[
       {id:"b1",name:"Box 30 × 25 × 12",w:30,d:25,h:12,ownedQty:0,uprightOnly:true,canBeStacked:false,canSupportStack:false},
@@ -211,6 +219,10 @@ function cloneStorageDefinition(source,{id=null,furnitureId=null,name=null,idFac
     obstacles:(source?.obstacles||[]).map(o=>({
       id:idFactory("o"),name:o.name||"Blocked zone",
       x:Number(o.x)||0,y:Number(o.y)||0,w:Number(o.w)||0,d:Number(o.d)||0,h:Number(o.h)||0
+    })),
+    dividers:(source?.dividers||[]).map(d=>({
+      id:idFactory("d"),orientation:d.orientation==="horizontal"?"horizontal":"vertical",
+      position:Number(d.position)||0,thickness:Math.max(0.01,Number(d.thickness)||0.5),h:Number(d.h)||Number(source?.h)||0
     }))
   };
 }
@@ -248,6 +260,7 @@ function convertAllUnits(from,to){
   for(const s of state.storages){
     s.w=cv(s.w);s.d=cv(s.d);s.h=cv(s.h);
     for(const o of (s.obstacles||[])){o.x=cv(o.x);o.y=cv(o.y);o.w=cv(o.w);o.d=cv(o.d);o.h=cv(o.h)}
+    for(const d of (s.dividers||[])){d.position=cv(d.position);d.thickness=cv(d.thickness);d.h=cv(d.h)}
   }
   for(const b of state.boxes){b.w=cv(b.w);b.d=cv(b.d);b.h=cv(b.h)}
   for(const p of state.savedPlans||[]){
@@ -260,6 +273,7 @@ function convertAllUnits(from,to){
     if(p.storageSnapshot){
       p.storageSnapshot.w=cv(p.storageSnapshot.w);p.storageSnapshot.d=cv(p.storageSnapshot.d);p.storageSnapshot.h=cv(p.storageSnapshot.h);p.storageSnapshot.unit=to;
       for(const o of p.storageSnapshot.obstacles||[]){o.x=cv(o.x);o.y=cv(o.y);o.w=cv(o.w);o.d=cv(o.d);o.h=cv(o.h)}
+      for(const d of p.storageSnapshot.dividers||[]){d.position=cv(d.position);d.thickness=cv(d.thickness);d.h=cv(d.h)}
     }
     p.signature=planSignature(p.storageId,p.layout||[]);
   }
@@ -301,7 +315,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:22,
+    appVersion:23,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
@@ -376,6 +390,12 @@ function validateBackupState(candidate){
     ids.add(`s:${s.id}`);
     if(!isFiniteNonNegative(s.w)||!isFiniteNonNegative(s.d)||!isFiniteNonNegative(s.h))return `Storage “${s.name||s.id}” has invalid dimensions.`;
     if(s.obstacles!=null&&!Array.isArray(s.obstacles))return `Storage “${s.name||s.id}” has malformed blocked zones.`;
+    if(s.dividers!=null&&!Array.isArray(s.dividers))return `Storage “${s.name||s.id}” has malformed dividers.`;
+    for(const d of s.dividers||[]){
+      if(!d||typeof d!=="object"||!d.id)return `Storage “${s.name||s.id}” has a divider without an ID.`;
+      if(!["vertical","horizontal"].includes(d.orientation))return `Storage “${s.name||s.id}” has a divider with an invalid direction.`;
+      if(!isFiniteNonNegative(d.position)||!isFiniteNonNegative(d.thickness)||!isFiniteNonNegative(d.h))return `Storage “${s.name||s.id}” has invalid divider dimensions.`;
+    }
   }
   for(const b of candidate.boxes){
     if(!b||typeof b!=="object"||!b.id)return "An item is missing its ID.";
@@ -404,7 +424,7 @@ function renderAll(){
   $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;$("enableStacking").checked=!!state.enableStacking;
   $("clearanceEnabled").checked=!!state.clearanceEnabled;$("clearance").value=state.clearance??0.5;$("fitTolerance").value=state.fitTolerance??0;
   $("clearanceField").style.display=state.clearanceEnabled?"block":"none";
-  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();loadBoxEditor();renderSavedPlans();renderInstallDashboard();renderHomeProcurement();renderBackupStats();resetResults();
+  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();renderDividerEditor();loadBoxEditor();renderSavedPlans();renderInstallDashboard();renderHomeProcurement();renderBackupStats();resetResults();
 }
 function plannedStorageIds(){return new Set((state.savedPlans||[]).map(p=>p.storageId))}
 function installedStorageIds(){return new Set(Object.keys(state.installedPlanIds||{}))}
@@ -446,12 +466,12 @@ function renderStorageList(){
   if(!filtered.length){el.innerHTML='<div class="empty">No storage spaces in this furniture yet.</div>';return}
   const planned=plannedStorageIds();
   el.innerHTML=filtered.map(s=>`<div class="listitem ${s.id===editingStorage?"active":""}" data-s="${s.id}">
-    <div><div class="listname">${esc(s.name)}</div><div class="dims">${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${esc(state.unit)}${s.obstacles?.length?` · ${s.obstacles.length} blocked`:""}<div class="crumb">${planned.has(s.id)?"saved plan available":"not planned yet"}</div></div></div>
+    <div><div class="listname">${esc(s.name)}</div><div class="dims">${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${esc(state.unit)}${s.obstacles?.length?` · ${s.obstacles.length} blocked`:""}${s.dividers?.length?` · ${s.dividers.length} divider${s.dividers.length===1?"":"s"}`:""}<div class="crumb">${planned.has(s.id)?"saved plan available":"not planned yet"}</div></div></div>
     ${s.id===state.selectedStorage?'<span class="badge">selected</span>':planned.has(s.id)?'<span class="badge">planned</span>':""}</div>`).join("");
   el.querySelectorAll("[data-s]").forEach(n=>n.addEventListener("click",()=>{
     editingStorage=n.dataset.s;state.selectedStorage=n.dataset.s;syncHierarchyToStorage(n.dataset.s);
     localStorage.setItem(KEY,JSON.stringify(state));
-    renderHierarchy();renderStorageSelect();loadStorageEditor();renderObstacleEditor();renderStorageList();resetResults();
+    renderHierarchy();renderStorageSelect();loadStorageEditor();renderObstacleEditor();renderDividerEditor();renderStorageList();resetResults();
   }));
 }
 function renderBoxList(){
@@ -544,6 +564,42 @@ function renderObstacleEditor(){
   el.querySelectorAll("[data-remove-obstacle]").forEach(btn=>btn.addEventListener("click",()=>{
     s.obstacles=s.obstacles.filter(o=>o.id!==btn.dataset.removeObstacle);
     save();renderObstacleEditor();renderStorageList();resetResults();
+  }));
+}
+
+function renderDividerEditor(){
+  const el=$("dividerList"),s=state.storages.find(x=>x.id===editingStorage);
+  if(!s){el.innerHTML='<div class="empty">Select a storage space.</div>';return}
+  s.dividers=s.dividers||[];
+  if(!s.dividers.length){el.innerHTML='<div class="empty">No custom dividers.</div>';return}
+  el.innerHTML=s.dividers.map(d=>{
+    const axis=d.orientation==="horizontal"?"From front":"From left";
+    return `<div class="dividerrow" data-divider="${d.id}">
+      <div class="dividergrid">
+        <div class="field"><label>Direction</label><select data-dkey="orientation"><option value="vertical" ${d.orientation==="vertical"?"selected":""}>Vertical</option><option value="horizontal" ${d.orientation==="horizontal"?"selected":""}>Horizontal</option></select></div>
+        <div class="field"><label>${axis}</label><input data-dkey="position" type="number" min="0" step="0.1" value="${fmt(d.position)}"></div>
+        <div class="field"><label>Thickness</label><input data-dkey="thickness" type="number" min="0.01" step="0.1" value="${fmt(d.thickness)}"></div>
+        <div class="field"><label>Height</label><input data-dkey="h" type="number" min="0" step="0.1" value="${fmt(d.h)}"></div>
+        <button class="divider-remove" type="button" data-remove-divider="${d.id}" aria-label="Remove divider">×</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  el.querySelectorAll("[data-divider]").forEach(row=>{
+    const id=row.dataset.divider,d=s.dividers.find(x=>x.id===id);
+    row.querySelectorAll("[data-dkey]").forEach(inp=>inp.addEventListener("change",()=>{
+      const k=inp.dataset.dkey;
+      if(k==="orientation")d.orientation=inp.value==="horizontal"?"horizontal":"vertical";
+      else if(k==="thickness")d.thickness=Math.max(0.01,Number(inp.value)||0.5);
+      else d[k]=Math.max(0,Number(inp.value)||0);
+      d.position=Math.min(d.position,d.orientation==="horizontal"?s.d:s.w);
+      d.h=Math.min(d.h,s.h);
+      save();renderDividerEditor();renderStorageList();resetResults();
+    }));
+  });
+  el.querySelectorAll("[data-remove-divider]").forEach(btn=>btn.addEventListener("click",()=>{
+    s.dividers=s.dividers.filter(d=>d.id!==btn.dataset.removeDivider);
+    save();renderDividerEditor();renderStorageList();resetResults();
   }));
 }
 
@@ -1027,7 +1083,10 @@ function storageStructureSignature(s){
   const obstacles=(s.obstacles||[]).map(o=>[
     round6(Number(o.x)||0),round6(Number(o.y)||0),round6(Number(o.w)||0),round6(Number(o.d)||0),round6(Number(o.h)||0)
   ]).sort((a,b)=>a.join("|").localeCompare(b.join("|")));
-  return JSON.stringify([round6(Number(s.w)||0),round6(Number(s.d)||0),round6(Number(s.h)||0),obstacles]);
+  const dividers=(s.dividers||[]).map(d=>[
+    d.orientation==="horizontal"?"h":"v",round6(Number(d.position)||0),round6(Number(d.thickness)||0),round6(Number(d.h)||0)
+  ]).sort((a,b)=>a.join("|").localeCompare(b.join("|")));
+  return JSON.stringify([round6(Number(s.w)||0),round6(Number(s.d)||0),round6(Number(s.h)||0),obstacles,dividers]);
 }
 function matchingSiblingStorages(source,storages=state.storages){
   if(!source)return [];
@@ -1091,7 +1150,7 @@ function capturePlanSettings(){
 }
 function captureStorageSnapshot(s){
   return s?JSON.parse(JSON.stringify({
-    id:s.id,name:s.name,furnitureId:s.furnitureId,w:s.w,d:s.d,h:s.h,unit:state.unit,obstacles:s.obstacles||[]
+    id:s.id,name:s.name,furnitureId:s.furnitureId,w:s.w,d:s.d,h:s.h,unit:state.unit,obstacles:s.obstacles||[],dividers:s.dividers||[]
   })):null;
 }
 function planMetrics(plan){
@@ -1572,14 +1631,33 @@ function placementSupported(p,placed,type){
   if(z<=1e-9)return true;
   return !!state.enableStacking && !!type?.canBeStacked && !!supportingBaseFor(p,placed);
 }
+function dividerRectsForStorage(S){
+  if(!S)return [];
+  return (S.dividers||[]).map(d=>{
+    const thickness=Math.max(0.01,Number(d.thickness)||0.5),h=Math.max(0.01,Math.min(Number(d.h)||S.h,S.h));
+    if(d.orientation==="horizontal"){
+      const center=Math.min(Math.max(0,Number(d.position)||0),S.d);
+      const y1=Math.max(0,center-thickness/2),y2=Math.min(S.d,center+thickness/2);
+      return {id:d.id,name:"Divider",kind:"divider",z:0,x:0,y:y1,w:S.w,d:Math.max(0,y2-y1),h};
+    }
+    const center=Math.min(Math.max(0,Number(d.position)||0),S.w);
+    const x1=Math.max(0,center-thickness/2),x2=Math.min(S.w,center+thickness/2);
+    return {id:d.id,name:"Divider",kind:"divider",z:0,x:x1,y:0,w:Math.max(0,x2-x1),d:S.d,h};
+  });
+}
+function physicalObstaclesForStorage(S){
+  if(!S)return [];
+  const blocked=(S.obstacles||[]).map(o=>({...o,kind:"blocked",z:0}));
+  return [...blocked,...dividerRectsForStorage(S)];
+}
 function rawObstacles(){
-  return storage()?.obstacles||[];
+  return physicalObstaclesForStorage(storage());
 }
 function usableObstaclesFor(S,clearance=0){
   if(!S)return [];
   const c=Math.max(0,Number(clearance)||0),W=S.w-2*c,D=S.d-2*c,H=S.h-2*c;
-  return (S.obstacles||[]).map(o=>({
-    id:o.id,name:o.name||"Blocked zone",z:0,
+  return physicalObstaclesForStorage(S).map(o=>({
+    id:o.id,name:o.name||(o.kind==="divider"?"Divider":"Blocked zone"),kind:o.kind||"blocked",z:0,
     x:Math.max(0,(Number(o.x)||0)-c),
     y:Math.max(0,(Number(o.y)||0)-c),
     w:Math.max(0,Math.min(Number(o.w)||0,W-Math.max(0,(Number(o.x)||0)-c))),
@@ -1881,7 +1959,12 @@ function findLayouts(){
     showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${rejected.map(x=>x.name).join(", ")} cannot fit at all and was excluded.${truncated?" Results are capped.":""}`,"warn");
   }else{
     const costNote=state.optimizeGoal==="cost"?"Owned quantities reduce purchases; unpriced purchases are treated conservatively. Different currencies are not converted. ":"";
-    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${costNote}Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${state.enableStacking?"Stacking rules enabled. ":""}${obstacles.length?`${obstacles.length} blocked zone${obstacles.length===1?"":"s"} avoided. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?"Results are capped to keep the browser responsive.":""}`,"good");
+    const blockedCount=obstacles.filter(o=>o.kind!=="divider").length,dividerCount=obstacles.filter(o=>o.kind==="divider").length;
+    const constraintNote=[
+      blockedCount?`${blockedCount} blocked zone${blockedCount===1?"":"s"} avoided`:"",
+      dividerCount?`${dividerCount} divider${dividerCount===1?"":"s"} respected`:""
+    ].filter(Boolean).join(" · ");
+    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${costNote}Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${state.enableStacking?"Stacking rules enabled. ":""}${constraintNote?`${constraintNote}. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?"Results are capped to keep the browser responsive.":""}`,"good");
   }
   selectedLayout=0;selectedGap=-1;currentGaps=[];
   editMode=false;
@@ -1960,11 +2043,18 @@ function topGeometry(W,D,width,height){
 }
 function svgTop(layout,W,D,width,height,labels=true,editable=false,selected=-1,highlightGap=null){
   const g=topGeometry(W,D,width,height),bad=editable?invalidEditIndices(layout,W,D):new Set(),obstacles=usableObstacles();
-  const obstacleRects=obstacles.map(o=>`<g>
-    <defs><pattern id="hatch-${o.id}" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#b23c3c" stroke-opacity=".45" stroke-width="3"/></pattern></defs>
-    <rect x="${g.ox+o.x*g.scale}" y="${g.oy+o.y*g.scale}" width="${o.w*g.scale}" height="${o.d*g.scale}" fill="url(#hatch-${o.id})" stroke="#b23c3c" stroke-width="1.7"/>
-    ${labels?`<text x="${g.ox+(o.x+o.w/2)*g.scale}" y="${g.oy+(o.y+o.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="10" fill="#8b2e2e">blocked</text>`:""}
-  </g>`).join("");
+  const obstacleRects=obstacles.map(o=>{
+    const divider=o.kind==="divider",color=divider?"#416b8e":"#b23c3c",textColor=divider?"#31536f":"#8b2e2e";
+    if(divider)return `<g>
+      <rect x="${g.ox+o.x*g.scale}" y="${g.oy+o.y*g.scale}" width="${o.w*g.scale}" height="${o.d*g.scale}" fill="${color}" fill-opacity=".32" stroke="${color}" stroke-width="1.7"/>
+      ${labels?`<text x="${g.ox+(o.x+o.w/2)*g.scale}" y="${g.oy+(o.y+o.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="9" fill="${textColor}">divider</text>`:""}
+    </g>`;
+    return `<g>
+      <defs><pattern id="hatch-${o.id}" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="${color}" stroke-opacity=".45" stroke-width="3"/></pattern></defs>
+      <rect x="${g.ox+o.x*g.scale}" y="${g.oy+o.y*g.scale}" width="${o.w*g.scale}" height="${o.d*g.scale}" fill="url(#hatch-${o.id})" stroke="${color}" stroke-width="1.7"/>
+      ${labels?`<text x="${g.ox+(o.x+o.w/2)*g.scale}" y="${g.oy+(o.y+o.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="10" fill="${textColor}">blocked</text>`:""}
+    </g>`;
+  }).join("");
   const rects=layout.map((p,idx)=>({p,idx})).sort((a,b)=>(a.p.z||0)-(b.p.z||0)).map(({p,idx})=>{
     const invalid=bad.has(idx),active=idx===selected;
     const stroke=invalid?"#b23c3c":active?"#111":colorFor(p.typeId);
@@ -1982,7 +2072,10 @@ function shortName(s){return s.length>12?s.slice(0,10)+"…":s}
 function svgFront(layout,W,H,width=760,height=390){
   const pad=28,scale=Math.min((width-2*pad)/W,(height-2*pad)/H),ox=(width-W*scale)/2,oy=(height-H*scale)/2;
   const obstacles=usableObstacles();
-  const obs=obstacles.map(o=>`<rect x="${ox+o.x*scale}" y="${oy+(H-o.h)*scale}" width="${o.w*scale}" height="${o.h*scale}" fill="#b23c3c" fill-opacity=".12" stroke="#b23c3c" stroke-dasharray="5 4" stroke-width="1.5"/>`).join("");
+  const obs=obstacles.map(o=>{
+    const divider=o.kind==="divider",color=divider?"#416b8e":"#b23c3c";
+    return `<rect x="${ox+o.x*scale}" y="${oy+(H-o.h)*scale}" width="${o.w*scale}" height="${o.h*scale}" fill="${color}" fill-opacity="${divider?".24":".12"}" stroke="${color}" ${divider?"":'stroke-dasharray="5 4"'} stroke-width="1.5"/>`;
+  }).join("");
   const sorted=layout.slice().sort((a,b)=>b.y-a.y||a.x-b.x);
   const rects=sorted.map(p=>`<rect x="${ox+p.x*scale}" y="${oy+(H-(p.z||0)-p.h)*scale}" width="${p.w*scale}" height="${p.h*scale}" rx="2" fill="${colorFor(p.typeId)}" fill-opacity=".28" stroke="${colorFor(p.typeId)}" stroke-width="1.5"/>`).join("");
   return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Front view"><rect x="${ox}" y="${oy}" width="${W*scale}" height="${H*scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${obs}${rects}</svg>`;
@@ -1990,7 +2083,10 @@ function svgFront(layout,W,H,width=760,height=390){
 function svgSide(layout,D,H,width=760,height=390){
   const pad=28,scale=Math.min((width-2*pad)/D,(height-2*pad)/H),ox=(width-D*scale)/2,oy=(height-H*scale)/2;
   const obstacles=usableObstacles();
-  const obs=obstacles.map(o=>`<rect x="${ox+o.y*scale}" y="${oy+(H-o.h)*scale}" width="${o.d*scale}" height="${o.h*scale}" fill="#b23c3c" fill-opacity=".12" stroke="#b23c3c" stroke-dasharray="5 4" stroke-width="1.5"/>`).join("");
+  const obs=obstacles.map(o=>{
+    const divider=o.kind==="divider",color=divider?"#416b8e":"#b23c3c";
+    return `<rect x="${ox+o.y*scale}" y="${oy+(H-o.h)*scale}" width="${o.d*scale}" height="${o.h*scale}" fill="${color}" fill-opacity="${divider?".24":".12"}" stroke="${color}" ${divider?"":'stroke-dasharray="5 4"'} stroke-width="1.5"/>`;
+  }).join("");
   const sorted=layout.slice().sort((a,b)=>b.x-a.x||a.y-b.y);
   const rects=sorted.map(p=>`<rect x="${ox+p.y*scale}" y="${oy+(H-(p.z||0)-p.h)*scale}" width="${p.d*scale}" height="${p.h*scale}" rx="2" fill="${colorFor(p.typeId)}" fill-opacity=".28" stroke="${colorFor(p.typeId)}" stroke-width="1.5"/>`).join("");
   return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Side view"><rect x="${ox}" y="${oy}" width="${D*scale}" height="${H*scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${obs}${rects}</svg>`;
@@ -2020,7 +2116,8 @@ function poly(points,fill,stroke,opacity){
 function obstacleCuboidSvg(o,P){
   const A=P(o.x,o.y,0),B=P(o.x+o.w,o.y,0),C=P(o.x+o.w,o.y+o.d,0),D=P(o.x,o.y+o.d,0);
   const E=P(o.x,o.y,o.h),F=P(o.x+o.w,o.y,o.h),G=P(o.x+o.w,o.y+o.d,o.h),H=P(o.x,o.y+o.d,o.h);
-  return poly([A,B,F,E],"#b23c3c","#b23c3c",.10)+poly([B,C,G,F],"#b23c3c","#b23c3c",.14)+poly([E,F,G,H],"#b23c3c","#b23c3c",.18);
+  const divider=o.kind==="divider",c=divider?"#416b8e":"#b23c3c";
+  return poly([A,B,F,E],c,c,divider?.20:.10)+poly([B,C,G,F],c,c,divider?.24:.14)+poly([E,F,G,H],c,c,divider?.30:.18);
 }
 function cuboidSvg(p,P){
   const z=Number(p.z)||0;
@@ -2401,20 +2498,20 @@ $("roomSelect").addEventListener("change",()=>{
   state.selectedFurniture=firstFurniture?.id||"";
   const firstStorage=state.storages.find(s=>s.furnitureId===state.selectedFurniture);
   state.selectedStorage=firstStorage?.id||"";editingStorage=firstStorage?.id||""
-  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();renderDividerEditor();resetResults();
 });
 $("furnitureSelect").addEventListener("change",()=>{
   state.selectedFurniture=$("furnitureSelect").value;
   const f=furnitureById(state.selectedFurniture);if(f)state.selectedRoom=f.roomId;
   const firstStorage=state.storages.find(s=>s.furnitureId===state.selectedFurniture);
   state.selectedStorage=firstStorage?.id||"";editingStorage=firstStorage?.id||""
-  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();renderDividerEditor();resetResults();
 });
 $("addRoom").addEventListener("click",()=>{
   const name=prompt("Room name","New room");if(name===null)return;
   const id=uid("room");state.rooms.push({id,name:name.trim()||"New room"});
   state.selectedRoom=id;state.selectedFurniture="";state.selectedStorage="";editingStorage="";
-  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();renderDividerEditor();resetResults();
 });
 $("renameRoom").addEventListener("click",()=>{
   const room=roomById(state.selectedRoom);if(!room)return;
@@ -2433,7 +2530,7 @@ $("addFurniture").addEventListener("click",()=>{
   const name=prompt("Furniture name","New furniture");if(name===null)return;
   const id=uid("furn");state.furniture.push({id,roomId:room.id,name:name.trim()||"New furniture"});
   state.selectedFurniture=id;state.selectedStorage="";editingStorage="";
-  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();renderDividerEditor();resetResults();
 });
 $("renameFurniture").addEventListener("click",()=>{
   const furniture=furnitureById(state.selectedFurniture);if(!furniture)return;
@@ -2461,7 +2558,7 @@ $("deleteFurniture").addEventListener("click",()=>{
 });
 
 $("generateBtn").addEventListener("click",findLayouts);
-$("storageSelect").addEventListener("change",()=>{state.selectedStorage=$("storageSelect").value;editingStorage=state.selectedStorage;if(state.selectedStorage)syncHierarchyToStorage(state.selectedStorage);save();renderHierarchy();renderStorageList();loadStorageEditor();renderObstacleEditor();resetResults()});
+$("storageSelect").addEventListener("change",()=>{state.selectedStorage=$("storageSelect").value;editingStorage=state.selectedStorage;if(state.selectedStorage)syncHierarchyToStorage(state.selectedStorage);save();renderHierarchy();renderStorageList();loadStorageEditor();renderObstacleEditor();renderDividerEditor();resetResults()});
 $("optimizeGoal").addEventListener("change",()=>{
   state.optimizeGoal=$("optimizeGoal").value;save();
   const sz=currentUsableSize();
@@ -2487,7 +2584,7 @@ $("fitTolerance").addEventListener("change",()=>{state.fitTolerance=Math.max(0,N
 
 $("addStorage").addEventListener("click",()=>{
   if(!state.selectedFurniture){alert("Add or select a piece of furniture first.");return}
-  const id=uid("s");state.storages.push({id,name:"New storage",w:60,d:40,h:20,furnitureId:state.selectedFurniture,obstacles:[]});
+  const id=uid("s");state.storages.push({id,name:"New storage",w:60,d:40,h:20,furnitureId:state.selectedFurniture,obstacles:[],dividers:[]});
   editingStorage=id;state.selectedStorage=id;save();renderAll();$("storageName").focus();$("storageName").select()
 });
 $("duplicateStorage").addEventListener("click",()=>{
@@ -2519,6 +2616,20 @@ $("addObstacle").addEventListener("click",()=>{
   s.obstacles.push({id:uid("o"),name:`Blocked zone ${n}`,x:0,y:0,w:5,d:5,h:Math.min(s.h||5,5)});
   save();renderObstacleEditor();renderStorageList();resetResults();
 });
+function addDivider(orientation){
+  const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
+  s.dividers=s.dividers||[];
+  const span=orientation==="horizontal"?s.d:s.w;
+  s.dividers.push({
+    id:uid("d"),orientation,
+    position:round6(span/2),
+    thickness:Math.max(0.01,state.unit==="mm"?5:state.unit==="in"?0.2:0.5),
+    h:s.h
+  });
+  save();renderDividerEditor();renderStorageList();resetResults();
+}
+$("addVerticalDivider").addEventListener("click",()=>addDivider("vertical"));
+$("addHorizontalDivider").addEventListener("click",()=>addDivider("horizontal"));
 
 
 
@@ -2589,6 +2700,10 @@ $("saveStorage").addEventListener("click",()=>{
   s.name=$("storageName").value.trim()||"Storage";s.w=Math.max(0,Number($("sw").value)||0);s.d=Math.max(0,Number($("sd").value)||0);s.h=Math.max(0,Number($("sh").value)||0);
   s.furnitureId=$("storageFurniture").value||s.furnitureId||state.selectedFurniture;
   s.obstacles=s.obstacles||[];for(const o of s.obstacles){o.x=Math.min(o.x,s.w);o.y=Math.min(o.y,s.d);o.w=Math.min(o.w,Math.max(0,s.w-o.x));o.d=Math.min(o.d,Math.max(0,s.d-o.y));o.h=Math.min(o.h,s.h)}
+  s.dividers=s.dividers||[];for(const d of s.dividers){
+    d.position=Math.min(Math.max(0,d.position),d.orientation==="horizontal"?s.d:s.w);
+    d.thickness=Math.max(0.01,d.thickness);d.h=Math.min(Math.max(0,d.h),s.h);
+  }
   save();renderAll()
 });
 $("saveBox").addEventListener("click",()=>{
@@ -2636,6 +2751,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeInstallState,
     computeInstallAllocation,
     repeatStorageNames,
+    dividerRectsForStorage,
+    physicalObstaclesForStorage,
     storageStructureSignature,
     matchingSiblingStorages,
     cloneStorageDefinition,
