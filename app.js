@@ -1,7 +1,7 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v18";
-const PREV_KEYS = ["storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v19";
+const PREV_KEYS = ["storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -28,13 +28,14 @@ let pendingImport = null;
 state.itemLimits = state.itemLimits || {};
 state.fitTolerance = Math.max(0, Number(state.fitTolerance)||0);
 state.enableStacking = !!state.enableStacking;
-state.optimizeGoal = ["fill","compartments","simple","balanced"].includes(state.optimizeGoal)?state.optimizeGoal:"fill";
+state.optimizeGoal = ["fill","compartments","simple","balanced","cost"].includes(state.optimizeGoal)?state.optimizeGoal:"fill";
 state.savedPlans = Array.isArray(state.savedPlans)?state.savedPlans:[];
 state.chosenPlanId = state.savedPlans.some(p=>p.id===state.chosenPlanId)?state.chosenPlanId:null;
 for(const p of state.savedPlans){p.note=String(p.note||"");p.settings=p.settings||null;}
 for(const b of state.boxes){
   if(!(b.id in state.itemLimits)) state.itemLimits[b.id] = null;
   b.price = Math.max(0,Number(b.price)||0);
+  b.ownedQty = Math.max(0,Math.min(999,Math.floor(Number(b.ownedQty)||0)));
   b.currency = String(b.currency||"MAD").trim().toUpperCase().slice(0,6) || "MAD";
   b.url = String(b.url||"").trim();
   b.image = String(b.image||"").trim();
@@ -66,9 +67,9 @@ function defaults(){
       {id:"s2",name:"Shelf 81 × 40 × 27",w:81,d:40,h:27,furnitureId:"furn1",obstacles:[]}
     ],
     boxes:[
-      {id:"b1",name:"Box 30 × 25 × 12",w:30,d:25,h:12,uprightOnly:true,canBeStacked:false,canSupportStack:false},
-      {id:"b2",name:"Box 32 × 25 × 12",w:32,d:25,h:12,uprightOnly:true,canBeStacked:false,canSupportStack:false},
-      {id:"b3",name:"Small box 20 × 13 × 10",w:20,d:13,h:10,uprightOnly:true,canBeStacked:false,canSupportStack:false}
+      {id:"b1",name:"Box 30 × 25 × 12",w:30,d:25,h:12,ownedQty:0,uprightOnly:true,canBeStacked:false,canSupportStack:false},
+      {id:"b2",name:"Box 32 × 25 × 12",w:32,d:25,h:12,ownedQty:0,uprightOnly:true,canBeStacked:false,canSupportStack:false},
+      {id:"b3",name:"Small box 20 × 13 × 10",w:20,d:13,h:10,ownedQty:0,uprightOnly:true,canBeStacked:false,canSupportStack:false}
     ],
     selectedStorage:"s1",selectedTypes:{b1:true,b2:false,b3:false},itemLimits:{b1:null,b2:null,b3:null}
   };
@@ -213,7 +214,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:18,
+    appVersion:19,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
@@ -356,7 +357,7 @@ function renderBoxList(){
   if($("itemSearchCount"))$("itemSearchCount").textContent=query?`${filtered.length} of ${state.boxes.length}`:`${state.boxes.length} item${state.boxes.length===1?"":"s"}`;
   if(!filtered.length){el.innerHTML='<div class="empty">No items match this search.</div>';return}
   el.innerHTML=filtered.map(b=>`<div class="listitem ${b.id===editingBox?"active":""}" data-b="${b.id}">
-    <div class="itemmain">${safeUrl(b.image)?`<img class="itemthumb" src="${esc(safeUrl(b.image))}" alt="">`:""}<div><div class="listname">${esc(b.name)}${b.retailer?`<span class="retailerbadge">${esc(b.retailer)}</span>`:""}</div><div class="dims">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}${b.price>0?` · ${esc(money(b.price,b.currency))}`:""}${b.sku?` · ${esc(b.sku)}`:""}${esc(itemRuleText(b))}</div></div></div>
+    <div class="itemmain">${safeUrl(b.image)?`<img class="itemthumb" src="${esc(safeUrl(b.image))}" alt="">`:""}<div><div class="listname">${esc(b.name)}${b.retailer?`<span class="retailerbadge">${esc(b.retailer)}</span>`:""}</div><div class="dims">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}${b.price>0?` · ${esc(money(b.price,b.currency))}`:""}${b.sku?` · ${esc(b.sku)}`:""}${b.ownedQty?` · own ${b.ownedQty}`:""}${esc(itemRuleText(b))}</div></div></div>
     ${state.selectedTypes?.[b.id]?'<span class="badge">allowed</span>':""}</div>`).join("");
   el.querySelectorAll("[data-b]").forEach(n=>n.addEventListener("click",()=>{editingBox=n.dataset.b;loadBoxEditor();renderBoxList()}));
 }
@@ -374,7 +375,7 @@ function renderItemPicker(){
     const limited=Number.isFinite(limit) && limit>0;
     return `<div class="pickrow">
       <input aria-label="Allow ${esc(b.name)}" type="checkbox" data-type="${b.id}" ${selected?"checked":""}>
-      <span><span class="listname">${esc(b.name)}</span><span class="dims" style="display:block">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}${esc(itemRuleText(b))}</span></span>
+      <span><span class="listname">${esc(b.name)}</span><span class="dims" style="display:block">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}${b.ownedQty?` · own ${b.ownedQty}`:""}${esc(itemRuleText(b))}</span></span>
       <span class="limitcontrol">
         <select data-limit-mode="${b.id}" aria-label="Quantity mode for ${esc(b.name)}">
           <option value="unlimited" ${limited?"":"selected"}>Unlimited</option>
@@ -442,7 +443,7 @@ function renderObstacleEditor(){
 function loadBoxEditor(){
   const b=state.boxes.find(x=>x.id===editingBox);
   $("boxName").value=b?.name||"";$("bw").value=b?.w??"";$("bd").value=b?.d??"";$("bh").value=b?.h??"";
-  $("boxPrice").value=b?.price||"";$("boxCurrency").value=b?.currency||"MAD";$("boxSku").value=b?.sku||"";$("boxUrl").value=b?.url||"";$("boxImage").value=b?.image||"";
+  $("boxPrice").value=b?.price||"";$("boxCurrency").value=b?.currency||"MAD";$("boxOwnedQty").value=b?.ownedQty??0;$("boxSku").value=b?.sku||"";$("boxUrl").value=b?.url||"";$("boxImage").value=b?.image||"";
   $("boxUprightOnly").checked=b?.uprightOnly!==false;$("boxCanBeStacked").checked=!!b?.canBeStacked;$("boxCanSupportStack").checked=!!b?.canSupportStack;
 }
 function itemRuleText(b){const tags=[];if(b?.canBeStacked)tags.push("can stack");if(b?.canSupportStack)tags.push("supports");if(b?.uprightOnly===false)tags.push("may tip");return tags.length?` · ${tags.join(" · ")}`:""}
@@ -683,7 +684,7 @@ function applyImportedProduct(p,targetId=null){
       id,name:imported.name||"Imported item",
       w:imported.w,d:imported.d,h:imported.h,
       price:imported.price,currency:imported.currency,
-      sku:imported.sku,url:imported.url,image:imported.image,retailer:imported.retailer,
+      sku:imported.sku,url:imported.url,image:imported.image,retailer:imported.retailer,ownedQty:0,
       uprightOnly:true,canBeStacked:false,canSupportStack:false
     };
     state.boxes.push(item);state.selectedTypes[id]=true;state.itemLimits[id]=null;
@@ -764,31 +765,68 @@ function money(n,currency){
     return `${value.toLocaleString(undefined,{maximumFractionDigits:2})} ${currency||"MAD"}`;
   }
 }
+
+function purchaseBreakdown(qty,ownedQty,price){
+  const used=Math.max(0,Math.floor(Number(qty)||0));
+  const owned=Math.max(0,Math.floor(Number(ownedQty)||0));
+  const ownedUsed=Math.min(used,owned),buyQty=Math.max(0,used-ownedUsed);
+  const unitPrice=Math.max(0,Number(price)||0);
+  return {used,owned,ownedUsed,buyQty,subtotal:unitPrice*buyQty};
+}
 function shoppingRows(layout){
   const counts=layoutCounts(layout);
   return Object.entries(counts).map(([id,qty])=>{
-    const b=boxById(id);
-    const price=Math.max(0,Number(b?.price)||0),currency=(b?.currency||"MAD").toUpperCase();
+    const b=boxById(id),price=Math.max(0,Number(b?.price)||0),currency=(b?.currency||"MAD").toUpperCase();
+    const stock=purchaseBreakdown(qty,b?.ownedQty,price);
     return {
-      id,qty,name:b?.name||layout.find(p=>p.typeId===id)?.name||"Item",
-      price,currency,subtotal:price*qty,url:safeUrl(b?.url),image:safeUrl(b?.image),sku:b?.sku||"",
+      id,qty:stock.used,ownedQty:stock.owned,ownedUsed:stock.ownedUsed,buyQty:stock.buyQty,
+      name:b?.name||layout.find(p=>p.typeId===id)?.name||"Item",
+      price,currency,subtotal:stock.subtotal,url:safeUrl(b?.url),image:safeUrl(b?.image),sku:b?.sku||"",
       dimensions:b?`${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${state.unit}`:""
     };
   }).sort((a,b)=>a.name.localeCompare(b.name));
 }
 function shoppingTotals(layout){
-  const totals={},rows=shoppingRows(layout);let missing=0;
+  const totals={},rows=shoppingRows(layout);
+  let missing=0,purchaseUnits=0,ownedUsed=0;
   for(const r of rows){
+    purchaseUnits+=r.buyQty;ownedUsed+=r.ownedUsed;
+    if(r.buyQty<=0)continue;
     if(r.price>0) totals[r.currency]=(totals[r.currency]||0)+r.subtotal;
-    else missing+=r.qty;
+    else missing+=r.buyQty;
   }
-  return {totals,missing,rows};
+  return {totals,missing,purchaseUnits,ownedUsed,rows};
 }
 function totalsText(layout){
-  const {totals,missing}=shoppingTotals(layout);
+  const {totals,missing,purchaseUnits}=shoppingTotals(layout);
+  if(purchaseUnits===0)return "Nothing to buy";
   const parts=Object.entries(totals).map(([c,v])=>money(v,c));
-  if(!parts.length)return missing?"Prices missing":"No priced items";
+  if(!parts.length)return missing?`${missing} unpriced to buy`:"Nothing to buy";
   return parts.join(" + ")+(missing?` · ${missing} unpriced`:"");
+}
+function purchaseCostProfile(layout){
+  const summary=shoppingTotals(layout),currencies=Object.keys(summary.totals).sort();
+  return {
+    missing:summary.missing,
+    purchaseUnits:summary.purchaseUnits,
+    ownedUsed:summary.ownedUsed,
+    currencies,
+    singleCurrency:currencies.length===1?currencies[0]:null,
+    knownTotal:currencies.length===1?summary.totals[currencies[0]]:null
+  };
+}
+function comparePurchaseCost(a,b,W,D){
+  const pa=purchaseCostProfile(a),pb=purchaseCostProfile(b);
+  if(pa.missing!==pb.missing)return pa.missing-pb.missing;
+  if(pa.purchaseUnits===0||pb.purchaseUnits===0){
+    if(pa.purchaseUnits!==pb.purchaseUnits)return pa.purchaseUnits-pb.purchaseUnits;
+  }
+  if(pa.singleCurrency&&pa.singleCurrency===pb.singleCurrency&&pa.knownTotal!==pb.knownTotal){
+    return pa.knownTotal-pb.knownTotal;
+  }
+  if(pa.purchaseUnits!==pb.purchaseUnits)return pa.purchaseUnits-pb.purchaseUnits;
+  const ua=utilization(a,W,D),ub=utilization(b,W,D);
+  return ub-ua || distinctTypes(a)-distinctTypes(b);
 }
 function renderShoppingList(layout){
   const el=$("shoppingList"),summary=shoppingTotals(layout);
@@ -796,12 +834,15 @@ function renderShoppingList(layout){
   if(!summary.rows.length){el.innerHTML='<div class="empty">No items in this layout.</div>';return}
   el.innerHTML=`<div class="shoprows">${summary.rows.map(r=>`<div class="shoprow">
     <div><div class="shopname">${esc(r.name)}</div><div class="shopsub">${esc(r.dimensions)}${r.sku?` · ${esc(r.sku)}`:""}</div></div>
-    <div class="shopnum">×${r.qty}</div>
-    <div class="shopnum">${r.price>0?money(r.price,r.currency):"—"}</div>
-    <div class="shopnum shopsubtotal">${r.price>0?money(r.subtotal,r.currency):"—"}</div>
-    <div class="shopaction">${r.url?`<a class="shoplink" href="${esc(r.url)}" target="_blank" rel="noopener">Product ↗</a>`:""}</div>
-  </div>`).join("")}</div>${summary.missing?`<div class="shopmissing">${summary.missing} item${summary.missing===1?"":"s"} still need a price before the total is complete.</div>`:""}`;
+    <div class="shopnum" title="Used in layout">Use ×${r.qty}</div>
+    <div class="shopnum" title="Covered by owned inventory">Own ×${r.ownedUsed}</div>
+    <div class="shopnum" title="Additional units to buy"><strong>Buy ×${r.buyQty}</strong></div>
+    <div class="shopnum shopprice">${r.buyQty&&r.price>0?money(r.price,r.currency):"—"}</div>
+    <div class="shopnum shopsubtotal">${r.buyQty&&r.price>0?money(r.subtotal,r.currency):r.buyQty?"—":"✓"}</div>
+    <div class="shopaction">${r.buyQty&&r.url?`<a class="shoplink" href="${esc(r.url)}" target="_blank" rel="noopener">Product ↗</a>`:""}</div>
+  </div>`).join("")}</div>${summary.missing?`<div class="shopmissing">${summary.missing} unit${summary.missing===1?"":"s"} to buy still need a price before the total is complete.</div>`:""}`;
 }
+
 function slugify(s){
   return String(s||"plan").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,60)||"storage-plan";
 }
@@ -844,15 +885,15 @@ function buildPrintSheet(){
       <div class="printviz"><h2>Top view</h2>${svgTop(layout,W,D,640,340,true,false,-1,null)}</div>
     </div>
     <h2>Shopping list</h2>
-    <table><thead><tr><th>Item</th><th>Qty</th><th>Unit price</th><th>Subtotal</th></tr></thead>
-    <tbody>${rows.map(r=>`<tr><td>${esc(r.name)}${r.sku?` · ${esc(r.sku)}`:""}${r.url?`<br><a href="${esc(r.url)}">${esc(r.url)}</a>`:""}</td><td>${r.qty}</td><td>${r.price>0?money(r.price,r.currency):"—"}</td><td>${r.price>0?money(r.subtotal,r.currency):"—"}</td></tr>`).join("")}</tbody></table>
-    <div class="printtotal">Estimated total: ${esc(totalsText(layout))}</div>
+    <table><thead><tr><th>Item</th><th>Use</th><th>Owned</th><th>Buy</th><th>Unit price</th><th>Subtotal</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr><td>${esc(r.name)}${r.sku?` · ${esc(r.sku)}`:""}${r.url&&r.buyQty?`<br><a href="${esc(r.url)}">${esc(r.url)}</a>`:""}</td><td>${r.qty}</td><td>${r.ownedUsed}</td><td>${r.buyQty}</td><td>${r.buyQty&&r.price>0?money(r.price,r.currency):"—"}</td><td>${r.buyQty&&r.price>0?money(r.subtotal,r.currency):r.buyQty?"—":"✓"}</td></tr>`).join("")}</tbody></table>
+    <div class="printtotal">Additional purchase estimate: ${esc(totalsText(layout))}</div>
   </div>`;
   return true;
 }
 
 function goalLabel(goal=state.optimizeGoal){
-  return ({fill:"Best use of space",compartments:"Most compartments",simple:"Simplest setup",balanced:"Balanced mix"})[goal]||"Best use of space";
+  return ({fill:"Best use of space",compartments:"Most compartments",simple:"Simplest setup",balanced:"Balanced mix",cost:"Cheapest to implement"})[goal]||"Best use of space";
 }
 function balanceScore(layout){
   const counts=Object.values(layoutCounts(layout));
@@ -864,6 +905,7 @@ function balanceScore(layout){
 }
 function compareLayoutsForGoal(a,b,W,D){
   const ua=utilization(a,W,D),ub=utilization(b,W,D);
+  if(state.optimizeGoal==="cost") return comparePurchaseCost(a,b,W,D);
   if(state.optimizeGoal==="compartments") return b.length-a.length || ub-ua || distinctTypes(b)-distinctTypes(a);
   if(state.optimizeGoal==="simple") return distinctTypes(a)-distinctTypes(b) || a.length-b.length || ub-ua;
   if(state.optimizeGoal==="balanced") return balanceScore(b)-balanceScore(a) || distinctTypes(b)-distinctTypes(a) || ub-ua || b.length-a.length;
@@ -910,7 +952,9 @@ function planMetrics(plan){
     utilizationKind:usesStacking?"usable volume":"usable floor",
     itemCount:(plan.layout||[]).length,
     distinctTypes:distinctTypes(plan.layout||[]),
-    cost:totalsText(plan.layout||[])
+    cost:totalsText(plan.layout||[]),
+    purchaseUnits:purchaseCostProfile(plan.layout||[]).purchaseUnits,
+    ownedUsed:purchaseCostProfile(plan.layout||[]).ownedUsed
   };
 }
 function updateCompareButton(){
@@ -946,7 +990,7 @@ function renderCompareModal(){
         <div class="comparestat"><div class="k">Utilization</div><div class="v">${m.utilizationPct.toFixed(1)}%</div><div class="small">${esc(m.utilizationKind)}</div></div>
         <div class="comparestat"><div class="k">Items</div><div class="v">${m.itemCount}</div><div class="small">${m.distinctTypes} type${m.distinctTypes===1?"":"s"}</div></div>
         <div class="comparestat"><div class="k">Stacked</div><div class="v">${m.stackedCount}</div><div class="small">${plan.stacking?"stacking enabled":"floor-focused"}</div></div>
-        <div class="comparestat"><div class="k">Estimated cost</div><div class="v" style="font-size:12px">${esc(m.cost)}</div></div>
+        <div class="comparestat"><div class="k">To buy</div><div class="v" style="font-size:12px">${esc(m.cost)}</div><div class="small">${m.ownedUsed} owned used</div></div>
       </div>
       <div class="compareitems"><strong>Item mix</strong><ul>${items||"<li>No items</li>"}</ul></div>
       ${plan.note?`<div class="comparnote">${esc(plan.note)}</div>`:""}
@@ -1005,7 +1049,7 @@ function renderSavedPlans(){
         <label class="savedselect"><input type="checkbox" data-compare-plan="${p.id}" ${selected?"checked":""}> compare</label>
       </div>
       <div class="small" style="margin-top:8px">${summary||"Saved layout"}</div>
-      <div class="savedmeta" style="margin-top:6px">Estimated: ${esc(m.cost)}${m.stackedCount?` · ${m.stackedCount} stacked`:""}</div>
+      <div class="savedmeta" style="margin-top:6px">To buy: ${esc(m.cost)}${m.ownedUsed?` · ${m.ownedUsed} owned used`:""}${m.stackedCount?` · ${m.stackedCount} stacked`:""}</div>
       ${p.note?`<div class="savednote">${esc(p.note)}</div>`:""}
       <div class="savedactions">
         <button class="btn soft" type="button" data-open-plan="${p.id}">Open</button>
@@ -1395,7 +1439,8 @@ function findLayouts(){
   if(rejected.length){
     showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${rejected.map(x=>x.name).join(", ")} cannot fit at all and was excluded.${truncated?" Results are capped.":""}`,"warn");
   }else{
-    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${state.enableStacking?"Stacking rules enabled. ":""}${obstacles.length?`${obstacles.length} blocked zone${obstacles.length===1?"":"s"} avoided. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?"Results are capped to keep the browser responsive.":""}`,"good");
+    const costNote=state.optimizeGoal==="cost"?"Owned quantities reduce purchases; unpriced purchases are treated conservatively. Different currencies are not converted. ":"";
+    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${costNote}Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${state.enableStacking?"Stacking rules enabled. ":""}${obstacles.length?`${obstacles.length} blocked zone${obstacles.length===1?"":"s"} avoided. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?"Results are capped to keep the browser responsive.":""}`,"good");
   }
   selectedLayout=0;selectedGap=-1;currentGaps=[];
   editMode=false;
@@ -1417,6 +1462,10 @@ function proposalTags(layout,W,D,H=currentUsableSize()?.H||1){
   if(layout.length===mostItems) tags.push("Most compartments");
   if(distinctTypes(layout)===minTypes) tags.push("Simplest setup");
   if(maxTypes>1 && distinctTypes(layout)===maxTypes) tags.push("Most mixed");
+  if(state.optimizeGoal==="cost" && layouts.length){
+    const cheapest=layouts.reduce((best,l)=>comparePurchaseCost(l,best,W,D)<0?l:best,layouts[0]);
+    if(comparePurchaseCost(layout,cheapest,W,D)===0)tags.push("Least to buy");
+  }
   if(layoutUsesStacking(layout)) tags.push("Uses stacking");
   return tags.slice(0,3);
 }
@@ -1438,6 +1487,7 @@ function renderGallery(W,D,H,truncated){
     <div class="layoutmeta"><div><strong>Layout ${i+1}</strong>${i===0?`<span class="proposalbadge">${esc(goalLabel())}</span>`:""}${proposalTags(layout,W,D,H).map(t=>`<span class="proposalbadge">${t}</span>`).join(" ")}</div><span>${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)}</span></div>
     ${svgTop(layout,W,D,360,210,false)}
     <div class="legend">${legendHtml(layout)}</div>
+    <div class="savedmeta" style="margin-top:7px">To buy: ${esc(totalsText(layout))}</div>
   </button>`).join("");
   el.querySelectorAll("[data-layout]").forEach(btn=>btn.addEventListener("click",()=>{
     selectedLayout=Number(btn.dataset.layout)||0;
@@ -2037,7 +2087,7 @@ $("smartImportBtn").addEventListener("click",async()=>{
 });
 
 $("addBox").addEventListener("click",()=>{
-  const id=uid("b");state.boxes.push({id,name:"New item",w:30,d:20,h:10,price:0,currency:"MAD",sku:"",url:"",image:"",retailer:"",uprightOnly:true,canBeStacked:false,canSupportStack:false});state.selectedTypes[id]=false;state.itemLimits[id]=null;editingBox=id;save();renderAll();$("boxName").focus();$("boxName").select()
+  const id=uid("b");state.boxes.push({id,name:"New item",w:30,d:20,h:10,price:0,currency:"MAD",ownedQty:0,sku:"",url:"",image:"",retailer:"",uprightOnly:true,canBeStacked:false,canSupportStack:false});state.selectedTypes[id]=false;state.itemLimits[id]=null;editingBox=id;save();renderAll();$("boxName").focus();$("boxName").select()
 });
 $("saveStorage").addEventListener("click",()=>{
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
@@ -2049,9 +2099,9 @@ $("saveStorage").addEventListener("click",()=>{
 $("saveBox").addEventListener("click",()=>{
   const b=state.boxes.find(x=>x.id===editingBox);if(!b)return;
   b.name=$("boxName").value.trim()||"Item";b.w=Math.max(0,Number($("bw").value)||0);b.d=Math.max(0,Number($("bd").value)||0);b.h=Math.max(0,Number($("bh").value)||0);
-  b.price=Math.max(0,Number($("boxPrice").value)||0);b.currency=($("boxCurrency").value.trim().toUpperCase().slice(0,6)||"MAD");b.sku=$("boxSku").value.trim();b.url=$("boxUrl").value.trim();b.image=$("boxImage").value.trim();b.retailer=retailerName(b.url);
+  b.price=Math.max(0,Number($("boxPrice").value)||0);b.currency=($("boxCurrency").value.trim().toUpperCase().slice(0,6)||"MAD");b.ownedQty=Math.max(0,Math.min(999,Math.floor(Number($("boxOwnedQty").value)||0)));b.sku=$("boxSku").value.trim();b.url=$("boxUrl").value.trim();b.image=$("boxImage").value.trim();b.retailer=retailerName(b.url);
   b.uprightOnly=$("boxUprightOnly").checked;b.canBeStacked=$("boxCanBeStacked").checked;b.canSupportStack=$("boxCanSupportStack").checked;
-  syncHierarchyToStorage(s.id);save();renderAll()
+  save();renderAll()
 });
 $("deleteStorage").addEventListener("click",()=>{
   if(!editingStorage)return;
@@ -2082,6 +2132,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     safeUrl,
     validateBackupState,
     ensureHomeHierarchy,
+    purchaseBreakdown,
     overlap3D,
     footprintContains
   };

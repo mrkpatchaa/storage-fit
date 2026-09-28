@@ -55,6 +55,10 @@
       result(api.overlap3D(base,colliding,0)===true,"3D overlap detects vertical penetration");
       result(api.footprintContains(base,touching)===true,"full-footprint support accepted");
       result(api.footprintContains(base,overhang)===false,"overhanging stack rejected");
+      var stock=api.purchaseBreakdown(5,2,30);
+      result(stock.ownedUsed===2&&stock.buyQty===3&&stock.subtotal===90,"owned inventory reduces purchase quantity");
+      var covered=api.purchaseBreakdown(3,5,30);
+      result(covered.ownedUsed===3&&covered.buyQty===0&&covered.subtotal===0,"owned inventory can fully cover a layout");
       var legacy={storages:[{id:"s1",name:"Drawer",w:10,d:10,h:10}],boxes:[{id:"b1",name:"Box",w:5,d:5,h:5}],rooms:[],furniture:[],selectedStorage:"s1"};
       api.ensureHomeHierarchy(legacy);
       result(legacy.rooms.length===1,"legacy data gets a fallback room");
