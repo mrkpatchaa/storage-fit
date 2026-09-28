@@ -457,3 +457,57 @@ Recovery history uses the stable browser key `storage-fit-recovery-v1`, separate
 Recovery history is **not** included in manual backup files. Manual backups remain the portability mechanism for moving to another browser/device, while Recovery is for undoing mistakes on the current browser.
 
 V27 migrates V26 automatically; planner data itself is unchanged.
+
+
+## Manual layout editing 2.0
+
+Top-view editing now supports precise hand-tuning after the optimizer finds a good starting layout.
+
+### Configurable snap + grid
+
+While editing, set a **Snap** step and optionally show a matching visual grid.
+
+Dragging and keyboard movement both use the same snap step. The preference is stored with the planner state.
+
+Snap defaults are unit-aware:
+
+- cm → 0.5 cm
+- mm → 5 mm
+- in → 0.2 in
+
+Changing units converts the current snap distance along with the rest of the project, so the physical editing resolution stays equivalent.
+
+### Keyboard nudging
+
+Select a placement in Top view and use:
+
+- **Arrow keys** — move one snap step;
+- **Shift + Arrow** — move five snap steps.
+
+Every nudge is validated immediately. A move that would cause a collision, leave the usable storage bounds, hit a blocked zone/divider, or break stack support is rejected and reverted.
+
+### Change elevation explicitly
+
+Selected placements now have:
+
+- **Move to floor**
+- **Stack on support**
+
+These actions search for the nearest valid destination while preserving the organizer's orientation and purpose label.
+
+**Stack on support** uses the same real stacking rules as the optimizer:
+
+- global stacking must be enabled;
+- the selected item must be allowed to sit on another item;
+- the support item must allow items above;
+- full-footprint support is required;
+- maximum stack-level rules still apply;
+- moving a support cannot leave dependent items floating.
+
+If no valid destination exists, the existing placement is preserved.
+
+### Consistent editing model
+
+Dragging, keyboard nudging, rotation, duplication, floor moves, and stacking all use the same collision/support validation path. There is no manual-edit loophole around optimizer constraints.
+
+V28 migrates V27 automatically and adds only manual-editor preferences; saved-plan geometry and project data remain compatible.
