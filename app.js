@@ -1856,6 +1856,8 @@ $("restoreFileInput").addEventListener("change",async()=>{
   }
 });
 
+$("itemSearch").addEventListener("input",renderBoxList);
+
 $("smartUrl").addEventListener("keydown",e=>{
   if(e.key==="Enter"){e.preventDefault();$("smartImportBtn").click()}
 });
@@ -1864,38 +1866,25 @@ $("smartImportBtn").addEventListener("click",async()=>{
   if(!url){
     $("smartStatus").className="smartstatus warn";$("smartStatus").textContent="Paste a valid http(s) product URL first.";return;
   }
-  $("smartImportBtn").disabled=true;$("smartImportBtn").textContent="Importing…";
+  pendingImport=null;
+  $("smartImportBtn").disabled=true;$("smartImportBtn").textContent="Reading…";
   $("smartStatus").className="smartstatus";$("smartStatus").textContent="Reading product information…";
   $("smartPreview").className="smartpreview";$("smartPreview").innerHTML="";
   try{
     const {data,source}=await fetchSmartProduct(url);
-    const completeness=productCompleteness(data);
-    const item=applyImportedProduct(data);
-    const found=[];
-    if(item.name&&item.name!=="Imported item")found.push("name");
-    if(item.w&&item.d&&item.h)found.push("dimensions");
-    if(item.price)found.push("price");
-    if(item.sku)found.push("reference");
-    if(item.image)found.push("image");
-    $("smartStatus").className=`smartstatus ${completeness>=4?"good":"warn"}`;
-    $("smartStatus").textContent=found.length
-      ? `Imported via ${source}: ${found.join(", ")}.${item.w&&item.d&&item.h?"":" Dimensions still need to be checked/entered."}`
-      : "The link was saved, but the retailer blocked automatic product data. Fill the missing fields below.";
-    if(ikeaUrlInfo(url).isIkea && item.w&&item.d&&item.h){
-      $("smartStatus").textContent += " IKEA measurements detected.";
-    }
-    $("smartPreview").className="smartpreview show";
-    $("smartPreview").innerHTML=`${safeUrl(item.image)?`<img src="${esc(safeUrl(item.image))}" alt="">`:"<div></div>"}<div><div class="listname">${esc(item.name)}</div><div class="dims">${item.w?`${fmt(item.w)} × ${fmt(item.d)} × ${fmt(item.h)} ${esc(state.unit)}`:"Dimensions missing"}${item.price?` · ${esc(money(item.price,item.currency))}`:""}${item.sku?` · ${esc(item.sku)}`:""}</div></div>`;
-    $("smartUrl").value="";
+    data.retailer=data.retailer||retailerName(url);
+    renderImportPreview(data,source);
   }catch(e){
-    $("smartStatus").className="smartstatus warn";$("smartStatus").textContent="Could not import this product automatically. The page may block external readers.";
+    clearPendingImport();
+    $("smartStatus").className="smartstatus warn";
+    $("smartStatus").textContent="Could not read this product automatically. You can still add it manually below.";
   }finally{
     $("smartImportBtn").disabled=false;$("smartImportBtn").textContent="Import";
   }
 });
 
 $("addBox").addEventListener("click",()=>{
-  const id=uid("b");state.boxes.push({id,name:"New item",w:30,d:20,h:10,price:0,currency:"MAD",sku:"",url:"",image:"",uprightOnly:true,canBeStacked:false,canSupportStack:false});state.selectedTypes[id]=false;state.itemLimits[id]=null;editingBox=id;save();renderAll();$("boxName").focus();$("boxName").select()
+  const id=uid("b");state.boxes.push({id,name:"New item",w:30,d:20,h:10,price:0,currency:"MAD",sku:"",url:"",image:"",retailer:"",uprightOnly:true,canBeStacked:false,canSupportStack:false});state.selectedTypes[id]=false;state.itemLimits[id]=null;editingBox=id;save();renderAll();$("boxName").focus();$("boxName").select()
 });
 $("saveStorage").addEventListener("click",()=>{
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
@@ -1906,7 +1895,7 @@ $("saveStorage").addEventListener("click",()=>{
 $("saveBox").addEventListener("click",()=>{
   const b=state.boxes.find(x=>x.id===editingBox);if(!b)return;
   b.name=$("boxName").value.trim()||"Item";b.w=Math.max(0,Number($("bw").value)||0);b.d=Math.max(0,Number($("bd").value)||0);b.h=Math.max(0,Number($("bh").value)||0);
-  b.price=Math.max(0,Number($("boxPrice").value)||0);b.currency=($("boxCurrency").value.trim().toUpperCase().slice(0,6)||"MAD");b.sku=$("boxSku").value.trim();b.url=$("boxUrl").value.trim();b.image=$("boxImage").value.trim();
+  b.price=Math.max(0,Number($("boxPrice").value)||0);b.currency=($("boxCurrency").value.trim().toUpperCase().slice(0,6)||"MAD");b.sku=$("boxSku").value.trim();b.url=$("boxUrl").value.trim();b.image=$("boxImage").value.trim();b.retailer=retailerName(b.url);
   b.uprightOnly=$("boxUprightOnly").checked;b.canBeStacked=$("boxCanBeStacked").checked;b.canSupportStack=$("boxCanSupportStack").checked;
   save();renderAll()
 });
@@ -1929,6 +1918,9 @@ if(new URLSearchParams(location.search).has("smoke-test")){
   window.StorageFitTest={
     parseDimensionString,
     parseLabeledDimensions,
+    canonicalProductUrl,
+    normalizedSku,
+    retailerName,
     ikeaUrlInfo,
     normalizeProductDimensions,
     safeUrl,
