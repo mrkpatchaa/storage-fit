@@ -1,7 +1,7 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v22";
-const PREV_KEYS = ["storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v23";
+const PREV_KEYS = ["storage-fit-planner-v22","storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -49,12 +49,20 @@ for(const b of state.boxes){
 }
 for(const s of state.storages){
   if(!Array.isArray(s.obstacles)) s.obstacles=[];
+  if(!Array.isArray(s.dividers)) s.dividers=[];
   for(const o of s.obstacles){
     o.id=o.id||uid("o");
     o.name=o.name||"Blocked zone";
     o.x=Math.max(0,Number(o.x)||0);o.y=Math.max(0,Number(o.y)||0);
     o.w=Math.max(0,Number(o.w)||0);o.d=Math.max(0,Number(o.d)||0);
     o.h=Math.max(0,Number(o.h)||s.h||0);
+  }
+  for(const d of s.dividers){
+    d.id=d.id||uid("d");
+    d.orientation=d.orientation==="horizontal"?"horizontal":"vertical";
+    d.position=Math.max(0,Number(d.position)||0);
+    d.thickness=Math.max(0.01,Number(d.thickness)||0.5);
+    d.h=Math.max(0,Number(d.h)||s.h||0);
   }
 }
 
@@ -65,8 +73,8 @@ function defaults(){
     furniture:[{id:"furn1",roomId:"room1",name:"Wardrobe"}],
     selectedRoom:"room1",selectedFurniture:"furn1",
     storages:[
-      {id:"s1",name:"Drawer 67 × 26 × 13",w:67,d:26,h:13,furnitureId:"furn1",obstacles:[]},
-      {id:"s2",name:"Shelf 81 × 40 × 27",w:81,d:40,h:27,furnitureId:"furn1",obstacles:[]}
+      {id:"s1",name:"Drawer 67 × 26 × 13",w:67,d:26,h:13,furnitureId:"furn1",obstacles:[],dividers:[]},
+      {id:"s2",name:"Shelf 81 × 40 × 27",w:81,d:40,h:27,furnitureId:"furn1",obstacles:[],dividers:[]}
     ],
     boxes:[
       {id:"b1",name:"Box 30 × 25 × 12",w:30,d:25,h:12,ownedQty:0,uprightOnly:true,canBeStacked:false,canSupportStack:false},
@@ -301,7 +309,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:22,
+    appVersion:23,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
