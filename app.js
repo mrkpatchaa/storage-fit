@@ -124,6 +124,7 @@ function convertAllUnits(from,to){
       p.storageSnapshot.w=cv(p.storageSnapshot.w);p.storageSnapshot.d=cv(p.storageSnapshot.d);p.storageSnapshot.h=cv(p.storageSnapshot.h);p.storageSnapshot.unit=to;
       for(const o of p.storageSnapshot.obstacles||[]){o.x=cv(o.x);o.y=cv(o.y);o.w=cv(o.w);o.d=cv(o.d);o.h=cv(o.h)}
     }
+    p.signature=planSignature(p.storageId,p.layout||[]);
   }
   state.clearance=cv(state.clearance);
   state.fitTolerance=cv(state.fitTolerance);
@@ -1788,7 +1789,12 @@ $("saveBox").addEventListener("click",()=>{
   save();renderAll()
 });
 $("deleteStorage").addEventListener("click",()=>{
-  if(!editingStorage)return;state.savedPlans=state.savedPlans.filter(p=>p.storageId!==editingStorage);state.storages=state.storages.filter(x=>x.id!==editingStorage);
+  if(!editingStorage)return;
+  const removedPlanIds=new Set(state.savedPlans.filter(p=>p.storageId===editingStorage).map(p=>p.id));
+  state.savedPlans=state.savedPlans.filter(p=>p.storageId!==editingStorage);
+  comparePlanIds=new Set([...comparePlanIds].filter(id=>!removedPlanIds.has(id)));
+  if(removedPlanIds.has(state.chosenPlanId))state.chosenPlanId=null;
+  state.storages=state.storages.filter(x=>x.id!==editingStorage);
   if(state.selectedStorage===editingStorage)state.selectedStorage=state.storages[0]?.id||"";
   editingStorage=state.selectedStorage||state.storages[0]?.id||"";save();renderAll()
 });
