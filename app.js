@@ -1022,6 +1022,58 @@ function compareLayoutsForGoal(a,b,W,D){
 function planSignature(storageId,layout){
   return `${storageId}|${canonicalLayout(layout)}`;
 }
+function storageStructureSignature(s){
+  if(!s)return "";
+  const obstacles=(s.obstacles||[]).map(o=>[
+    round6(Number(o.x)||0),round6(Number(o.y)||0),round6(Number(o.w)||0),round6(Number(o.d)||0),round6(Number(o.h)||0)
+  ]).sort((a,b)=>a.join("|").localeCompare(b.join("|")));
+  return JSON.stringify([round6(Number(s.w)||0),round6(Number(s.d)||0),round6(Number(s.h)||0),obstacles]);
+}
+function matchingSiblingStorages(source,storages=state.storages){
+  if(!source)return [];
+  const signature=storageStructureSignature(source);
+  return (storages||[]).filter(s=>s.id!==source.id&&s.furnitureId===source.furnitureId&&storageStructureSignature(s)===signature);
+}
+function eligiblePropagationTargets(source){
+  return matchingSiblingStorages(source).filter(target=>
+    !state.savedPlans.some(p=>p.storageId===target.id) &&
+    !state.chosenPlanIds?.[target.id] &&
+    !state.installedPlanIds?.[target.id]
+  );
+}
+function createSavedPlanForStorage(target,layout,{name=null,note=""}={}){
+  const signature=planSignature(target.id,layout);
+  const existing=state.savedPlans.find(p=>p.signature===signature);
+  if(existing)return existing;
+  const sameStorage=state.savedPlans.filter(p=>p.storageId===target.id).length+1;
+  const plan={
+    id:uid("plan"),
+    name:name||`${target.name} · Plan ${sameStorage}`,
+    note,
+    storageId:target.id,
+    storageName:target.name,
+    storagePath:storageBreadcrumb(target),
+    storageSnapshot:captureStorageSnapshot(target),
+    settings:capturePlanSettings(),
+    savedAt:new Date().toISOString(),
+    goal:state.optimizeGoal,
+    stacking:state.enableStacking,
+    signature,
+    layout:layout.map(q=>({...q}))
+  };
+  state.savedPlans.push(plan);
+  return plan;
+}
+function updateApplyMatchingButton(){
+  const btn=$("applyMatchingBtn");if(!btn)return;
+  const source=storage(),layout=layouts[selectedLayout];
+  const targets=source&&layout?eligiblePropagationTargets(source):[];
+  btn.disabled=!source||!layout||targets.length===0;
+  btn.textContent=targets.length?`Apply to ${targets.length} matching`:"Apply to matching";
+  btn.title=targets.length
+    ? `Save and choose this layout for ${targets.length} fresh matching compartment${targets.length===1?"":"s" } in the same furniture.`
+    : "No fresh structurally identical sibling compartments are available.";
+}
 function currentPlanSaved(){
   const layout=layouts[selectedLayout],s=storage();
   if(!layout||!s)return false;
@@ -1485,6 +1537,7 @@ function updateSavePlanButton(){
   const saved=currentPlanSaved();
   $("savePlanBtn").textContent=saved?"Saved ✓":"Save plan";
   $("savePlanBtn").classList.toggle("active",saved);
+  updateApplyMatchingButton();
 }
 
 function resetResults(){
@@ -2267,26 +2320,32 @@ $("savePlanBtn").addEventListener("click",()=>{
     comparePlanIds.delete(existing.id);
     if(state.chosenPlanIds?.[existing.storageId]===existing.id)delete state.chosenPlanIds[existing.storageId];
     normalizeInstallState(state);
-  }else{
-    const sameStorage=state.savedPlans.filter(p=>p.storageId===s.id).length+1;
-    state.savedPlans.push({
-      id:uid("plan"),
-      name:`${s.name} · Plan ${sameStorage}`,
-      note:"",
-      storageId:s.id,
-      storageName:s.name,
-      storagePath:storageBreadcrumb(s),
-      storageSnapshot:captureStorageSnapshot(s),
-      settings:capturePlanSettings(),
-      savedAt:new Date().toISOString(),
-      goal:state.optimizeGoal,
-      stacking:state.enableStacking,
-      signature,
-      layout:layout.map(q=>({...q}))
-    });
-  }
+  }else createSavedPlanForStorage(s,layout);
   localStorage.setItem(KEY,JSON.stringify(state));
   renderSavedPlans();updateSavePlanButton();
+});
+$("applyMatchingBtn").addEventListener("click",()=>{
+  const layout=layouts[selectedLayout],source=storage();if(!layout||!source)return;
+  const targets=eligiblePropagationTargets(source);if(!targets.length){updateApplyMatchingButton();return}
+
+  const sourcePlan=createSavedPlanForStorage(source,layout);
+  state.chosenPlanIds=state.chosenPlanIds||{};
+  state.chosenPlanIds[source.id]=sourcePlan.id;
+
+  for(const target of targets){
+    const plan=createSavedPlanForStorage(target,layout,{
+      name:`${target.name} · Matched layout`,
+      note:`Applied from ${storageBreadcrumb(source)}`
+    });
+    state.chosenPlanIds[target.id]=plan.id;
+  }
+
+  normalizeInstallState(state);
+  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
+  renderSavedPlans();renderInstallDashboard();renderHomeProcurement();updateSavePlanButton();
+  const btn=$("applyMatchingBtn"),count=targets.length;
+  btn.textContent=`Applied to ${count} ✓`;
+  setTimeout(updateApplyMatchingButton,1200);
 });
 
 $("receivePurchasesBtn").addEventListener("click",()=>{
@@ -2577,6 +2636,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeInstallState,
     computeInstallAllocation,
     repeatStorageNames,
+    storageStructureSignature,
+    matchingSiblingStorages,
     cloneStorageDefinition,
     cloneFurnitureDefinition,
     nextCopyName,

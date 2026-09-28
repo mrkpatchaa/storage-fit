@@ -226,3 +226,20 @@ Structural clones intentionally start fresh:
 - no installed status is copied.
 
 This makes it fast to model repeated wardrobes, kitchen cabinets, drawer units, or matching bedside furniture without falsely marking the new structure as already planned or installed.
+
+
+## Propagate one layout to matching compartments
+
+Repeated compartments can now share one finished layout.
+
+From any generated layout, **Apply to matching** finds fresh sibling storage spaces in the same furniture that have the exact same structural geometry:
+
+- same width, depth, and height;
+- same blocked-zone geometry;
+- blocked-zone names and internal IDs do not need to match.
+
+The action saves and chooses the current layout for the source storage and every eligible matching sibling in one pass. The copied plans keep the same optimizer settings, stacking mode, and exact placements, while each target gets its own storage snapshot, breadcrumb, plan ID, and signature.
+
+For safety, propagation skips any target that already has saved, chosen, or installed work. Compartments in another piece of furniture are never targeted automatically, even if their dimensions happen to match.
+
+This pairs with **Duplicate** / **Repeat…**: model one drawer, clone the structure, optimize once, then apply the chosen layout to all fresh identical siblings.
