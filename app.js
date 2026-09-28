@@ -1,7 +1,7 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v25";
-const PREV_KEYS = ["storage-fit-planner-v24","storage-fit-planner-v23","storage-fit-planner-v22","storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v26";
+const PREV_KEYS = ["storage-fit-planner-v25","storage-fit-planner-v24","storage-fit-planner-v23","storage-fit-planner-v22","storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -71,6 +71,16 @@ for(const s of state.storages){
     d.thickness=Math.max(0.01,Number(d.thickness)||0.5);
     d.h=Math.max(0.01,Number(d.h)||s.h||0.01);
   }
+}
+for(const p of state.savedPlans){
+  if(!p.storageSnapshot){
+    const live=state.storages.find(s=>s.id===p.storageId);
+    if(live)p.storageSnapshot=captureStorageSnapshot(live);
+  }
+  if(!p.itemSnapshots||typeof p.itemSnapshots!=="object"||Array.isArray(p.itemSnapshots)){
+    p.itemSnapshots=capturePlanItems(p.layout||[]);
+  }
+  p.validatedAt=p.validatedAt||p.savedAt||new Date().toISOString();
 }
 
 function defaults(){
@@ -322,7 +332,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:25,
+    appVersion:26,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
@@ -1186,6 +1196,117 @@ function capturePlanSettings(){
     uprightOnly:state.uprightOnly!==false
   };
 }
+function itemPlanningSnapshot(b){
+  if(!b)return null;
+  return {
+    id:b.id,name:b.name||"Item",
+    w:Number(b.w)||0,d:Number(b.d)||0,h:Number(b.h)||0,
+    uprightOnly:b.uprightOnly!==false,
+    floorRotationLocked:!!b.floorRotationLocked,
+    frontPriority:!!b.frontPriority,
+    canBeStacked:!!b.canBeStacked,
+    canSupportStack:!!b.canSupportStack,
+    maxStackLevel:b.maxStackLevel==null?null:Math.max(1,Math.min(9,Math.floor(Number(b.maxStackLevel)||1)))
+  };
+}
+function itemPlanningSignature(item){
+  const b=itemPlanningSnapshot(item);
+  return b?JSON.stringify([round6(b.w),round6(b.d),round6(b.h),b.uprightOnly,b.floorRotationLocked,b.frontPriority,b.canBeStacked,b.canSupportStack,b.maxStackLevel]):"";
+}
+function capturePlanItems(layout){
+  const out={};
+  for(const id of new Set((layout||[]).map(p=>p.typeId))){
+    const item=boxById(id);if(item)out[id]=itemPlanningSnapshot(item);
+  }
+  return out;
+}
+function snapshotItemLookup(snapshots={}){
+  return id=>snapshots?.[id]||null;
+}
+function supportingBaseForLookup(p,placed,itemLookup){
+  const z=Number(p.z)||0;if(z<=1e-9)return null;
+  return placed.find(base=>{
+    const rule=itemLookup(base.typeId);
+    return !!rule?.canSupportStack && Math.abs((Number(base.z)||0)+base.h-z)<=1e-9 && footprintContains(base,p);
+  })||null;
+}
+function placementStackLevelLookup(p,placed,itemLookup){
+  let current=p,level=1;const seen=new Set();
+  while((Number(current.z)||0)>1e-9){
+    const base=supportingBaseForLookup(current,placed,itemLookup);
+    if(!base||seen.has(base))return Infinity;
+    seen.add(base);level++;current=base;
+  }
+  return level;
+}
+function placementMatchesItem(p,item,forceUpright){
+  if(!item)return false;
+  return orientations(item,forceUpright).some(o=>
+    Math.abs(o[0]-p.w)<=1e-6&&Math.abs(o[1]-p.d)<=1e-6&&Math.abs(o[2]-p.h)<=1e-6
+  );
+}
+function validatePlanLayoutAgainst(plan,liveStorage,itemLookup){
+  if(!liveStorage)return {valid:false,reasons:["Storage space no longer exists."]};
+  const settings=plan.settings||{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true};
+  const c=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
+  const gap=Math.max(0,Number(settings.fitTolerance)||0);
+  const W=(Number(liveStorage.w)||0)-2*c,D=(Number(liveStorage.d)||0)-2*c,H=(Number(liveStorage.h)||0)-2*c;
+  if(W<=0||D<=0||H<=0)return {valid:false,reasons:["Saved clearance no longer leaves usable storage space."]};
+  const obstacles=usableObstaclesFor(liveStorage,c),layout=plan.layout||[],reasons=[];
+  for(let i=0;i<layout.length;i++){
+    const p=layout[i],item=itemLookup(p.typeId),z=Number(p.z)||0;
+    if(!item){reasons.push(`Item ${p.typeId} no longer exists.`);continue}
+    if(!placementMatchesItem(p,item,settings.uprightOnly!==false)){
+      reasons.push(`${item.name||"Item"} dimensions or orientation rules no longer match its saved placement.`);
+    }
+    if(p.x<gap-1e-9||p.y<gap-1e-9||p.x+p.w+gap>W+1e-9||p.y+p.d+gap>D+1e-9||z<0||z+p.h>H+1e-9){
+      reasons.push(`${item.name||"Item"} no longer fits inside the storage bounds.`);
+    }
+    if(obstacles.some(o=>overlap3D(p,o,gap)))reasons.push(`${item.name||"Item"} now collides with a blocked zone or divider.`);
+    for(let j=i+1;j<layout.length;j++)if(overlap3D(p,layout[j],gap))reasons.push("Saved placements now overlap.");
+    if(z>1e-9){
+      const base=supportingBaseForLookup(p,layout.filter((_,j)=>j!==i),itemLookup);
+      if(!plan.stacking||!item.canBeStacked||!base){
+        reasons.push(`${item.name||"Item"} is no longer valid at its stacked position.`);
+      }else{
+        const level=placementStackLevelLookup(p,layout.filter((_,j)=>j!==i),itemLookup);
+        if(item.maxStackLevel&&level>item.maxStackLevel)reasons.push(`${item.name||"Item"} exceeds its current maximum stack level.`);
+      }
+    }
+  }
+  return {valid:reasons.length===0,reasons:[...new Set(reasons)]};
+}
+function planHealthFromData(plan,liveStorage,itemLookup){
+  const changes=[];
+  if(!liveStorage)return {status:"invalid",canRevalidate:false,reasons:["Storage space no longer exists."]};
+  if(!plan.storageSnapshot||storageStructureSignature(plan.storageSnapshot)!==storageStructureSignature(liveStorage)){
+    changes.push("Storage dimensions, blocked zones, or dividers changed.");
+  }
+  const snapshots=plan.itemSnapshots||{};
+  for(const id of new Set((plan.layout||[]).map(p=>p.typeId))){
+    const live=itemLookup(id),snap=snapshots[id];
+    if(!live){changes.push(`Item ${snap?.name||id} no longer exists.`);continue}
+    if(!snap||itemPlanningSignature(snap)!==itemPlanningSignature(live)){
+      changes.push(`${live.name||snap?.name||"Item"} dimensions or handling rules changed.`);
+    }
+  }
+  const validity=validatePlanLayoutAgainst(plan,liveStorage,itemLookup);
+  if(!validity.valid)return {status:"invalid",canRevalidate:false,reasons:[...new Set([...changes,...validity.reasons])]};
+  if(changes.length)return {status:"review",canRevalidate:true,reasons:[...new Set(changes)]};
+  return {status:"current",canRevalidate:false,reasons:[]};
+}
+function planHealth(plan){
+  return planHealthFromData(plan,state.storages.find(s=>s.id===plan.storageId),boxById);
+}
+function revalidatePlan(plan){
+  const health=planHealth(plan);if(!health.canRevalidate)return false;
+  const live=state.storages.find(s=>s.id===plan.storageId);if(!live)return false;
+  plan.storageSnapshot=captureStorageSnapshot(live);
+  plan.itemSnapshots=capturePlanItems(plan.layout||[]);
+  plan.validatedAt=new Date().toISOString();
+  return true;
+}
+
 function captureStorageSnapshot(s){
   return s?JSON.parse(JSON.stringify({
     id:s.id,name:s.name,furnitureId:s.furnitureId,w:s.w,d:s.d,h:s.h,unit:state.unit,obstacles:s.obstacles||[],dividers:s.dividers||[]
