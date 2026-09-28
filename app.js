@@ -399,7 +399,7 @@ function createRecoveryCheckpoint(reason,data=state){
   }
   const entry={
     id:uid("rec"),createdAt:new Date().toISOString(),reason:String(reason||"Recovery checkpoint").slice(0,120),
-    appVersion:27,data:snapshot
+    appVersion:28,data:snapshot
   };
   writeRecoveryJournal([entry,...journal]);renderRecoveryHistory();return entry;
 }
@@ -2628,6 +2628,61 @@ function setEditStatus(msg,bad=false){
   $("editStatus").textContent=msg;
   $("editStatus").style.color=bad?"var(--bad)":"var(--muted)";
 }
+function clampSnappedValue(value,min,max,step=state.editSnapStep){
+  if(max<min)return min;
+  const snapped=snapValue(value,step);
+  return round6(Math.max(min,Math.min(max,snapped)));
+}
+function manualRelocationCandidates(layout,index,target,W,D,H){
+  if(!layout||index<0||index>=layout.length)return [];
+  const p=layout[index],type=boxById(p.typeId),others=layout.filter((_,i)=>i!==index);
+  if(!type)return [];
+  const gap=Math.max(0,state.fitTolerance||0),obstacles=usableObstacles(),all=[];
+  if(target==="floor")all.push({...p,z:0});
+  const generated=candidatePlacementsFor(others,type,[p.w,p.d,p.h],W,D,H,obstacles,gap)
+    .filter(q=>target==="stack"?(q.z||0)>1e-9:(q.z||0)<=1e-9);
+  all.push(...generated);
+  const seen=new Set(),unique=[];
+  for(const q of all){
+    const key=`${round6(q.x)}|${round6(q.y)}|${round6(q.z||0)}`;
+    if(seen.has(key))continue;seen.add(key);unique.push(q);
+  }
+  return unique.sort((a,b)=>{
+    const da=Math.abs(a.x-p.x)+Math.abs(a.y-p.y),db=Math.abs(b.x-p.x)+Math.abs(b.y-p.y);
+    return da-db||Math.abs((a.z||0)-(p.z||0))-Math.abs((b.z||0)-(p.z||0));
+  });
+}
+function relocateSelectedPlacement(target){
+  const layout=selectedManualLayout(),sz=currentUsableSize();
+  if(!editMode||!layout||!sz||selectedEditItem<0){setEditStatus("Select a box first.",true);return false}
+  const p=layout[selectedEditItem],type=boxById(p.typeId);
+  if(target==="stack"&&(!state.enableStacking||!type?.canBeStacked)){
+    setEditStatus("Enable stacking and allow this item to sit on another item first.",true);return false;
+  }
+  const old={x:p.x,y:p.y,z:Number(p.z)||0};
+  for(const q of manualRelocationCandidates(layout,selectedEditItem,target,sz.W,sz.D,sz.H)){
+    p.x=q.x;p.y=q.y;p.z=Number(q.z)||0;
+    if(editItemValid(layout,selectedEditItem,sz.W,sz.D)){
+      selectedGap=-1;updateSavePlanButton();
+      setEditStatus(target==="stack"?`Stacked at level ${placementStackLevel(p,layout.filter((_,i)=>i!==selectedEditItem))}.`:"Moved to floor.");
+      refreshCurrentDetail();return true;
+    }
+  }
+  p.x=old.x;p.y=old.y;p.z=old.z;
+  setEditStatus(target==="stack"?"No valid support is available for this item.":"No valid floor position is available.",true);
+  refreshCurrentDetail();return false;
+}
+function nudgeSelectedPlacement(dx,dy){
+  const layout=selectedManualLayout(),sz=currentUsableSize();
+  if(!editMode||detailView!=="top"||!layout||!sz||selectedEditItem<0)return false;
+  const p=layout[selectedEditItem],old={x:p.x,y:p.y},gap=Math.max(0,state.fitTolerance||0);
+  p.x=clampSnappedValue(p.x+dx,gap,sz.W-p.w-gap);
+  p.y=clampSnappedValue(p.y+dy,gap,sz.D-p.d-gap);
+  if(!editItemValid(layout,selectedEditItem,sz.W,sz.D)){
+    p.x=old.x;p.y=old.y;setEditStatus("Nudge rejected: collision, bounds, or stack support.",true);refreshCurrentDetail();return false;
+  }
+  selectedGap=-1;updateSavePlanButton();setEditStatus(`Moved to ${fmt(p.x)}, ${fmt(p.y)} ${state.unit}.`);refreshCurrentDetail();return true;
+}
 function refreshCurrentDetail(){
   const sz=currentUsableSize();if(sz&&layouts.length)renderDetail(sz.W,sz.D,sz.H);
 }
@@ -2644,7 +2699,7 @@ $("editLayoutBtn").addEventListener("click",()=>{
     editOriginalLayout=selectedManualLayout().map(p=>({...p}));
     selectedEditItem=-1;
     detailView="top";
-    setEditStatus("Click a box, drag it to move, or use the edit buttons. Stacked items keep their current elevation.");
+    setEditStatus("Click a box, drag it, use Arrow keys to nudge, or change its floor/stack level.");
   }
   refreshCurrentDetail();
 });
@@ -2658,6 +2713,25 @@ $("placementLabel").addEventListener("input",()=>{
 });
 $("placementLabel").addEventListener("keydown",e=>{
   if(e.key==="Enter"){e.preventDefault();$("placementLabel").blur()}
+});
+$("editSnapStep").addEventListener("change",()=>{
+  state.editSnapStep=normalizeSnapStep($("editSnapStep").value);
+  localStorage.setItem(KEY,JSON.stringify(state));refreshCurrentDetail();
+});
+$("editShowGrid").addEventListener("change",()=>{
+  state.editShowGrid=$("editShowGrid").checked;
+  localStorage.setItem(KEY,JSON.stringify(state));refreshCurrentDetail();
+});
+$("moveItemFloor").addEventListener("click",()=>relocateSelectedPlacement("floor"));
+$("stackItem").addEventListener("click",()=>relocateSelectedPlacement("stack"));
+
+document.addEventListener("keydown",e=>{
+  if(!editMode||detailView!=="top"||selectedEditItem<0)return;
+  if(e.target?.closest?.("input,textarea,select,button"))return;
+  const dir={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];
+  if(!dir)return;
+  const step=normalizeSnapStep(state.editSnapStep)*(e.shiftKey?5:1);
+  e.preventDefault();nudgeSelectedPlacement(dir[0]*step,dir[1]*step);
 });
 
 $("doneEdit").addEventListener("click",()=>{
@@ -2738,10 +2812,10 @@ $("detailViz").addEventListener("pointermove",e=>{
   const rect=svg.getBoundingClientRect(),g=topGeometry(sz.W,sz.D,760,430);
   const dx=(e.clientX-topDrag.startX)/rect.width*760/g.scale;
   const dy=(e.clientY-topDrag.startY)/rect.height*430/g.scale;
-  const snap=.5;
+  const snap=normalizeSnapStep(state.editSnapStep);
   const gap=Math.max(0,state.fitTolerance||0);
-  p.x=Math.max(gap,Math.min(sz.W-p.w-gap,Math.round((topDrag.origX+dx)/snap)*snap));
-  p.y=Math.max(gap,Math.min(sz.D-p.d-gap,Math.round((topDrag.origY+dy)/snap)*snap));
+  p.x=clampSnappedValue(topDrag.origX+dx,gap,sz.W-p.w-gap,snap);
+  p.y=clampSnappedValue(topDrag.origY+dy,gap,sz.D-p.d-gap,snap);
   setEditStatus(editItemValid(layout,selectedEditItem,sz.W,sz.D)?"Position valid.":"Collision — release to revert.",!editItemValid(layout,selectedEditItem,sz.W,sz.D));
   refreshCurrentDetail();
   e.preventDefault();
