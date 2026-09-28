@@ -307,11 +307,20 @@ function validateBackupState(candidate){
   if(candidate.shoppingBought!=null&&(typeof candidate.shoppingBought!=="object"||Array.isArray(candidate.shoppingBought)))return "Shopping progress is malformed.";
   if(candidate.installedPlanIds!=null&&(typeof candidate.installedPlanIds!=="object"||Array.isArray(candidate.installedPlanIds)))return "Installed plan status is malformed.";
   if(candidate.installOrder!=null&&!Array.isArray(candidate.installOrder))return "Install order is malformed.";
+  if(Array.isArray(candidate.installOrder)){
+    if(candidate.installOrder.some(id=>typeof id!=="string"))return "Install order contains an invalid storage ID.";
+    if(new Set(candidate.installOrder).size!==candidate.installOrder.length)return "Install order contains duplicates.";
+  }
   if(candidate.rooms!=null&&!Array.isArray(candidate.rooms))return "Rooms are malformed.";
   if(candidate.furniture!=null&&!Array.isArray(candidate.furniture))return "Furniture is malformed.";
   if(candidate.chosenPlanIds&&Array.isArray(candidate.savedPlans)){
     for(const [storageId,planId] of Object.entries(candidate.chosenPlanIds)){
       if(!candidate.savedPlans.some(p=>p?.id===planId&&p?.storageId===storageId))return "A chosen plan selection is invalid.";
+    }
+    if(candidate.installedPlanIds){
+      for(const [storageId,planId] of Object.entries(candidate.installedPlanIds)){
+        if(candidate.chosenPlanIds[storageId]!==planId)return "An installed plan no longer matches the chosen plan for its storage.";
+      }
     }
   }
   if(Array.isArray(candidate.rooms)&&Array.isArray(candidate.furniture)){
@@ -1271,10 +1280,10 @@ function receiveMarkedPurchases(){
   return received;
 }
 function homeShoppingExportPayload(){
-  const summary=projectProcurement();
+  const summary=projectProcurement(),install=currentInstallAllocation();
   return {
     format:"storage-fit-home-shopping",
-    version:2,
+    version:3,
     exportedAt:new Date().toISOString(),
     unit:state.unit,
     chosenPlans:summary.plans.map(p=>({id:p.id,name:p.name,storageId:p.storageId,storagePath:planMetrics(p).storagePath})),
@@ -1286,6 +1295,10 @@ function homeShoppingExportPayload(){
     purchasedUnits:summary.boughtUnits,
     remainingUnits:summary.remainingUnits,
     ownedUsed:summary.ownedUsed,
+    installQueue:install.entries.map((e,index)=>({
+      order:index+1,storageId:e.storageId,planId:e.plan.id,storagePath:planMetrics(e.plan).storagePath,status:e.status,
+      missing:e.missing.map(x=>({itemId:x.id,name:boxById(x.id)?.name||"Item",qty:x.qty}))
+    })),
     items:summary.rows.map(r=>({...r,url:safeUrl(r.url)}))
   };
 }
@@ -1364,7 +1377,7 @@ function renderSavedPlans(){
   const sec=$("savedPlansSection"),el=$("savedPlans");
   comparePlanIds=new Set([...comparePlanIds].filter(id=>state.savedPlans.some(p=>p.id===id)));
   if(!state.savedPlans.length){
-    sec.style.display="none";el.innerHTML="";state.chosenPlanIds={};comparePlanIds.clear();updateCompareButton();renderHomeProcurement();return;
+    sec.style.display="none";el.innerHTML="";state.chosenPlanIds={};state.installedPlanIds={};state.installOrder=[];comparePlanIds.clear();updateCompareButton();renderInstallDashboard();renderHomeProcurement();return;
   }
   sec.style.display="block";
   $("savedPlansCount").textContent=`${state.savedPlans.length} saved`;
@@ -1422,9 +1435,10 @@ function renderSavedPlans(){
     state.savedPlans=state.savedPlans.filter(p=>p.id!==id);
     comparePlanIds.delete(id);
     if(deleted&&state.chosenPlanIds?.[deleted.storageId]===id)delete state.chosenPlanIds[deleted.storageId];
-    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();renderHomeProcurement();updateSavePlanButton();
+    normalizeInstallState(state);
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();renderInstallDashboard();renderHomeProcurement();updateSavePlanButton();
   }));
-  updateCompareButton();renderHomeProcurement();
+  updateCompareButton();renderInstallDashboard();renderHomeProcurement();
 }
 function updateSavePlanButton(){
   const saved=currentPlanSaved();
@@ -2211,6 +2225,7 @@ $("savePlanBtn").addEventListener("click",()=>{
     state.savedPlans=state.savedPlans.filter(p=>p.id!==existing.id);
     comparePlanIds.delete(existing.id);
     if(state.chosenPlanIds?.[existing.storageId]===existing.id)delete state.chosenPlanIds[existing.storageId];
+    normalizeInstallState(state);
   }else{
     const sameStorage=state.savedPlans.filter(p=>p.storageId===s.id).length+1;
     state.savedPlans.push({
@@ -2456,6 +2471,8 @@ $("deleteStorage").addEventListener("click",()=>{
   state.savedPlans=state.savedPlans.filter(p=>p.storageId!==editingStorage);
   comparePlanIds=new Set([...comparePlanIds].filter(id=>!removedPlanIds.has(id)));
   if(state.chosenPlanIds?.[editingStorage])delete state.chosenPlanIds[editingStorage];
+  if(state.installedPlanIds?.[editingStorage])delete state.installedPlanIds[editingStorage];
+  state.installOrder=(state.installOrder||[]).filter(id=>id!==editingStorage);
   state.storages=state.storages.filter(x=>x.id!==editingStorage);
   if(state.selectedStorage===editingStorage)state.selectedStorage=state.storages[0]?.id||"";
   editingStorage=state.selectedStorage||state.storages[0]?.id||"";
