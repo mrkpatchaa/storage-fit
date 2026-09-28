@@ -930,7 +930,7 @@ function renderCompareModal(){
     const chosen=state.chosenPlanId===plan.id;
     return `<article class="comparecard ${chosen?"chosen":""}">
       <div class="comparetitle">${esc(plan.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}</div>
-      <div class="comparestorage">${esc(m.storage?.name||plan.storageName||"Storage")} · ${esc(goalLabel(plan.goal))}</div>
+      <div class="comparestorage">${esc(m.storage?storageBreadcrumb(m.storage):(plan.storagePath||plan.storageName||"Storage"))} · ${esc(goalLabel(plan.goal))}</div>
       <div class="comparestats">
         <div class="comparestat"><div class="k">Utilization</div><div class="v">${m.utilizationPct.toFixed(1)}%</div><div class="small">${esc(m.utilizationKind)}</div></div>
         <div class="comparestat"><div class="k">Items</div><div class="v">${m.itemCount}</div><div class="small">${m.distinctTypes} type${m.distinctTypes===1?"":"s"}</div></div>
@@ -988,7 +988,7 @@ function renderSavedPlans(){
       <div class="savedhead">
         <div>
           <div class="savedname">${esc(p.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}</div>
-          <div class="savedmeta">${esc(m.storage?.name||p.storageName||"Storage")} · ${m.itemCount} item${m.itemCount===1?"":"s"} · ${m.utilizationPct.toFixed(1)}% ${esc(m.utilizationKind)}</div>
+          <div class="savedmeta">${esc(m.storage?storageBreadcrumb(m.storage):(p.storagePath||p.storageName||"Storage"))} · ${m.itemCount} item${m.itemCount===1?"":"s"} · ${m.utilizationPct.toFixed(1)}% ${esc(m.utilizationKind)}</div>
           <span class="goallabel">${esc(goalLabel(p.goal))}</span>
         </div>
         <label class="savedselect"><input type="checkbox" data-compare-plan="${p.id}" ${selected?"checked":""}> compare</label>
@@ -1825,6 +1825,7 @@ $("savePlanBtn").addEventListener("click",()=>{
       note:"",
       storageId:s.id,
       storageName:s.name,
+      storagePath:storageBreadcrumb(s),
       storageSnapshot:captureStorageSnapshot(s),
       settings:capturePlanSettings(),
       savedAt:new Date().toISOString(),
@@ -1871,8 +1872,61 @@ document.querySelectorAll(".tab").forEach(btn=>btn.addEventListener("click",()=>
   const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0;renderDetail(S.w-2*c,S.d-2*c,S.h-2*c);
 }));
 
+$("roomSelect").addEventListener("change",()=>{
+  state.selectedRoom=$("roomSelect").value;
+  const firstFurniture=state.furniture.find(f=>f.roomId===state.selectedRoom);
+  state.selectedFurniture=firstFurniture?.id||"";
+  const firstStorage=state.storages.find(s=>s.furnitureId===state.selectedFurniture);
+  if(firstStorage){state.selectedStorage=firstStorage.id;editingStorage=firstStorage.id}
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
+});
+$("furnitureSelect").addEventListener("change",()=>{
+  state.selectedFurniture=$("furnitureSelect").value;
+  const f=furnitureById(state.selectedFurniture);if(f)state.selectedRoom=f.roomId;
+  const firstStorage=state.storages.find(s=>s.furnitureId===state.selectedFurniture);
+  if(firstStorage){state.selectedStorage=firstStorage.id;editingStorage=firstStorage.id}
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();renderStorageSelect();loadStorageEditor();renderObstacleEditor();resetResults();
+});
+$("addRoom").addEventListener("click",()=>{
+  const name=prompt("Room name","New room");if(name===null)return;
+  const id=uid("room");state.rooms.push({id,name:name.trim()||"New room"});
+  state.selectedRoom=id;state.selectedFurniture="";
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();resetResults();
+});
+$("renameRoom").addEventListener("click",()=>{
+  const room=roomById(state.selectedRoom);if(!room)return;
+  const name=prompt("Room name",room.name);if(name===null)return;
+  room.name=name.trim()||room.name;localStorage.setItem(KEY,JSON.stringify(state));renderAll();
+});
+$("deleteRoom").addEventListener("click",()=>{
+  const room=roomById(state.selectedRoom);if(!room||state.rooms.length<=1)return;
+  if(state.furniture.some(f=>f.roomId===room.id)){alert("Move or delete the furniture in this room first.");return}
+  state.rooms=state.rooms.filter(r=>r.id!==room.id);
+  state.selectedRoom=state.rooms[0]?.id||"";state.selectedFurniture=state.furniture.find(f=>f.roomId===state.selectedRoom)?.id||"";
+  localStorage.setItem(KEY,JSON.stringify(state));renderAll();
+});
+$("addFurniture").addEventListener("click",()=>{
+  const room=roomById(state.selectedRoom);if(!room){alert("Add a room first.");return}
+  const name=prompt("Furniture name","New furniture");if(name===null)return;
+  const id=uid("furn");state.furniture.push({id,roomId:room.id,name:name.trim()||"New furniture"});
+  state.selectedFurniture=id;localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();resetResults();
+});
+$("renameFurniture").addEventListener("click",()=>{
+  const furniture=furnitureById(state.selectedFurniture);if(!furniture)return;
+  const name=prompt("Furniture name",furniture.name);if(name===null)return;
+  furniture.name=name.trim()||furniture.name;localStorage.setItem(KEY,JSON.stringify(state));renderAll();
+});
+$("deleteFurniture").addEventListener("click",()=>{
+  const furniture=furnitureById(state.selectedFurniture);if(!furniture)return;
+  if(state.storages.some(s=>s.furnitureId===furniture.id)){alert("Move or delete the storage spaces in this furniture first.");return}
+  state.furniture=state.furniture.filter(f=>f.id!==furniture.id);
+  const next=state.furniture.find(f=>f.roomId===state.selectedRoom)||state.furniture[0]||null;
+  state.selectedFurniture=next?.id||"";if(next)state.selectedRoom=next.roomId;
+  localStorage.setItem(KEY,JSON.stringify(state));renderAll();
+});
+
 $("generateBtn").addEventListener("click",findLayouts);
-$("storageSelect").addEventListener("change",()=>{state.selectedStorage=$("storageSelect").value;editingStorage=state.selectedStorage;save();renderStorageList();loadStorageEditor();renderObstacleEditor();resetResults()});
+$("storageSelect").addEventListener("change",()=>{state.selectedStorage=$("storageSelect").value;editingStorage=state.selectedStorage;syncHierarchyToStorage(state.selectedStorage);save();renderHierarchy();renderStorageList();loadStorageEditor();renderObstacleEditor();resetResults()});
 $("optimizeGoal").addEventListener("change",()=>{
   state.optimizeGoal=$("optimizeGoal").value;save();
   const sz=currentUsableSize();
@@ -1897,8 +1951,9 @@ $("clearance").addEventListener("change",()=>{state.clearance=Math.max(0,Number(
 $("fitTolerance").addEventListener("change",()=>{state.fitTolerance=Math.max(0,Number($("fitTolerance").value)||0);save();resetResults()});
 
 $("addStorage").addEventListener("click",()=>{
-  const id=uid("s");state.storages.push({id,name:"New storage",w:60,d:40,h:20,obstacles:[]});editingStorage=id;
-  if(!state.selectedStorage)state.selectedStorage=id;save();renderAll();$("storageName").focus();$("storageName").select()
+  if(!state.selectedFurniture){alert("Add or select a piece of furniture first.");return}
+  const id=uid("s");state.storages.push({id,name:"New storage",w:60,d:40,h:20,furnitureId:state.selectedFurniture,obstacles:[]});
+  editingStorage=id;state.selectedStorage=id;save();renderAll();$("storageName").focus();$("storageName").select()
 });
 $("addObstacle").addEventListener("click",()=>{
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
@@ -1975,6 +2030,7 @@ $("addBox").addEventListener("click",()=>{
 $("saveStorage").addEventListener("click",()=>{
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
   s.name=$("storageName").value.trim()||"Storage";s.w=Math.max(0,Number($("sw").value)||0);s.d=Math.max(0,Number($("sd").value)||0);s.h=Math.max(0,Number($("sh").value)||0);
+  s.furnitureId=$("storageFurniture").value||s.furnitureId||state.selectedFurniture;
   s.obstacles=s.obstacles||[];for(const o of s.obstacles){o.x=Math.min(o.x,s.w);o.y=Math.min(o.y,s.d);o.w=Math.min(o.w,Math.max(0,s.w-o.x));o.d=Math.min(o.d,Math.max(0,s.d-o.y));o.h=Math.min(o.h,s.h)}
   save();renderAll()
 });
@@ -1983,7 +2039,7 @@ $("saveBox").addEventListener("click",()=>{
   b.name=$("boxName").value.trim()||"Item";b.w=Math.max(0,Number($("bw").value)||0);b.d=Math.max(0,Number($("bd").value)||0);b.h=Math.max(0,Number($("bh").value)||0);
   b.price=Math.max(0,Number($("boxPrice").value)||0);b.currency=($("boxCurrency").value.trim().toUpperCase().slice(0,6)||"MAD");b.sku=$("boxSku").value.trim();b.url=$("boxUrl").value.trim();b.image=$("boxImage").value.trim();b.retailer=retailerName(b.url);
   b.uprightOnly=$("boxUprightOnly").checked;b.canBeStacked=$("boxCanBeStacked").checked;b.canSupportStack=$("boxCanSupportStack").checked;
-  save();renderAll()
+  syncHierarchyToStorage(s.id);save();renderAll()
 });
 $("deleteStorage").addEventListener("click",()=>{
   if(!editingStorage)return;
@@ -1993,7 +2049,9 @@ $("deleteStorage").addEventListener("click",()=>{
   if(removedPlanIds.has(state.chosenPlanId))state.chosenPlanId=null;
   state.storages=state.storages.filter(x=>x.id!==editingStorage);
   if(state.selectedStorage===editingStorage)state.selectedStorage=state.storages[0]?.id||"";
-  editingStorage=state.selectedStorage||state.storages[0]?.id||"";save();renderAll()
+  editingStorage=state.selectedStorage||state.storages[0]?.id||"";
+  if(state.selectedStorage)syncHierarchyToStorage(state.selectedStorage);
+  save();renderAll()
 });
 $("deleteBox").addEventListener("click",()=>{
   if(!editingBox)return;state.boxes=state.boxes.filter(x=>x.id!==editingBox);delete state.selectedTypes[editingBox];delete state.itemLimits[editingBox];
