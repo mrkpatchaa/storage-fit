@@ -2387,6 +2387,10 @@ function topGeometry(W,D,width,height){
 }
 function svgTop(layout,W,D,width,height,labels=true,editable=false,selected=-1,highlightGap=null){
   const g=topGeometry(W,D,width,height),bad=editable?invalidEditIndices(layout,W,D):new Set(),obstacles=usableObstacles();
+  const gridStep=normalizeSnapStep(state.editSnapStep),gridPx=gridStep*g.scale;
+  const grid=editable&&state.editShowGrid&&gridPx>=2
+    ? `<defs><pattern id="edit-grid" x="${g.ox}" y="${g.oy}" width="${gridPx}" height="${gridPx}" patternUnits="userSpaceOnUse"><path d="M ${gridPx} 0 L 0 0 0 ${gridPx}" fill="none" stroke="#88929a" stroke-opacity=".18" stroke-width="1"/></pattern></defs><rect x="${g.ox}" y="${g.oy}" width="${W*g.scale}" height="${D*g.scale}" fill="url(#edit-grid)" pointer-events="none"/>`
+    : "";
   const obstacleRects=obstacles.map(o=>{
     const divider=o.kind==="divider",color=divider?"#416b8e":"#b23c3c",textColor=divider?"#31536f":"#8b2e2e";
     if(divider)return `<g>
@@ -2410,7 +2414,7 @@ function svgTop(layout,W,D,width,height,labels=true,editable=false,selected=-1,h
     </g>`;
   }).join("");
   const gapMark=highlightGap?`<rect x="${g.ox+highlightGap.x*g.scale}" y="${g.oy+highlightGap.y*g.scale}" width="${highlightGap.w*g.scale}" height="${highlightGap.d*g.scale}" fill="#166c45" fill-opacity=".08" stroke="#166c45" stroke-width="3" stroke-dasharray="8 5"/><text x="${g.ox+(highlightGap.x+highlightGap.w/2)*g.scale}" y="${g.oy+(highlightGap.y+highlightGap.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="800" fill="#166c45">${fmt(highlightGap.w)} × ${fmt(highlightGap.d)} ${esc(state.unit)}</text>`:"";
-  return `<svg class="preview" viewBox="0 0 ${width} ${height}" role="img" aria-label="Top view"><rect x="${g.ox}" y="${g.oy}" width="${W*g.scale}" height="${D*g.scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${obstacleRects}${gapMark}${rects}</svg>`;
+  return `<svg class="preview" viewBox="0 0 ${width} ${height}" role="img" aria-label="Top view"><rect x="${g.ox}" y="${g.oy}" width="${W*g.scale}" height="${D*g.scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${grid}${obstacleRects}${gapMark}${rects}</svg>`;
 }
 function shortName(s){return s.length>12?s.slice(0,10)+"…":s}
 function placementLabel(p){return String(p?.label||"").trim().slice(0,60)}
@@ -2510,6 +2514,12 @@ function renderDetail(W,D,H){
   labelInput.disabled=!editMode||!selectedPlacement;
   labelInput.value=selectedPlacement?placementLabel(selectedPlacement):"";
   labelInput.placeholder=selectedPlacement?"e.g. Socks":"Select a box, e.g. Socks";
+  $("editSnapStep").value=fmt(normalizeSnapStep(state.editSnapStep));
+  $("editSnapUnit").textContent=state.unit;
+  $("editShowGrid").checked=state.editShowGrid!==false;
+  const selectedType=selectedPlacement?boxById(selectedPlacement.typeId):null;
+  $("moveItemFloor").disabled=!editMode||!selectedPlacement||(Number(selectedPlacement.z)||0)<=1e-9;
+  $("stackItem").disabled=!editMode||!selectedPlacement||!state.enableStacking||!selectedType?.canBeStacked;
   $("detailViz").classList.toggle("is-3d",detailView==="iso"&&!editMode);
   let svg="";
   if(detailView==="front")svg=svgFront(layout,W,H);
@@ -2593,6 +2603,14 @@ function currentUsableSize(){
   return {W:S.w-2*c,D:S.d-2*c,H:S.h-2*c};
 }
 function selectedManualLayout(){return layouts[selectedLayout]}
+function normalizeSnapStep(value){
+  const n=Number(value);
+  return Math.max(0.01,Math.min(10000,Number.isFinite(n)&&n>0?n:0.5));
+}
+function snapValue(value,step=state.editSnapStep){
+  const s=normalizeSnapStep(step);
+  return round6(Math.round((Number(value)||0)/s)*s);
+}
 function editItemValid(layout,index,W,D){
   if(index<0||index>=layout.length)return false;
   const p=layout[index],gap=Math.max(0,state.fitTolerance||0),obstacles=usableObstacles(),H=currentUsableSize()?.H||Infinity;
