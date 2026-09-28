@@ -108,7 +108,7 @@
             <button class="btn soft" id="restoreAllBtn" type="button">Restore backup</button>
             <input id="restoreFileInput" type="file" accept=".json,application/json" hidden>
           </div>
-          <div class="datastatus" id="backupStatus">Backup includes rooms, furniture, storage spaces, blocked zones, items, owned inventory, product metadata, settings, quantity limits, saved plans, and chosen project plans.</div>
+          <div class="datastatus" id="backupStatus">Backup includes rooms, furniture, storage spaces, blocked zones, items, owned inventory, shopping progress, product metadata, settings, quantity limits, saved plans, and chosen project plans.</div>
         </div>
       </section>
     </aside>
@@ -181,11 +181,13 @@
           <div><h2>Home shopping list</h2><div class="small">Aggregates the chosen plan for each storage space and applies owned inventory once across the whole project.</div></div>
           <div class="savedtoolbar">
             <span class="small" id="homeChosenCount"></span>
+            <button class="btn soft" id="receivePurchasesBtn" type="button" disabled>Receive purchases</button>
             <button class="btn soft" id="exportHomeShoppingBtn" type="button">Export shopping JSON</button>
           </div>
         </div>
         <div class="projectsummary" id="homeProcurementSummary"></div>
         <div class="projectplans" id="homeChosenPlans"></div>
+        <div class="small projecthint">Mark items as bought while they are on order or waiting for pickup. Receive them only when they are physically in your inventory.</div>
         <div class="homeshop" id="homeProcurementList"></div>
       </section>
 

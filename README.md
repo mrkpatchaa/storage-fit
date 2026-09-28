@@ -156,3 +156,25 @@ The project workspace shows:
 - product links only where more units are needed.
 
 The project list can be exported as `storage-fit-home-shopping.json`. Existing V19 single-choice data migrates automatically into the matching storage's chosen-plan slot in V20.
+
+## Project execution
+
+The home shopping list now has an execution state between “need to buy” and “owned”:
+
+- **Need** is the quantity required after applying existing owned inventory.
+- **Purchased** tracks units already ordered or paid for but not yet received.
+- **Left** is what still needs to be purchased.
+- **Receive purchases** moves all currently marked purchased units into the item's owned inventory in one action.
+
+This distinction prevents in-transit items from being counted as physically available too early. Purchase progress persists across reloads and backups.
+
+Project status moves through:
+
+1. items still need to be purchased;
+2. all required purchases are marked bought;
+3. purchases are received into inventory;
+4. the chosen project reports **Ready to install**.
+
+Deleting an item that is still referenced by a saved plan is blocked to avoid silently breaking saved layouts.
+
+V21 migrates V20 automatically and preserves existing chosen plans and owned inventory.

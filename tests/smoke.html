@@ -59,6 +59,9 @@
       result(stock.ownedUsed===2&&stock.buyQty===3&&stock.subtotal===90,"owned inventory reduces purchase quantity");
       var covered=api.purchaseBreakdown(3,5,30);
       result(covered.ownedUsed===3&&covered.buyQty===0&&covered.subtotal===0,"owned inventory can fully cover a layout");
+      var shoppingState={shoppingBought:{b1:3.9,b2:-2,b3:"4"}};
+      api.normalizeShoppingBought(shoppingState);
+      result(shoppingState.shoppingBought.b1===3&&shoppingState.shoppingBought.b3===4&&!shoppingState.shoppingBought.b2,"shopping progress normalizes to non-negative whole quantities");
       var projectCounts=api.aggregateRequiredCounts([
         {layout:[{typeId:"b1"},{typeId:"b1"},{typeId:"b2"}]},
         {layout:[{typeId:"b1"},{typeId:"b2"},{typeId:"b2"}]}

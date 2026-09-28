@@ -1,7 +1,7 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v20";
-const PREV_KEYS = ["storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v21";
+const PREV_KEYS = ["storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -31,6 +31,7 @@ state.enableStacking = !!state.enableStacking;
 state.optimizeGoal = ["fill","compartments","simple","balanced","cost"].includes(state.optimizeGoal)?state.optimizeGoal:"fill";
 state.savedPlans = Array.isArray(state.savedPlans)?state.savedPlans:[];
 normalizeChosenPlanSelections(state);
+normalizeShoppingBought(state);
 for(const p of state.savedPlans){p.note=String(p.note||"");p.settings=p.settings||null;}
 for(const b of state.boxes){
   if(!(b.id in state.itemLimits)) state.itemLimits[b.id] = null;
@@ -58,7 +59,7 @@ for(const s of state.storages){
 
 function defaults(){
   return {
-    unit:"cm",clearance:0.5,fitTolerance:0,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanIds:{},
+    unit:"cm",clearance:0.5,fitTolerance:0,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanIds:{},shoppingBought:{},
     rooms:[{id:"room1",name:"Bedroom"}],
     furniture:[{id:"furn1",roomId:"room1",name:"Wardrobe"}],
     selectedRoom:"room1",selectedFurniture:"furn1",
@@ -86,7 +87,7 @@ function loadState(){
           selectedTypes[b.id]=Boolean(old.selectedTypes?.[b.id] || (old.selections?.[b.id]||0)>0 || b.id===old.selectedBox);
         }
         return {
-          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanIds:old.chosenPlanIds&&typeof old.chosenPlanIds==="object"?old.chosenPlanIds:{},chosenPlanId:old.chosenPlanId||null,
+          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanIds:old.chosenPlanIds&&typeof old.chosenPlanIds==="object"?old.chosenPlanIds:{},chosenPlanId:old.chosenPlanId||null,shoppingBought:old.shoppingBought&&typeof old.shoppingBought==="object"?old.shoppingBought:{},
           clearanceEnabled:!!old.clearanceEnabled,rooms:Array.isArray(old.rooms)?old.rooms:[],furniture:Array.isArray(old.furniture)?old.furniture:[],
           selectedRoom:old.selectedRoom||"",selectedFurniture:old.selectedFurniture||"",
           storages:old.storages,boxes:old.boxes,
@@ -97,6 +98,14 @@ function loadState(){
     }
   }catch(e){}
   return defaults();
+}
+function normalizeShoppingBought(target){
+  target.shoppingBought=target.shoppingBought&&typeof target.shoppingBought==="object"&&!Array.isArray(target.shoppingBought)?target.shoppingBought:{};
+  for(const [id,value] of Object.entries(target.shoppingBought)){
+    const qty=Math.max(0,Math.min(9999,Math.floor(Number(value)||0)));
+    if(qty>0)target.shoppingBought[id]=qty;else delete target.shoppingBought[id];
+  }
+  return target.shoppingBought;
 }
 function normalizeChosenPlanSelections(target){
   target.savedPlans=Array.isArray(target.savedPlans)?target.savedPlans:[];
@@ -228,7 +237,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:20,
+    appVersion:21,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
@@ -270,6 +279,7 @@ function validateBackupState(candidate){
   if(!Array.isArray(candidate.boxes))return "Backup has no item list.";
   if(candidate.savedPlans!=null&&!Array.isArray(candidate.savedPlans))return "Saved plans are malformed.";
   if(candidate.chosenPlanIds!=null&&(typeof candidate.chosenPlanIds!=="object"||Array.isArray(candidate.chosenPlanIds)))return "Chosen plan selections are malformed.";
+  if(candidate.shoppingBought!=null&&(typeof candidate.shoppingBought!=="object"||Array.isArray(candidate.shoppingBought)))return "Shopping progress is malformed.";
   if(candidate.rooms!=null&&!Array.isArray(candidate.rooms))return "Rooms are malformed.";
   if(candidate.furniture!=null&&!Array.isArray(candidate.furniture))return "Furniture is malformed.";
   if(candidate.chosenPlanIds&&Array.isArray(candidate.savedPlans)){
@@ -1003,6 +1013,7 @@ function aggregateRequiredCounts(plans){
   }
   return counts;
 }
+
 function projectProcurement(plans=chosenPlans()){
   const counts=aggregateRequiredCounts(plans),storageUse={};
   for(const plan of plans){
@@ -1015,69 +1026,135 @@ function projectProcurement(plans=chosenPlans()){
   const rows=Object.entries(counts).map(([id,qty])=>{
     const b=boxById(id),price=Math.max(0,Number(b?.price)||0),currency=(b?.currency||"MAD").toUpperCase();
     const stock=purchaseBreakdown(qty,b?.ownedQty,price);
+    const boughtQty=Math.min(stock.buyQty,Math.max(0,Math.floor(Number(state.shoppingBought?.[id])||0)));
+    const remainingQty=Math.max(0,stock.buyQty-boughtQty);
     return {
       id,name:b?.name||"Deleted item",sku:b?.sku||"",url:safeUrl(b?.url),
       qty:stock.used,ownedQty:stock.owned,ownedUsed:stock.ownedUsed,buyQty:stock.buyQty,
-      price,currency,subtotal:stock.subtotal,storageCount:storageUse[id]?.size||0
+      boughtQty,remainingQty,
+      price,currency,subtotal:stock.subtotal,remainingSubtotal:price*remainingQty,
+      storageCount:storageUse[id]?.size||0
     };
   }).sort((a,b)=>a.name.localeCompare(b.name));
-  const totals={};let missing=0,purchaseUnits=0,ownedUsed=0,totalRequired=0;
+
+  const totals={},remainingTotals={};
+  let missing=0,remainingMissing=0,purchaseUnits=0,boughtUnits=0,remainingUnits=0,ownedUsed=0,totalRequired=0;
   for(const r of rows){
-    totalRequired+=r.qty;purchaseUnits+=r.buyQty;ownedUsed+=r.ownedUsed;
-    if(r.buyQty<=0)continue;
-    if(r.price>0)totals[r.currency]=(totals[r.currency]||0)+r.subtotal;
-    else missing+=r.buyQty;
+    totalRequired+=r.qty;purchaseUnits+=r.buyQty;boughtUnits+=r.boughtQty;remainingUnits+=r.remainingQty;ownedUsed+=r.ownedUsed;
+    if(r.buyQty>0){
+      if(r.price>0)totals[r.currency]=(totals[r.currency]||0)+r.subtotal;
+      else missing+=r.buyQty;
+    }
+    if(r.remainingQty>0){
+      if(r.price>0)remainingTotals[r.currency]=(remainingTotals[r.currency]||0)+r.remainingSubtotal;
+      else remainingMissing+=r.remainingQty;
+    }
   }
-  return {plans,rows,totals,missing,purchaseUnits,ownedUsed,totalRequired};
+  return {plans,rows,totals,remainingTotals,missing,remainingMissing,purchaseUnits,boughtUnits,remainingUnits,ownedUsed,totalRequired};
+}
+function moneyTotalsText(totals,missing,emptyText="Nothing to buy"){
+  const parts=Object.entries(totals||{}).map(([c,v])=>money(v,c));
+  if(!parts.length)return missing?`${missing} unpriced`:emptyText;
+  return parts.join(" + ")+(missing?` · ${missing} unpriced`:"");
 }
 function projectTotalsText(summary){
-  if(summary.purchaseUnits===0)return "Nothing to buy";
-  const parts=Object.entries(summary.totals).map(([c,v])=>money(v,c));
-  if(!parts.length)return summary.missing?`${summary.missing} unpriced to buy`:"Nothing to buy";
-  return parts.join(" + ")+(summary.missing?` · ${summary.missing} unpriced`:"");
+  return summary.purchaseUnits===0?"Nothing to buy":moneyTotalsText(summary.totals,summary.missing);
+}
+function projectRemainingText(summary){
+  if(summary.purchaseUnits===0)return "Ready to install";
+  if(summary.remainingUnits===0)return "All purchased";
+  return moneyTotalsText(summary.remainingTotals,summary.remainingMissing);
+}
+function setShoppingBought(itemId,value){
+  state.shoppingBought=state.shoppingBought||{};
+  const summary=projectProcurement(),row=summary.rows.find(r=>r.id===itemId);
+  const max=row?.buyQty||0,qty=Math.max(0,Math.min(max,Math.floor(Number(value)||0)));
+  if(qty>0)state.shoppingBought[itemId]=qty;else delete state.shoppingBought[itemId];
+  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderHomeProcurement();
 }
 function renderHomeProcurement(){
   const sec=$("homeProcurementSection");if(!sec)return;
   const summary=projectProcurement();
   if(!summary.plans.length){
-    sec.style.display="none";$("homeProcurementList").innerHTML="";return;
+    sec.style.display="none";$("homeProcurementList").innerHTML="";
+    $("receivePurchasesBtn").disabled=true;
+    return;
   }
   sec.style.display="block";
   $("homeChosenCount").textContent=`${summary.plans.length} chosen storage${summary.plans.length===1?"":"s"}`;
+  $("receivePurchasesBtn").disabled=summary.boughtUnits<=0;
+  $("receivePurchasesBtn").textContent=summary.boughtUnits?`Receive ${summary.boughtUnits} purchased`:"Receive purchases";
+
+  const ready=summary.purchaseUnits===0;
   $("homeProcurementSummary").innerHTML=`
     <div class="projectstat"><div class="k">Chosen spaces</div><div class="v">${summary.plans.length}</div></div>
     <div class="projectstat"><div class="k">Organizers required</div><div class="v">${summary.totalRequired}</div></div>
     <div class="projectstat"><div class="k">Owned reused</div><div class="v">${summary.ownedUsed}</div></div>
-    <div class="projectstat"><div class="k">Project purchase</div><div class="v" style="font-size:13px">${esc(projectTotalsText(summary))}</div></div>`;
+    <div class="projectstat ${summary.boughtUnits?"warn":""}"><div class="k">Shopping progress</div><div class="v">${summary.boughtUnits}/${summary.purchaseUnits}</div><div class="small">purchased</div></div>
+    <div class="projectstat ${ready?"ready":""}"><div class="k">Remaining</div><div class="v" style="font-size:13px">${esc(projectRemainingText(summary))}</div></div>`;
+
   $("homeChosenPlans").innerHTML=summary.plans.map(plan=>{
     const m=planMetrics(plan);
     return `<span class="projectplan">${esc(m.storagePath)} · ${esc(plan.name)}</span>`;
   }).join("");
+
   $("homeProcurementList").innerHTML=summary.rows.map(r=>`<div class="homeshoprow">
     <div><div class="shopname">${esc(r.name)}</div><div class="shopsub">${r.sku?esc(r.sku)+" · ":""}used in ${r.storageCount} storage${r.storageCount===1?"":"s"}</div></div>
     <div class="shopnum">Use ×${r.qty}</div>
     <div class="shopnum">Own ×${r.ownedUsed}</div>
-    <div class="shopnum"><strong>Buy ×${r.buyQty}</strong></div>
-    <div class="shopnum shopprice">${r.buyQty&&r.price>0?money(r.price,r.currency):"—"}</div>
-    <div class="shopnum shopsubtotal">${r.buyQty&&r.price>0?money(r.subtotal,r.currency):r.buyQty?"—":"✓"}</div>
-    <div class="shopaction">${r.buyQty&&r.url?`<a class="shoplink" href="${esc(r.url)}" target="_blank" rel="noopener">Product ↗</a>`:""}</div>
+    <div class="shopnum">Need ×${r.buyQty}</div>
+    <div class="purchasecontrol">
+      ${r.buyQty?`<button class="btn soft" type="button" data-bought-dec="${r.id}" aria-label="Decrease purchased quantity">−</button><span class="purchasecount">${r.boughtQty}</span><button class="btn soft" type="button" data-bought-inc="${r.id}" aria-label="Increase purchased quantity">+</button>`:'<span class="purchasecount">✓</span>'}
+    </div>
+    <div class="shopnum"><strong>Left ×${r.remainingQty}</strong></div>
+    <div class="shopnum shopsubtotal">${r.remainingQty&&r.price>0?money(r.remainingSubtotal,r.currency):r.remainingQty?"—":"✓"}</div>
+    <div class="shopaction">${r.remainingQty&&r.url?`<a class="shoplink" href="${esc(r.url)}" target="_blank" rel="noopener">Product ↗</a>`:""}${r.buyQty&&r.boughtQty!==r.buyQty?` <button class="btn soft" type="button" data-bought-all="${r.id}">All bought</button>`:""}</div>
   </div>`).join("") || '<div class="empty">No items in the chosen plans.</div>';
+
+  $("homeProcurementList").querySelectorAll("[data-bought-dec]").forEach(btn=>btn.addEventListener("click",()=>{
+    const row=projectProcurement().rows.find(r=>r.id===btn.dataset.boughtDec);if(row)setShoppingBought(row.id,row.boughtQty-1);
+  }));
+  $("homeProcurementList").querySelectorAll("[data-bought-inc]").forEach(btn=>btn.addEventListener("click",()=>{
+    const row=projectProcurement().rows.find(r=>r.id===btn.dataset.boughtInc);if(row)setShoppingBought(row.id,row.boughtQty+1);
+  }));
+  $("homeProcurementList").querySelectorAll("[data-bought-all]").forEach(btn=>btn.addEventListener("click",()=>{
+    const row=projectProcurement().rows.find(r=>r.id===btn.dataset.boughtAll);if(row)setShoppingBought(row.id,row.buyQty);
+  }));
+}
+function receiveMarkedPurchases(){
+  const summary=projectProcurement();
+  if(summary.boughtUnits<=0)return 0;
+  let received=0;
+  for(const row of summary.rows){
+    if(row.boughtQty<=0)continue;
+    const item=boxById(row.id);if(!item)continue;
+    item.ownedQty=Math.max(0,Math.min(999,Math.floor(Number(item.ownedQty)||0)+row.boughtQty));
+    received+=row.boughtQty;
+    delete state.shoppingBought[row.id];
+  }
+  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
+  return received;
 }
 function homeShoppingExportPayload(){
   const summary=projectProcurement();
   return {
     format:"storage-fit-home-shopping",
-    version:1,
+    version:2,
     exportedAt:new Date().toISOString(),
     unit:state.unit,
     chosenPlans:summary.plans.map(p=>({id:p.id,name:p.name,storageId:p.storageId,storagePath:planMetrics(p).storagePath})),
     totals:summary.totals,
+    remainingTotals:summary.remainingTotals,
     missingPriceUnits:summary.missing,
+    remainingMissingPriceUnits:summary.remainingMissing,
     purchaseUnits:summary.purchaseUnits,
+    purchasedUnits:summary.boughtUnits,
+    remainingUnits:summary.remainingUnits,
     ownedUsed:summary.ownedUsed,
     items:summary.rows.map(r=>({...r,url:safeUrl(r.url)}))
   };
 }
+
 function updateCompareButton(){
   const btn=$("comparePlansBtn");if(!btn)return;
   const count=comparePlanIds.size;
@@ -2021,6 +2098,13 @@ $("savePlanBtn").addEventListener("click",()=>{
   renderSavedPlans();updateSavePlanButton();
 });
 
+$("receivePurchasesBtn").addEventListener("click",()=>{
+  const received=receiveMarkedPurchases();
+  if(!received)return;
+  const btn=$("receivePurchasesBtn");
+  btn.textContent=`Received ${received} ✓`;
+  renderAll();
+});
 $("exportHomeShoppingBtn").addEventListener("click",()=>{
   const payload=homeShoppingExportPayload();
   if(!payload.chosenPlans.length)return;
@@ -2244,7 +2328,10 @@ $("deleteStorage").addEventListener("click",()=>{
   save();renderAll()
 });
 $("deleteBox").addEventListener("click",()=>{
-  if(!editingBox)return;state.boxes=state.boxes.filter(x=>x.id!==editingBox);delete state.selectedTypes[editingBox];delete state.itemLimits[editingBox];
+  if(!editingBox)return;
+  const usedBySaved=state.savedPlans.some(p=>(p.layout||[]).some(q=>q.typeId===editingBox));
+  if(usedBySaved){alert("This item is used by a saved plan. Remove or replace it in saved plans before deleting it.");return}
+  state.boxes=state.boxes.filter(x=>x.id!==editingBox);delete state.selectedTypes[editingBox];delete state.itemLimits[editingBox];delete state.shoppingBought[editingBox];
   editingBox=state.boxes[0]?.id||"";save();renderAll()
 });
 
@@ -2260,6 +2347,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     safeUrl,
     validateBackupState,
     normalizeChosenPlanSelections,
+    normalizeShoppingBought,
     ensureHomeHierarchy,
     purchaseBreakdown,
     aggregateRequiredCounts,
