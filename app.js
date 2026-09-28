@@ -2693,6 +2693,10 @@ function renderDetail(W,D,H){
     input.value=selectedPlacement?String(round6(Number(selectedPlacement[key])||0)):"";
   }
   $("placementCoordUnit").textContent=state.unit;
+  const alignSelect=$("alignPlacementSelect"),alignButton=$("alignPlacementBtn");
+  alignSelect.disabled=!editMode||!selectedPlacement;
+  if(!selectedPlacement)alignSelect.value="";
+  alignButton.disabled=!editMode||!selectedPlacement||!alignSelect.value;
   $("editSnapStep").value=String(round6(normalizeSnapStep(state.editSnapStep)));
   $("editSnapUnit").textContent=state.unit;
   $("editShowGrid").checked=state.editShowGrid!==false;
@@ -2930,6 +2934,35 @@ function placementCoordinateCandidate(source,axis,value){
   if(!source||!["x","y","z"].includes(axis)||!Number.isFinite(n))return null;
   return {...source,[axis]:round6(n)};
 }
+function alignmentPlacementCandidate(source,alignment,W,D,gap=0){
+  if(!source||!["left","center-x","right","front","center-y","back"].includes(alignment))return null;
+  const width=Number(W),depth=Number(D),g=Math.max(0,Number(gap)||0);
+  if(!Number.isFinite(width)||!Number.isFinite(depth)||width<=0||depth<=0)return null;
+  const out={...source};
+  if(alignment==="left")out.x=g;
+  else if(alignment==="center-x")out.x=(width-(Number(source.w)||0))/2;
+  else if(alignment==="right")out.x=width-(Number(source.w)||0)-g;
+  else if(alignment==="front")out.y=g;
+  else if(alignment==="center-y")out.y=(depth-(Number(source.d)||0))/2;
+  else if(alignment==="back")out.y=depth-(Number(source.d)||0)-g;
+  out.x=round6(Number(out.x)||0);out.y=round6(Number(out.y)||0);
+  return out;
+}
+function applyPlacementAlignment(alignment){
+  const layout=selectedManualLayout(),sz=currentUsableSize();
+  if(!editMode||!layout||!sz||selectedEditItem<0)return false;
+  const gap=Math.max(0,state.fitTolerance||0),candidate=alignmentPlacementCandidate(layout[selectedEditItem],alignment,sz.W,sz.D,gap);
+  if(!candidate){setEditStatus("Choose a valid alignment.",true);return false}
+  const trial=cloneLayoutSnapshot(layout);trial[selectedEditItem]=candidate;
+  if(!editItemValid(trial,selectedEditItem,sz.W,sz.D)){
+    setEditStatus("Alignment rejected: collision, bounds, or stack support.",true);refreshCurrentDetail();return false;
+  }
+  const current=layout[selectedEditItem];
+  if(Math.abs(candidate.x-current.x)<=1e-9&&Math.abs(candidate.y-current.y)<=1e-9){setEditStatus("Already aligned.");refreshCurrentDetail();return true}
+  layouts[selectedLayout]=trial;selectedGap=-1;updateSavePlanButton();recordEditHistory("Align item");
+  const names={"left":"Left","center-x":"Horizontal center","right":"Right","front":"Front","center-y":"Depth center","back":"Back"};
+  setEditStatus(`Aligned: ${names[alignment]}.`);refreshCurrentDetail();return true;
+}
 function applyPlacementCoordinate(axis,value){
   const layout=selectedManualLayout(),sz=currentUsableSize();
   if(!editMode||!layout||!sz||selectedEditItem<0)return false;
@@ -3054,6 +3087,8 @@ for(const [id,axis] of [["placementX","x"],["placementY","y"],["placementZ","z"]
   $(id).addEventListener("change",()=>applyPlacementCoordinate(axis,$(id).value));
   $(id).addEventListener("keydown",e=>{if(e.key==="Enter"){e.preventDefault();$(id).blur()}});
 }
+$("alignPlacementSelect").addEventListener("change",()=>{$("alignPlacementBtn").disabled=!editMode||selectedEditItem<0||!$("alignPlacementSelect").value});
+$("alignPlacementBtn").addEventListener("click",()=>applyPlacementAlignment($("alignPlacementSelect").value));
 $("editSnapStep").addEventListener("change",()=>{
   state.editSnapStep=normalizeSnapStep($("editSnapStep").value);
   localStorage.setItem(KEY,JSON.stringify(state));refreshCurrentDetail();
@@ -3632,6 +3667,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     snapValue,
     clampSnappedValue,
     placementCoordinateCandidate,
+    alignmentPlacementCandidate,
     makeEditHistory,
     appendEditHistoryState,
     stepEditHistoryState,
