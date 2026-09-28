@@ -418,7 +418,7 @@ function renderAll(){
   $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;$("enableStacking").checked=!!state.enableStacking;
   $("clearanceEnabled").checked=!!state.clearanceEnabled;$("clearance").value=state.clearance??0.5;$("fitTolerance").value=state.fitTolerance??0;
   $("clearanceField").style.display=state.clearanceEnabled?"block":"none";
-  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();loadBoxEditor();renderSavedPlans();renderInstallDashboard();renderHomeProcurement();renderBackupStats();resetResults();
+  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();renderDividerEditor();loadBoxEditor();renderSavedPlans();renderInstallDashboard();renderHomeProcurement();renderBackupStats();resetResults();
 }
 function plannedStorageIds(){return new Set((state.savedPlans||[]).map(p=>p.storageId))}
 function installedStorageIds(){return new Set(Object.keys(state.installedPlanIds||{}))}
@@ -460,12 +460,12 @@ function renderStorageList(){
   if(!filtered.length){el.innerHTML='<div class="empty">No storage spaces in this furniture yet.</div>';return}
   const planned=plannedStorageIds();
   el.innerHTML=filtered.map(s=>`<div class="listitem ${s.id===editingStorage?"active":""}" data-s="${s.id}">
-    <div><div class="listname">${esc(s.name)}</div><div class="dims">${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${esc(state.unit)}${s.obstacles?.length?` · ${s.obstacles.length} blocked`:""}<div class="crumb">${planned.has(s.id)?"saved plan available":"not planned yet"}</div></div></div>
+    <div><div class="listname">${esc(s.name)}</div><div class="dims">${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${esc(state.unit)}${s.obstacles?.length?` · ${s.obstacles.length} blocked`:""}${s.dividers?.length?` · ${s.dividers.length} divider${s.dividers.length===1?"":"s"}`:""}<div class="crumb">${planned.has(s.id)?"saved plan available":"not planned yet"}</div></div></div>
     ${s.id===state.selectedStorage?'<span class="badge">selected</span>':planned.has(s.id)?'<span class="badge">planned</span>':""}</div>`).join("");
   el.querySelectorAll("[data-s]").forEach(n=>n.addEventListener("click",()=>{
     editingStorage=n.dataset.s;state.selectedStorage=n.dataset.s;syncHierarchyToStorage(n.dataset.s);
     localStorage.setItem(KEY,JSON.stringify(state));
-    renderHierarchy();renderStorageSelect();loadStorageEditor();renderObstacleEditor();renderStorageList();resetResults();
+    renderHierarchy();renderStorageSelect();loadStorageEditor();renderObstacleEditor();renderDividerEditor();renderStorageList();resetResults();
   }));
 }
 function renderBoxList(){
@@ -558,6 +558,42 @@ function renderObstacleEditor(){
   el.querySelectorAll("[data-remove-obstacle]").forEach(btn=>btn.addEventListener("click",()=>{
     s.obstacles=s.obstacles.filter(o=>o.id!==btn.dataset.removeObstacle);
     save();renderObstacleEditor();renderStorageList();resetResults();
+  }));
+}
+
+function renderDividerEditor(){
+  const el=$("dividerList"),s=state.storages.find(x=>x.id===editingStorage);
+  if(!s){el.innerHTML='<div class="empty">Select a storage space.</div>';return}
+  s.dividers=s.dividers||[];
+  if(!s.dividers.length){el.innerHTML='<div class="empty">No custom dividers.</div>';return}
+  el.innerHTML=s.dividers.map(d=>{
+    const axis=d.orientation==="horizontal"?"From front":"From left";
+    return `<div class="dividerrow" data-divider="${d.id}">
+      <div class="dividergrid">
+        <div class="field"><label>Direction</label><select data-dkey="orientation"><option value="vertical" ${d.orientation==="vertical"?"selected":""}>Vertical</option><option value="horizontal" ${d.orientation==="horizontal"?"selected":""}>Horizontal</option></select></div>
+        <div class="field"><label>${axis}</label><input data-dkey="position" type="number" min="0" step="0.1" value="${fmt(d.position)}"></div>
+        <div class="field"><label>Thickness</label><input data-dkey="thickness" type="number" min="0.01" step="0.1" value="${fmt(d.thickness)}"></div>
+        <div class="field"><label>Height</label><input data-dkey="h" type="number" min="0" step="0.1" value="${fmt(d.h)}"></div>
+        <button class="divider-remove" type="button" data-remove-divider="${d.id}" aria-label="Remove divider">×</button>
+      </div>
+    </div>`;
+  }).join("");
+
+  el.querySelectorAll("[data-divider]").forEach(row=>{
+    const id=row.dataset.divider,d=s.dividers.find(x=>x.id===id);
+    row.querySelectorAll("[data-dkey]").forEach(inp=>inp.addEventListener("change",()=>{
+      const k=inp.dataset.dkey;
+      if(k==="orientation")d.orientation=inp.value==="horizontal"?"horizontal":"vertical";
+      else if(k==="thickness")d.thickness=Math.max(0.01,Number(inp.value)||0.5);
+      else d[k]=Math.max(0,Number(inp.value)||0);
+      d.position=Math.min(d.position,d.orientation==="horizontal"?s.d:s.w);
+      d.h=Math.min(d.h,s.h);
+      save();renderDividerEditor();renderStorageList();resetResults();
+    }));
+  });
+  el.querySelectorAll("[data-remove-divider]").forEach(btn=>btn.addEventListener("click",()=>{
+    s.dividers=s.dividers.filter(d=>d.id!==btn.dataset.removeDivider);
+    save();renderDividerEditor();renderStorageList();resetResults();
   }));
 }
 
