@@ -178,3 +178,22 @@ Project status moves through:
 Deleting an item that is still referenced by a saved plan is blocked to avoid silently breaking saved layouts.
 
 V21 migrates V20 automatically and preserves existing chosen plans and owned inventory.
+
+
+## Installation dashboard
+
+Chosen plans now become an inventory-aware **Install queue**.
+
+Storage Fit allocates physically owned organizers across the queue and labels each chosen storage as:
+
+- **Ready now** — every organizer required by that plan can be allocated from current owned inventory;
+- **Waiting for inventory** — at least one required organizer is still unavailable;
+- **Installed** — the exact chosen plan has been marked installed.
+
+Queue order matters when several storage spaces compete for limited stock. Moving a storage up or down changes which ready plan receives those organizers first. A waiting plan does not reserve partial inventory, so another fully satisfiable plan may still become ready.
+
+Installed plans reserve the inventory they consume before the rest of the queue is evaluated. Changing the chosen plan for a storage automatically invalidates stale installed status.
+
+Purchased-but-not-received items are intentionally excluded from readiness. They only become installable inventory after **Receive purchases** moves them into Owned quantity.
+
+The home shopping JSON export is version 3 and includes the install queue, order, readiness status, and any missing organizer quantities. V22 migrates V21 automatically and preserves shopping progress, chosen plans, and owned inventory.
