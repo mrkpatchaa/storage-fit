@@ -290,15 +290,52 @@ function renderAll(){
   $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;$("enableStacking").checked=!!state.enableStacking;
   $("clearanceEnabled").checked=!!state.clearanceEnabled;$("clearance").value=state.clearance??0.5;$("fitTolerance").value=state.fitTolerance??0;
   $("clearanceField").style.display=state.clearanceEnabled?"block":"none";
-  renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();loadBoxEditor();renderSavedPlans();renderBackupStats();resetResults();
+  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();loadBoxEditor();renderSavedPlans();renderBackupStats();resetResults();
+}
+function plannedStorageIds(){return new Set((state.savedPlans||[]).map(p=>p.storageId))}
+function renderHierarchy(){
+  const roomSelect=$("roomSelect"),furnitureSelect=$("furnitureSelect"),storageFurniture=$("storageFurniture");
+  const room=roomById(state.selectedRoom)||state.rooms[0];
+  if(room)state.selectedRoom=room.id;
+  const roomFurniture=state.furniture.filter(f=>f.roomId===state.selectedRoom);
+  let furniture=furnitureById(state.selectedFurniture);
+  if(!furniture||furniture.roomId!==state.selectedRoom)furniture=roomFurniture[0]||null;
+  state.selectedFurniture=furniture?.id||"";
+
+  roomSelect.innerHTML=state.rooms.map(r=>`<option value="${r.id}">${esc(r.name)}</option>`).join("");
+  roomSelect.value=state.selectedRoom;
+
+  furnitureSelect.innerHTML=roomFurniture.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join("");
+  if(state.selectedFurniture)furnitureSelect.value=state.selectedFurniture;
+
+  const furnitureOptions=state.rooms.flatMap(r=>state.furniture.filter(f=>f.roomId===r.id).map(f=>`<option value="${f.id}">${esc(r.name)} → ${esc(f.name)}</option>`)).join("");
+  storageFurniture.innerHTML=furnitureOptions;
+
+  const planned=plannedStorageIds(),allCount=state.storages.length,plannedCount=state.storages.filter(s=>planned.has(s.id)).length;
+  $("homeProgress").textContent=allCount?`${plannedCount}/${allCount} planned`:"No storage yet";
+
+  const currentSpaces=state.storages.filter(s=>s.furnitureId===state.selectedFurniture);
+  const currentPlanned=currentSpaces.filter(s=>planned.has(s.id)).length;
+  const pct=currentSpaces.length?Math.round(currentPlanned/currentSpaces.length*100):0;
+  $("furnitureProgress").innerHTML=currentSpaces.length
+    ? `${currentPlanned} of ${currentSpaces.length} storage space${currentSpaces.length===1?"":"s"} has a saved plan.<div class="progressbar"><span style="width:${pct}%"></span></div>`
+    : "No storage spaces in this furniture yet.";
+
+  $("deleteRoom").disabled=state.rooms.length<=1;
+  $("deleteFurniture").disabled=roomFurniture.length<=1 && state.rooms.length===1;
 }
 function renderStorageList(){
-  const el=$("storageList");
-  if(!state.storages.length){el.innerHTML='<div class="empty">No storage spaces yet.</div>';return}
-  el.innerHTML=state.storages.map(s=>`<div class="listitem ${s.id===editingStorage?"active":""}" data-s="${s.id}">
-    <div><div class="listname">${esc(s.name)}</div><div class="dims">${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${esc(state.unit)}${s.obstacles?.length?` · ${s.obstacles.length} blocked`:""}</div></div>
-    ${s.id===state.selectedStorage?'<span class="badge">selected</span>':""}</div>`).join("");
-  el.querySelectorAll("[data-s]").forEach(n=>n.addEventListener("click",()=>{editingStorage=n.dataset.s;loadStorageEditor();renderObstacleEditor();renderStorageList()}));
+  const el=$("storageList"),filtered=state.storages.filter(s=>s.furnitureId===state.selectedFurniture);
+  if(!filtered.length){el.innerHTML='<div class="empty">No storage spaces in this furniture yet.</div>';return}
+  const planned=plannedStorageIds();
+  el.innerHTML=filtered.map(s=>`<div class="listitem ${s.id===editingStorage?"active":""}" data-s="${s.id}">
+    <div><div class="listname">${esc(s.name)}</div><div class="dims">${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${esc(state.unit)}${s.obstacles?.length?` · ${s.obstacles.length} blocked`:""}<div class="crumb">${planned.has(s.id)?"saved plan available":"not planned yet"}</div></div></div>
+    ${s.id===state.selectedStorage?'<span class="badge">selected</span>':planned.has(s.id)?'<span class="badge">planned</span>':""}</div>`).join("");
+  el.querySelectorAll("[data-s]").forEach(n=>n.addEventListener("click",()=>{
+    editingStorage=n.dataset.s;state.selectedStorage=n.dataset.s;syncHierarchyToStorage(n.dataset.s);
+    localStorage.setItem(KEY,JSON.stringify(state));
+    renderHierarchy();renderStorageSelect();loadStorageEditor();renderObstacleEditor();renderStorageList();resetResults();
+  }));
 }
 function renderBoxList(){
   const el=$("boxList"),query=String($("itemSearch")?.value||"").trim().toLowerCase();
@@ -315,7 +352,7 @@ function renderBoxList(){
   el.querySelectorAll("[data-b]").forEach(n=>n.addEventListener("click",()=>{editingBox=n.dataset.b;loadBoxEditor();renderBoxList()}));
 }
 function renderStorageSelect(){
-  const el=$("storageSelect");el.innerHTML=state.storages.map(s=>`<option value="${s.id}">${esc(s.name)}</option>`).join("");
+  const el=$("storageSelect");el.innerHTML=state.storages.map(s=>`<option value="${s.id}">${esc(storageBreadcrumb(s))}</option>`).join("");
   if(state.selectedStorage) el.value=state.selectedStorage;
 }
 function renderItemPicker(){
@@ -357,7 +394,9 @@ function renderItemPicker(){
   }));
 }
 function loadStorageEditor(){
-  const s=state.storages.find(x=>x.id===editingStorage);$("storageName").value=s?.name||"";$("sw").value=s?.w??"";$("sd").value=s?.d??"";$("sh").value=s?.h??"";
+  const s=state.storages.find(x=>x.id===editingStorage);
+  $("storageName").value=s?.name||"";$("sw").value=s?.w??"";$("sd").value=s?.d??"";$("sh").value=s?.h??"";
+  if(s&&$("storageFurniture"))$("storageFurniture").value=s.furnitureId||state.selectedFurniture;
 }
 function renderObstacleEditor(){
   const el=$("obstacleList"),s=state.storages.find(x=>x.id===editingStorage);
