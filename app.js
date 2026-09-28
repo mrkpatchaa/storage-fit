@@ -331,7 +331,7 @@ function renderHierarchy(){
     : "No storage spaces in this furniture yet.";
 
   $("deleteRoom").disabled=state.rooms.length<=1;
-  $("deleteFurniture").disabled=roomFurniture.length<=1 && state.rooms.length===1;
+  $("deleteFurniture").disabled=state.furniture.length<=1;
 }
 function renderStorageList(){
   const el=$("storageList"),filtered=state.storages.filter(s=>s.furnitureId===state.selectedFurniture);
@@ -1929,7 +1929,7 @@ $("renameFurniture").addEventListener("click",()=>{
   furniture.name=name.trim()||furniture.name;localStorage.setItem(KEY,JSON.stringify(state));renderAll();
 });
 $("deleteFurniture").addEventListener("click",()=>{
-  const furniture=furnitureById(state.selectedFurniture);if(!furniture)return;
+  const furniture=furnitureById(state.selectedFurniture);if(!furniture||state.furniture.length<=1)return;
   if(state.storages.some(s=>s.furnitureId===furniture.id)){alert("Move or delete the storage spaces in this furniture first.");return}
   state.furniture=state.furniture.filter(f=>f.id!==furniture.id);
   const next=state.furniture.find(f=>f.roomId===state.selectedRoom)||state.furniture[0]||null;
