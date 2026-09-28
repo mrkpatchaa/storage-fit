@@ -2030,11 +2030,18 @@ function topGeometry(W,D,width,height){
 }
 function svgTop(layout,W,D,width,height,labels=true,editable=false,selected=-1,highlightGap=null){
   const g=topGeometry(W,D,width,height),bad=editable?invalidEditIndices(layout,W,D):new Set(),obstacles=usableObstacles();
-  const obstacleRects=obstacles.map(o=>`<g>
-    <defs><pattern id="hatch-${o.id}" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#b23c3c" stroke-opacity=".45" stroke-width="3"/></pattern></defs>
-    <rect x="${g.ox+o.x*g.scale}" y="${g.oy+o.y*g.scale}" width="${o.w*g.scale}" height="${o.d*g.scale}" fill="url(#hatch-${o.id})" stroke="#b23c3c" stroke-width="1.7"/>
-    ${labels?`<text x="${g.ox+(o.x+o.w/2)*g.scale}" y="${g.oy+(o.y+o.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="10" fill="#8b2e2e">blocked</text>`:""}
-  </g>`).join("");
+  const obstacleRects=obstacles.map(o=>{
+    const divider=o.kind==="divider",color=divider?"#416b8e":"#b23c3c",textColor=divider?"#31536f":"#8b2e2e";
+    if(divider)return `<g>
+      <rect x="${g.ox+o.x*g.scale}" y="${g.oy+o.y*g.scale}" width="${o.w*g.scale}" height="${o.d*g.scale}" fill="${color}" fill-opacity=".32" stroke="${color}" stroke-width="1.7"/>
+      ${labels?`<text x="${g.ox+(o.x+o.w/2)*g.scale}" y="${g.oy+(o.y+o.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="9" fill="${textColor}">divider</text>`:""}
+    </g>`;
+    return `<g>
+      <defs><pattern id="hatch-${o.id}" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="${color}" stroke-opacity=".45" stroke-width="3"/></pattern></defs>
+      <rect x="${g.ox+o.x*g.scale}" y="${g.oy+o.y*g.scale}" width="${o.w*g.scale}" height="${o.d*g.scale}" fill="url(#hatch-${o.id})" stroke="${color}" stroke-width="1.7"/>
+      ${labels?`<text x="${g.ox+(o.x+o.w/2)*g.scale}" y="${g.oy+(o.y+o.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="10" fill="${textColor}">blocked</text>`:""}
+    </g>`;
+  }).join("");
   const rects=layout.map((p,idx)=>({p,idx})).sort((a,b)=>(a.p.z||0)-(b.p.z||0)).map(({p,idx})=>{
     const invalid=bad.has(idx),active=idx===selected;
     const stroke=invalid?"#b23c3c":active?"#111":colorFor(p.typeId);
@@ -2052,7 +2059,10 @@ function shortName(s){return s.length>12?s.slice(0,10)+"…":s}
 function svgFront(layout,W,H,width=760,height=390){
   const pad=28,scale=Math.min((width-2*pad)/W,(height-2*pad)/H),ox=(width-W*scale)/2,oy=(height-H*scale)/2;
   const obstacles=usableObstacles();
-  const obs=obstacles.map(o=>`<rect x="${ox+o.x*scale}" y="${oy+(H-o.h)*scale}" width="${o.w*scale}" height="${o.h*scale}" fill="#b23c3c" fill-opacity=".12" stroke="#b23c3c" stroke-dasharray="5 4" stroke-width="1.5"/>`).join("");
+  const obs=obstacles.map(o=>{
+    const divider=o.kind==="divider",color=divider?"#416b8e":"#b23c3c";
+    return `<rect x="${ox+o.x*scale}" y="${oy+(H-o.h)*scale}" width="${o.w*scale}" height="${o.h*scale}" fill="${color}" fill-opacity="${divider?".24":".12"}" stroke="${color}" ${divider?"":'stroke-dasharray="5 4"'} stroke-width="1.5"/>`;
+  }).join("");
   const sorted=layout.slice().sort((a,b)=>b.y-a.y||a.x-b.x);
   const rects=sorted.map(p=>`<rect x="${ox+p.x*scale}" y="${oy+(H-(p.z||0)-p.h)*scale}" width="${p.w*scale}" height="${p.h*scale}" rx="2" fill="${colorFor(p.typeId)}" fill-opacity=".28" stroke="${colorFor(p.typeId)}" stroke-width="1.5"/>`).join("");
   return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Front view"><rect x="${ox}" y="${oy}" width="${W*scale}" height="${H*scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${obs}${rects}</svg>`;
@@ -2060,7 +2070,10 @@ function svgFront(layout,W,H,width=760,height=390){
 function svgSide(layout,D,H,width=760,height=390){
   const pad=28,scale=Math.min((width-2*pad)/D,(height-2*pad)/H),ox=(width-D*scale)/2,oy=(height-H*scale)/2;
   const obstacles=usableObstacles();
-  const obs=obstacles.map(o=>`<rect x="${ox+o.y*scale}" y="${oy+(H-o.h)*scale}" width="${o.d*scale}" height="${o.h*scale}" fill="#b23c3c" fill-opacity=".12" stroke="#b23c3c" stroke-dasharray="5 4" stroke-width="1.5"/>`).join("");
+  const obs=obstacles.map(o=>{
+    const divider=o.kind==="divider",color=divider?"#416b8e":"#b23c3c";
+    return `<rect x="${ox+o.y*scale}" y="${oy+(H-o.h)*scale}" width="${o.d*scale}" height="${o.h*scale}" fill="${color}" fill-opacity="${divider?".24":".12"}" stroke="${color}" ${divider?"":'stroke-dasharray="5 4"'} stroke-width="1.5"/>`;
+  }).join("");
   const sorted=layout.slice().sort((a,b)=>b.x-a.x||a.y-b.y);
   const rects=sorted.map(p=>`<rect x="${ox+p.y*scale}" y="${oy+(H-(p.z||0)-p.h)*scale}" width="${p.d*scale}" height="${p.h*scale}" rx="2" fill="${colorFor(p.typeId)}" fill-opacity=".28" stroke="${colorFor(p.typeId)}" stroke-width="1.5"/>`).join("");
   return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Side view"><rect x="${ox}" y="${oy}" width="${D*scale}" height="${H*scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${obs}${rects}</svg>`;
@@ -2090,7 +2103,8 @@ function poly(points,fill,stroke,opacity){
 function obstacleCuboidSvg(o,P){
   const A=P(o.x,o.y,0),B=P(o.x+o.w,o.y,0),C=P(o.x+o.w,o.y+o.d,0),D=P(o.x,o.y+o.d,0);
   const E=P(o.x,o.y,o.h),F=P(o.x+o.w,o.y,o.h),G=P(o.x+o.w,o.y+o.d,o.h),H=P(o.x,o.y+o.d,o.h);
-  return poly([A,B,F,E],"#b23c3c","#b23c3c",.10)+poly([B,C,G,F],"#b23c3c","#b23c3c",.14)+poly([E,F,G,H],"#b23c3c","#b23c3c",.18);
+  const divider=o.kind==="divider",c=divider?"#416b8e":"#b23c3c";
+  return poly([A,B,F,E],c,c,divider?.20:.10)+poly([B,C,G,F],c,c,divider?.24:.14)+poly([E,F,G,H],c,c,divider?.30:.18);
 }
 function cuboidSvg(p,P){
   const z=Number(p.z)||0;
