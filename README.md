@@ -412,3 +412,48 @@ Whole-home shopping JSON moves to version 4 and includes:
 - install-queue health and reasons.
 
 Full backups preserve validation snapshots and timestamps.
+
+
+## Local recovery checkpoints
+
+Storage Fit now keeps a small local recovery journal for destructive actions.
+
+Before the app performs a destructive change, it snapshots the entire current planner state. Recovery currently covers:
+
+- restoring a full backup;
+- restoring another recovery checkpoint;
+- deleting a room;
+- deleting furniture;
+- deleting a storage space;
+- deleting an item;
+- deleting a saved plan;
+- deleting a blocked zone;
+- deleting a custom divider.
+
+The **Data & portability → Recovery** section shows the newest checkpoints first and keeps the latest **8**.
+
+Each checkpoint includes:
+- timestamp;
+- reason;
+- complete planner state;
+- storage-space count;
+- item count;
+- saved-plan count.
+
+### Reversible restores
+
+Restoring a checkpoint first creates a new checkpoint of the current state, then performs the restore. This makes recovery itself reversible.
+
+Recovered state goes through the normal startup migration/normalization path after reload, so an older checkpoint can be restored after future app upgrades.
+
+### Legacy pre-restore recovery
+
+Older versions kept one hidden `*-pre-restore` emergency snapshot. V27 automatically imports any valid legacy snapshot it finds into the visible Recovery journal and removes the old hidden key.
+
+### Local-only by design
+
+Recovery history uses the stable browser key `storage-fit-recovery-v1`, separate from versioned planner state keys. This lets recovery survive future V28/V29 state migrations.
+
+Recovery history is **not** included in manual backup files. Manual backups remain the portability mechanism for moving to another browser/device, while Recovery is for undoing mistakes on the current browser.
+
+V27 migrates V26 automatically; planner data itself is unchanged.
