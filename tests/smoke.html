@@ -33,7 +33,13 @@
       result(!!api,"smoke-test API is exposed only for the test page");
       result(same(api.parseDimensionString("38 x 76 x 30 cm"),[38,76,30]),"compact dimensions");
       result(same(api.parseLabeledDimensions("Width: 38 cm Depth: 76 cm Height: 30 cm"),[38,76,30]),"IKEA labeled dimensions");
-      var info=api.ikeaUrlInfo("https://www.ikea.com/ma/en/p/sockerbit-storage-box-with-lid-white-40522088/");
+      result(same(api.parseLabeledDimensions("Largeur 38 cm Profondeur 76 cm Hauteur 30 cm"),[38,76,30]),"French labeled dimensions");
+      result(api.normalizedSku("405.220.88")==="40522088","SKU punctuation normalization");
+      var tracked="https://www.ikea.com/ma/en/p/sockerbit-storage-box-with-lid-white-40522088/?utm_source=test#details";
+      var clean="https://www.ikea.com/ma/en/p/sockerbit-storage-box-with-lid-white-40522088/";
+      result(api.canonicalProductUrl(tracked)===api.canonicalProductUrl(clean),"tracking URLs canonicalize to one product");
+      result(api.retailerName(clean)==="IKEA","retailer detection");
+      var info=api.ikeaUrlInfo(clean);
       result(info.sku==="405.220.88","IKEA article number",info.sku||"missing");
       result(same(api.normalizeProductDimensions([380,760,300],"mm"),[38,76,30]),"unit conversion mm to cm");
       result(api.safeUrl("javascript:alert(1)")==="","unsafe URL rejection");

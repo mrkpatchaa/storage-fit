@@ -1,7 +1,7 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v16";
-const PREV_KEYS = ["storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v17";
+const PREV_KEYS = ["storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -22,6 +22,7 @@ let galleryWasCapped = false;
 let detailModalOpen = false;
 let compareModalOpen = false;
 let comparePlanIds = new Set();
+let pendingImport = null;
 
 state.itemLimits = state.itemLimits || {};
 state.fitTolerance = Math.max(0, Number(state.fitTolerance)||0);
@@ -37,6 +38,7 @@ for(const b of state.boxes){
   b.url = String(b.url||"").trim();
   b.image = String(b.image||"").trim();
   b.sku = String(b.sku||"").trim();
+  b.retailer = String(b.retailer||retailerName(b.url)||"").trim();
   b.uprightOnly = b.uprightOnly !== false;
   b.canBeStacked = !!b.canBeStacked;
   b.canSupportStack = !!b.canSupportStack;
@@ -164,7 +166,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:16,
+    appVersion:17,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
@@ -252,10 +254,16 @@ function renderStorageList(){
   el.querySelectorAll("[data-s]").forEach(n=>n.addEventListener("click",()=>{editingStorage=n.dataset.s;loadStorageEditor();renderObstacleEditor();renderStorageList()}));
 }
 function renderBoxList(){
-  const el=$("boxList");
-  if(!state.boxes.length){el.innerHTML='<div class="empty">No items yet.</div>';return}
-  el.innerHTML=state.boxes.map(b=>`<div class="listitem ${b.id===editingBox?"active":""}" data-b="${b.id}">
-    <div class="itemmain">${safeUrl(b.image)?`<img class="itemthumb" src="${esc(safeUrl(b.image))}" alt="">`:""}<div><div class="listname">${esc(b.name)}</div><div class="dims">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}${b.price>0?` · ${esc(money(b.price,b.currency))}`:""}${b.sku?` · ${esc(b.sku)}`:""}${esc(itemRuleText(b))}</div></div></div>
+  const el=$("boxList"),query=String($("itemSearch")?.value||"").trim().toLowerCase();
+  if(!state.boxes.length){el.innerHTML='<div class="empty">No items yet.</div>';if($("itemSearchCount"))$("itemSearchCount").textContent="";return}
+  const filtered=state.boxes.filter(b=>{
+    if(!query)return true;
+    return [b.name,b.sku,b.retailer,retailerName(b.url)].some(v=>String(v||"").toLowerCase().includes(query));
+  });
+  if($("itemSearchCount"))$("itemSearchCount").textContent=query?`${filtered.length} of ${state.boxes.length}`:`${state.boxes.length} item${state.boxes.length===1?"":"s"}`;
+  if(!filtered.length){el.innerHTML='<div class="empty">No items match this search.</div>';return}
+  el.innerHTML=filtered.map(b=>`<div class="listitem ${b.id===editingBox?"active":""}" data-b="${b.id}">
+    <div class="itemmain">${safeUrl(b.image)?`<img class="itemthumb" src="${esc(safeUrl(b.image))}" alt="">`:""}<div><div class="listname">${esc(b.name)}${b.retailer?`<span class="retailerbadge">${esc(b.retailer)}</span>`:""}</div><div class="dims">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}${b.price>0?` · ${esc(money(b.price,b.currency))}`:""}${b.sku?` · ${esc(b.sku)}`:""}${esc(itemRuleText(b))}</div></div></div>
     ${state.selectedTypes?.[b.id]?'<span class="badge">allowed</span>':""}</div>`).join("");
   el.querySelectorAll("[data-b]").forEach(n=>n.addEventListener("click",()=>{editingBox=n.dataset.b;loadBoxEditor();renderBoxList()}));
 }
@@ -344,6 +352,40 @@ function loadBoxEditor(){
 function itemRuleText(b){const tags=[];if(b?.canBeStacked)tags.push("can stack");if(b?.canSupportStack)tags.push("supports");if(b?.uprightOnly===false)tags.push("may tip");return tags.length?` · ${tags.join(" · ")}`:""}
 function selectedBoxes(){return state.boxes.filter(b=>state.selectedTypes?.[b.id])}
 
+function normalizedSku(value){
+  return String(value||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+}
+function canonicalProductUrl(value){
+  try{
+    const u=new URL(String(value||"").trim());
+    if(!["http:","https:"].includes(u.protocol))return "";
+    u.hash="";u.search="";
+    u.hostname=u.hostname.toLowerCase().replace(/^www\./,"");
+    u.pathname=u.pathname.replace(/\/+$/,"")||"/";
+    return `${u.hostname}${u.pathname}`;
+  }catch(e){return ""}
+}
+function retailerName(value){
+  try{
+    const host=new URL(String(value||"").trim()).hostname.toLowerCase().replace(/^www\./,"");
+    if(/(^|\.)ikea\.com$/.test(host))return "IKEA";
+    if(/(^|\.)amazon\./.test(host))return "Amazon";
+    if(/(^|\.)jysk\./.test(host))return "JYSK";
+    if(host.includes("leroymerlin"))return "Leroy Merlin";
+    if(host.includes("temu.com"))return "Temu";
+    return host.split(".").slice(0,-1).join(".")||host;
+  }catch(e){return ""}
+}
+function findExistingProduct(p){
+  const sku=normalizedSku(p?.sku);
+  if(sku){
+    const bySku=state.boxes.find(b=>normalizedSku(b.sku)===sku);
+    if(bySku)return bySku;
+  }
+  const url=canonicalProductUrl(p?.url);
+  if(url)return state.boxes.find(b=>canonicalProductUrl(b.url)===url)||null;
+  return null;
+}
 function ikeaUrlInfo(raw){
   const info={};
   try{
@@ -394,7 +436,7 @@ function parseLabeledDimensions(str){
     return m?{value:m[1],unit:m[2]}:null;
   }
 
-  const w=find("Width"), d=find("Depth"), h=find("Height");
+  const w=find("(?:Width|Largeur)"), d=find("(?:Depth|Profondeur)"), h=find("(?:Height|Hauteur)");
   if(!w||!d||!h)return null;
 
   const wc=normalizeProductDimensions([w.value,1,1],w.unit)?.[0];
@@ -490,7 +532,7 @@ function mergeProductInfo(base,extra){
 }
 function inferredProductInfo(url){
   const info=ikeaUrlInfo(url);
-  return {url,name:info.name||"",sku:info.sku||"",price:0,currency:"MAD",image:""};
+  return {url,name:info.name||"",sku:info.sku||"",price:0,currency:"MAD",image:"",retailer:retailerName(url)};
 }
 async function fetchSmartProduct(url){
   let data=inferredProductInfo(url),source="URL";
@@ -516,21 +558,101 @@ function productCompleteness(p){
   const keys=["name","w","d","h","price","sku"];
   return keys.filter(k=>k==="price"?Number(p[k])>0:!!p[k]).length;
 }
-function applyImportedProduct(p){
-  const id=uid("b");
-  const item={
-    id,name:p.name||"Imported item",
-    w:Number(p.w)||0,d:Number(p.d)||0,h:Number(p.h)||0,
-    price:Math.max(0,Number(p.price)||0),
-    currency:(p.currency||"MAD").toUpperCase().slice(0,6),
-    sku:p.sku||"",url:p.url||"",image:p.image||"",
-    uprightOnly:true,canBeStacked:false,canSupportStack:false
+function importedFields(p){
+  return {
+    name:String(p?.name||"").trim(),
+    w:Number(p?.w)||0,d:Number(p?.d)||0,h:Number(p?.h)||0,
+    price:Math.max(0,Number(p?.price)||0),
+    currency:String(p?.currency||"MAD").trim().toUpperCase().slice(0,6)||"MAD",
+    sku:String(p?.sku||"").trim(),
+    url:safeUrl(p?.url),
+    image:safeUrl(p?.image),
+    retailer:String(p?.retailer||retailerName(p?.url)||"").trim()
   };
-  state.boxes.push(item);state.selectedTypes[id]=true;state.itemLimits[id]=null;editingBox=id;
+}
+function applyImportedProduct(p,targetId=null){
+  const imported=importedFields(p);
+  let item=targetId?state.boxes.find(b=>b.id===targetId):null;
+  if(item){
+    if(imported.name)item.name=imported.name;
+    for(const k of ["w","d","h"]){if(imported[k]>0)item[k]=imported[k]}
+    if(imported.price>0){item.price=imported.price;item.currency=imported.currency}
+    if(imported.sku)item.sku=imported.sku;
+    if(imported.url)item.url=imported.url;
+    if(imported.image)item.image=imported.image;
+    if(imported.retailer)item.retailer=imported.retailer;
+  }else{
+    const id=uid("b");
+    item={
+      id,name:imported.name||"Imported item",
+      w:imported.w,d:imported.d,h:imported.h,
+      price:imported.price,currency:imported.currency,
+      sku:imported.sku,url:imported.url,image:imported.image,retailer:imported.retailer,
+      uprightOnly:true,canBeStacked:false,canSupportStack:false
+    };
+    state.boxes.push(item);state.selectedTypes[id]=true;state.itemLimits[id]=null;
+  }
+  editingBox=item.id;
   localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
+  if($("itemSearch"))$("itemSearch").value="";
   renderBoxList();renderItemPicker();loadBoxEditor();resetResults();
   ["boxName","bw","bd","bh","boxPrice","boxSku","boxUrl","boxImage"].forEach(k=>{const el=$(k);el?.classList.add("autofill");setTimeout(()=>el?.classList.remove("autofill"),750)});
   return item;
+}
+function importFoundLabels(item){
+  const found=[];
+  if(item.name)found.push("name");
+  if(item.w&&item.d&&item.h)found.push("dimensions");
+  if(item.price)found.push("price");
+  if(item.sku)found.push("reference");
+  if(item.image)found.push("image");
+  return found;
+}
+function renderImportPreview(data,source){
+  const p=importedFields(data),existing=findExistingProduct(p),found=importFoundLabels(p);
+  pendingImport={data:{...p},source,existingId:existing?.id||null};
+  const completeness=productCompleteness(p),status=$("smartStatus"),preview=$("smartPreview");
+  status.className=`smartstatus ${completeness>=4?"good":"warn"}`;
+  status.textContent=found.length
+    ? `Detected via ${source}: ${found.join(", ")}. Review before saving.`
+    : "The product link was recognized, but most details still need to be entered manually.";
+  preview.className="smartpreview show";
+  preview.innerHTML=`
+    ${p.image?`<img src="${esc(p.image)}" alt="">`:'<div class="itemthumb"></div>'}
+    <div>
+      <div class="listname">${esc(p.name||"Imported item")}${p.retailer?`<span class="retailerbadge">${esc(p.retailer)}</span>`:""}</div>
+      <div class="importfields">
+        <div class="importfield"><strong>Dimensions</strong>${p.w&&p.d&&p.h?`${fmt(p.w)} × ${fmt(p.d)} × ${fmt(p.h)} ${esc(state.unit)}`:"Missing"}</div>
+        <div class="importfield"><strong>Price</strong>${p.price?esc(money(p.price,p.currency)):"Missing"}</div>
+        <div class="importfield"><strong>Reference</strong>${esc(p.sku||"Missing")}</div>
+        <div class="importfield"><strong>Source</strong>${esc(source)}</div>
+        ${existing?`<div class="duplicatehint">Already in your library as <strong>${esc(existing.name)}</strong>${existing.sku?` · ${esc(existing.sku)}`:""}. You can refresh that item or deliberately add another copy.</div>`:""}
+        <div class="importactions">
+          ${existing?`<button class="btn primary" type="button" data-import-update="${existing.id}">Update existing</button><button class="btn soft" type="button" data-import-add>Add as new</button>`:`<button class="btn primary" type="button" data-import-add>Add item</button>`}
+          <button class="btn soft" type="button" data-import-cancel>Cancel</button>
+        </div>
+      </div>
+    </div>`;
+  preview.querySelector("[data-import-add]")?.addEventListener("click",()=>commitPendingImport(null));
+  preview.querySelector("[data-import-update]")?.addEventListener("click",e=>commitPendingImport(e.currentTarget.dataset.importUpdate));
+  preview.querySelector("[data-import-cancel]")?.addEventListener("click",clearPendingImport);
+}
+function clearPendingImport(){
+  pendingImport=null;
+  $("smartPreview").className="smartpreview";$("smartPreview").innerHTML="";
+  $("smartStatus").className="smartstatus";
+  $("smartStatus").textContent="Paste a public product page. Nothing is added until you review the detected details.";
+}
+function commitPendingImport(targetId){
+  if(!pendingImport)return;
+  const item=applyImportedProduct(pendingImport.data,targetId);
+  const action=targetId?"Updated":"Added";
+  const status=$("smartStatus");
+  status.className="smartstatus good";
+  status.textContent=`${action} ${item.name}. You can fine-tune its physical rules below.`;
+  $("smartPreview").className="smartpreview";$("smartPreview").innerHTML="";
+  $("smartUrl").value="";
+  pendingImport=null;
 }
 function safeUrl(value){
   try{
@@ -1734,6 +1856,8 @@ $("restoreFileInput").addEventListener("change",async()=>{
   }
 });
 
+$("itemSearch").addEventListener("input",renderBoxList);
+
 $("smartUrl").addEventListener("keydown",e=>{
   if(e.key==="Enter"){e.preventDefault();$("smartImportBtn").click()}
 });
@@ -1742,38 +1866,25 @@ $("smartImportBtn").addEventListener("click",async()=>{
   if(!url){
     $("smartStatus").className="smartstatus warn";$("smartStatus").textContent="Paste a valid http(s) product URL first.";return;
   }
-  $("smartImportBtn").disabled=true;$("smartImportBtn").textContent="Importing…";
+  pendingImport=null;
+  $("smartImportBtn").disabled=true;$("smartImportBtn").textContent="Reading…";
   $("smartStatus").className="smartstatus";$("smartStatus").textContent="Reading product information…";
   $("smartPreview").className="smartpreview";$("smartPreview").innerHTML="";
   try{
     const {data,source}=await fetchSmartProduct(url);
-    const completeness=productCompleteness(data);
-    const item=applyImportedProduct(data);
-    const found=[];
-    if(item.name&&item.name!=="Imported item")found.push("name");
-    if(item.w&&item.d&&item.h)found.push("dimensions");
-    if(item.price)found.push("price");
-    if(item.sku)found.push("reference");
-    if(item.image)found.push("image");
-    $("smartStatus").className=`smartstatus ${completeness>=4?"good":"warn"}`;
-    $("smartStatus").textContent=found.length
-      ? `Imported via ${source}: ${found.join(", ")}.${item.w&&item.d&&item.h?"":" Dimensions still need to be checked/entered."}`
-      : "The link was saved, but the retailer blocked automatic product data. Fill the missing fields below.";
-    if(ikeaUrlInfo(url).isIkea && item.w&&item.d&&item.h){
-      $("smartStatus").textContent += " IKEA measurements detected.";
-    }
-    $("smartPreview").className="smartpreview show";
-    $("smartPreview").innerHTML=`${safeUrl(item.image)?`<img src="${esc(safeUrl(item.image))}" alt="">`:"<div></div>"}<div><div class="listname">${esc(item.name)}</div><div class="dims">${item.w?`${fmt(item.w)} × ${fmt(item.d)} × ${fmt(item.h)} ${esc(state.unit)}`:"Dimensions missing"}${item.price?` · ${esc(money(item.price,item.currency))}`:""}${item.sku?` · ${esc(item.sku)}`:""}</div></div>`;
-    $("smartUrl").value="";
+    data.retailer=data.retailer||retailerName(url);
+    renderImportPreview(data,source);
   }catch(e){
-    $("smartStatus").className="smartstatus warn";$("smartStatus").textContent="Could not import this product automatically. The page may block external readers.";
+    clearPendingImport();
+    $("smartStatus").className="smartstatus warn";
+    $("smartStatus").textContent="Could not read this product automatically. You can still add it manually below.";
   }finally{
     $("smartImportBtn").disabled=false;$("smartImportBtn").textContent="Import";
   }
 });
 
 $("addBox").addEventListener("click",()=>{
-  const id=uid("b");state.boxes.push({id,name:"New item",w:30,d:20,h:10,price:0,currency:"MAD",sku:"",url:"",image:"",uprightOnly:true,canBeStacked:false,canSupportStack:false});state.selectedTypes[id]=false;state.itemLimits[id]=null;editingBox=id;save();renderAll();$("boxName").focus();$("boxName").select()
+  const id=uid("b");state.boxes.push({id,name:"New item",w:30,d:20,h:10,price:0,currency:"MAD",sku:"",url:"",image:"",retailer:"",uprightOnly:true,canBeStacked:false,canSupportStack:false});state.selectedTypes[id]=false;state.itemLimits[id]=null;editingBox=id;save();renderAll();$("boxName").focus();$("boxName").select()
 });
 $("saveStorage").addEventListener("click",()=>{
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
@@ -1784,7 +1895,7 @@ $("saveStorage").addEventListener("click",()=>{
 $("saveBox").addEventListener("click",()=>{
   const b=state.boxes.find(x=>x.id===editingBox);if(!b)return;
   b.name=$("boxName").value.trim()||"Item";b.w=Math.max(0,Number($("bw").value)||0);b.d=Math.max(0,Number($("bd").value)||0);b.h=Math.max(0,Number($("bh").value)||0);
-  b.price=Math.max(0,Number($("boxPrice").value)||0);b.currency=($("boxCurrency").value.trim().toUpperCase().slice(0,6)||"MAD");b.sku=$("boxSku").value.trim();b.url=$("boxUrl").value.trim();b.image=$("boxImage").value.trim();
+  b.price=Math.max(0,Number($("boxPrice").value)||0);b.currency=($("boxCurrency").value.trim().toUpperCase().slice(0,6)||"MAD");b.sku=$("boxSku").value.trim();b.url=$("boxUrl").value.trim();b.image=$("boxImage").value.trim();b.retailer=retailerName(b.url);
   b.uprightOnly=$("boxUprightOnly").checked;b.canBeStacked=$("boxCanBeStacked").checked;b.canSupportStack=$("boxCanSupportStack").checked;
   save();renderAll()
 });
@@ -1807,6 +1918,9 @@ if(new URLSearchParams(location.search).has("smoke-test")){
   window.StorageFitTest={
     parseDimensionString,
     parseLabeledDimensions,
+    canonicalProductUrl,
+    normalizedSku,
+    retailerName,
     ikeaUrlInfo,
     normalizeProductDimensions,
     safeUrl,
