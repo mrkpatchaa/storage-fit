@@ -1022,6 +1022,58 @@ function compareLayoutsForGoal(a,b,W,D){
 function planSignature(storageId,layout){
   return `${storageId}|${canonicalLayout(layout)}`;
 }
+function storageStructureSignature(s){
+  if(!s)return "";
+  const obstacles=(s.obstacles||[]).map(o=>[
+    round6(Number(o.x)||0),round6(Number(o.y)||0),round6(Number(o.w)||0),round6(Number(o.d)||0),round6(Number(o.h)||0)
+  ]).sort((a,b)=>a.join("|").localeCompare(b.join("|")));
+  return JSON.stringify([round6(Number(s.w)||0),round6(Number(s.d)||0),round6(Number(s.h)||0),obstacles]);
+}
+function matchingSiblingStorages(source,storages=state.storages){
+  if(!source)return [];
+  const signature=storageStructureSignature(source);
+  return (storages||[]).filter(s=>s.id!==source.id&&s.furnitureId===source.furnitureId&&storageStructureSignature(s)===signature);
+}
+function eligiblePropagationTargets(source){
+  return matchingSiblingStorages(source).filter(target=>
+    !state.savedPlans.some(p=>p.storageId===target.id) &&
+    !state.chosenPlanIds?.[target.id] &&
+    !state.installedPlanIds?.[target.id]
+  );
+}
+function createSavedPlanForStorage(target,layout,{name=null,note=""}={}){
+  const signature=planSignature(target.id,layout);
+  const existing=state.savedPlans.find(p=>p.signature===signature);
+  if(existing)return existing;
+  const sameStorage=state.savedPlans.filter(p=>p.storageId===target.id).length+1;
+  const plan={
+    id:uid("plan"),
+    name:name||`${target.name} · Plan ${sameStorage}`,
+    note,
+    storageId:target.id,
+    storageName:target.name,
+    storagePath:storageBreadcrumb(target),
+    storageSnapshot:captureStorageSnapshot(target),
+    settings:capturePlanSettings(),
+    savedAt:new Date().toISOString(),
+    goal:state.optimizeGoal,
+    stacking:state.enableStacking,
+    signature,
+    layout:layout.map(q=>({...q}))
+  };
+  state.savedPlans.push(plan);
+  return plan;
+}
+function updateApplyMatchingButton(){
+  const btn=$("applyMatchingBtn");if(!btn)return;
+  const source=storage(),layout=layouts[selectedLayout];
+  const targets=source&&layout?eligiblePropagationTargets(source):[];
+  btn.disabled=!source||!layout||targets.length===0;
+  btn.textContent=targets.length?`Apply to ${targets.length} matching`:"Apply to matching";
+  btn.title=targets.length
+    ? `Save and choose this layout for ${targets.length} fresh matching compartment${targets.length===1?"":"s" } in the same furniture.`
+    : "No fresh structurally identical sibling compartments are available.";
+}
 function currentPlanSaved(){
   const layout=layouts[selectedLayout],s=storage();
   if(!layout||!s)return false;
@@ -1485,6 +1537,7 @@ function updateSavePlanButton(){
   const saved=currentPlanSaved();
   $("savePlanBtn").textContent=saved?"Saved ✓":"Save plan";
   $("savePlanBtn").classList.toggle("active",saved);
+  updateApplyMatchingButton();
 }
 
 function resetResults(){
