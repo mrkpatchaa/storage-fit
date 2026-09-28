@@ -885,15 +885,15 @@ function buildPrintSheet(){
       <div class="printviz"><h2>Top view</h2>${svgTop(layout,W,D,640,340,true,false,-1,null)}</div>
     </div>
     <h2>Shopping list</h2>
-    <table><thead><tr><th>Item</th><th>Qty</th><th>Unit price</th><th>Subtotal</th></tr></thead>
-    <tbody>${rows.map(r=>`<tr><td>${esc(r.name)}${r.sku?` · ${esc(r.sku)}`:""}${r.url?`<br><a href="${esc(r.url)}">${esc(r.url)}</a>`:""}</td><td>${r.qty}</td><td>${r.price>0?money(r.price,r.currency):"—"}</td><td>${r.price>0?money(r.subtotal,r.currency):"—"}</td></tr>`).join("")}</tbody></table>
-    <div class="printtotal">Estimated total: ${esc(totalsText(layout))}</div>
+    <table><thead><tr><th>Item</th><th>Use</th><th>Owned</th><th>Buy</th><th>Unit price</th><th>Subtotal</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr><td>${esc(r.name)}${r.sku?` · ${esc(r.sku)}`:""}${r.url&&r.buyQty?`<br><a href="${esc(r.url)}">${esc(r.url)}</a>`:""}</td><td>${r.qty}</td><td>${r.ownedUsed}</td><td>${r.buyQty}</td><td>${r.buyQty&&r.price>0?money(r.price,r.currency):"—"}</td><td>${r.buyQty&&r.price>0?money(r.subtotal,r.currency):r.buyQty?"—":"✓"}</td></tr>`).join("")}</tbody></table>
+    <div class="printtotal">Additional purchase estimate: ${esc(totalsText(layout))}</div>
   </div>`;
   return true;
 }
 
 function goalLabel(goal=state.optimizeGoal){
-  return ({fill:"Best use of space",compartments:"Most compartments",simple:"Simplest setup",balanced:"Balanced mix"})[goal]||"Best use of space";
+  return ({fill:"Best use of space",compartments:"Most compartments",simple:"Simplest setup",balanced:"Balanced mix",cost:"Cheapest to implement"})[goal]||"Best use of space";
 }
 function balanceScore(layout){
   const counts=Object.values(layoutCounts(layout));
@@ -905,6 +905,7 @@ function balanceScore(layout){
 }
 function compareLayoutsForGoal(a,b,W,D){
   const ua=utilization(a,W,D),ub=utilization(b,W,D);
+  if(state.optimizeGoal==="cost") return comparePurchaseCost(a,b,W,D);
   if(state.optimizeGoal==="compartments") return b.length-a.length || ub-ua || distinctTypes(b)-distinctTypes(a);
   if(state.optimizeGoal==="simple") return distinctTypes(a)-distinctTypes(b) || a.length-b.length || ub-ua;
   if(state.optimizeGoal==="balanced") return balanceScore(b)-balanceScore(a) || distinctTypes(b)-distinctTypes(a) || ub-ua || b.length-a.length;
@@ -951,7 +952,9 @@ function planMetrics(plan){
     utilizationKind:usesStacking?"usable volume":"usable floor",
     itemCount:(plan.layout||[]).length,
     distinctTypes:distinctTypes(plan.layout||[]),
-    cost:totalsText(plan.layout||[])
+    cost:totalsText(plan.layout||[]),
+    purchaseUnits:purchaseCostProfile(plan.layout||[]).purchaseUnits,
+    ownedUsed:purchaseCostProfile(plan.layout||[]).ownedUsed
   };
 }
 function updateCompareButton(){
@@ -987,7 +990,7 @@ function renderCompareModal(){
         <div class="comparestat"><div class="k">Utilization</div><div class="v">${m.utilizationPct.toFixed(1)}%</div><div class="small">${esc(m.utilizationKind)}</div></div>
         <div class="comparestat"><div class="k">Items</div><div class="v">${m.itemCount}</div><div class="small">${m.distinctTypes} type${m.distinctTypes===1?"":"s"}</div></div>
         <div class="comparestat"><div class="k">Stacked</div><div class="v">${m.stackedCount}</div><div class="small">${plan.stacking?"stacking enabled":"floor-focused"}</div></div>
-        <div class="comparestat"><div class="k">Estimated cost</div><div class="v" style="font-size:12px">${esc(m.cost)}</div></div>
+        <div class="comparestat"><div class="k">To buy</div><div class="v" style="font-size:12px">${esc(m.cost)}</div><div class="small">${m.ownedUsed} owned used</div></div>
       </div>
       <div class="compareitems"><strong>Item mix</strong><ul>${items||"<li>No items</li>"}</ul></div>
       ${plan.note?`<div class="comparnote">${esc(plan.note)}</div>`:""}
@@ -1046,7 +1049,7 @@ function renderSavedPlans(){
         <label class="savedselect"><input type="checkbox" data-compare-plan="${p.id}" ${selected?"checked":""}> compare</label>
       </div>
       <div class="small" style="margin-top:8px">${summary||"Saved layout"}</div>
-      <div class="savedmeta" style="margin-top:6px">Estimated: ${esc(m.cost)}${m.stackedCount?` · ${m.stackedCount} stacked`:""}</div>
+      <div class="savedmeta" style="margin-top:6px">To buy: ${esc(m.cost)}${m.ownedUsed?` · ${m.ownedUsed} owned used`:""}${m.stackedCount?` · ${m.stackedCount} stacked`:""}</div>
       ${p.note?`<div class="savednote">${esc(p.note)}</div>`:""}
       <div class="savedactions">
         <button class="btn soft" type="button" data-open-plan="${p.id}">Open</button>
@@ -1458,6 +1461,10 @@ function proposalTags(layout,W,D,H=currentUsableSize()?.H||1){
   if(layout.length===mostItems) tags.push("Most compartments");
   if(distinctTypes(layout)===minTypes) tags.push("Simplest setup");
   if(maxTypes>1 && distinctTypes(layout)===maxTypes) tags.push("Most mixed");
+  if(state.optimizeGoal==="cost" && layouts.length){
+    const cheapest=layouts.reduce((best,l)=>comparePurchaseCost(l,best,W,D)<0?l:best,layouts[0]);
+    if(comparePurchaseCost(layout,cheapest,W,D)===0)tags.push("Least to buy");
+  }
   if(layoutUsesStacking(layout)) tags.push("Uses stacking");
   return tags.slice(0,3);
 }
@@ -1479,6 +1486,7 @@ function renderGallery(W,D,H,truncated){
     <div class="layoutmeta"><div><strong>Layout ${i+1}</strong>${i===0?`<span class="proposalbadge">${esc(goalLabel())}</span>`:""}${proposalTags(layout,W,D,H).map(t=>`<span class="proposalbadge">${t}</span>`).join(" ")}</div><span>${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)}</span></div>
     ${svgTop(layout,W,D,360,210,false)}
     <div class="legend">${legendHtml(layout)}</div>
+    <div class="savedmeta" style="margin-top:7px">To buy: ${esc(totalsText(layout))}</div>
   </button>`).join("");
   el.querySelectorAll("[data-layout]").forEach(btn=>btn.addEventListener("click",()=>{
     selectedLayout=Number(btn.dataset.layout)||0;
