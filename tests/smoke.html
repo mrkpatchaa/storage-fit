@@ -73,6 +73,26 @@
       };
       api.normalizeChosenPlanSelections(legacyChoice);
       result(legacyChoice.chosenPlanIds.s2==="p2"&&!("chosenPlanId" in legacyChoice),"legacy single chosen plan migrates to its storage");
+      var installPlans=[
+        {id:"p1",storageId:"s1",layout:[{typeId:"b1"},{typeId:"b1"}]},
+        {id:"p2",storageId:"s2",layout:[{typeId:"b1"},{typeId:"b1"}]}
+      ];
+      var firstReady=api.computeInstallAllocation(installPlans,{b1:2},{},["s1","s2"]);
+      result(firstReady.entries[0].status==="ready"&&firstReady.entries[1].status==="waiting","install queue allocates limited stock by priority");
+      var secondReady=api.computeInstallAllocation(installPlans,{b1:2},{},["s2","s1"]);
+      result(secondReady.entries[0].storageId==="s2"&&secondReady.entries[0].status==="ready"&&secondReady.entries[1].status==="waiting","reordering changes which storage is ready");
+      var reserved=api.computeInstallAllocation(installPlans,{b1:4},{s1:"p1"},["s1","s2"]);
+      result(reserved.entries[0].status==="installed"&&reserved.entries[1].status==="ready","installed plans reserve inventory before ready allocation");
+      var installState={
+        storages:[{id:"s1"},{id:"s2"}],
+        savedPlans:installPlans,
+        chosenPlanIds:{s1:"p2",s2:"p2"},
+        installedPlanIds:{s1:"p1",s2:"p2"},
+        installOrder:["s2","s1","s2"]
+      };
+      api.normalizeInstallState(installState);
+      result(!installState.installedPlanIds.s1&&installState.installedPlanIds.s2==="p2","stale installed status is removed when chosen plan changes");
+      result(installState.installOrder.length===2&&installState.installOrder[0]==="s2","install order is deduplicated and keeps chosen storages");
       var legacy={storages:[{id:"s1",name:"Drawer",w:10,d:10,h:10}],boxes:[{id:"b1",name:"Box",w:5,d:5,h:5}],rooms:[],furniture:[],selectedStorage:"s1"};
       api.ensureHomeHierarchy(legacy);
       result(legacy.rooms.length===1,"legacy data gets a fallback room");
