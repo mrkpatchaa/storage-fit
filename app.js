@@ -8,6 +8,7 @@ const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
 const SHARE_LINK_LIMIT = 12000;
+const EDIT_HISTORY_LIMIT = 60;
 
 let state = loadState();
 ensureHomeHierarchy(state);
@@ -19,6 +20,7 @@ let detailView = "front";
 let editMode = false;
 let selectedEditItem = -1;
 let editOriginalLayout = null;
+let editHistory = {entries:[],index:-1};
 let topDrag = null;
 let currentGaps = [];
 let selectedGap = -1;
@@ -2655,6 +2657,7 @@ function renderDetail(W,D,H){
   $("editSnapStep").value=String(round6(normalizeSnapStep(state.editSnapStep)));
   $("editSnapUnit").textContent=state.unit;
   $("editShowGrid").checked=state.editShowGrid!==false;
+  updateEditHistoryControls();
   const selectedType=selectedPlacement?boxById(selectedPlacement.typeId):null;
   $("moveItemFloor").disabled=!editMode||!selectedPlacement||(Number(selectedPlacement.z)||0)<=1e-9;
   $("stackItem").disabled=!editMode||!selectedPlacement||!state.enableStacking||!selectedType?.canBeStacked;
@@ -2741,6 +2744,45 @@ function currentUsableSize(){
   return {W:S.w-2*c,D:S.d-2*c,H:S.h-2*c};
 }
 function selectedManualLayout(){return layouts[selectedLayout]}
+function cloneLayoutSnapshot(layout){return (layout||[]).map(p=>({...p}))}
+function editHistoryKey(layout){return JSON.stringify(cloneLayoutSnapshot(layout))}
+function makeEditHistory(layout){return {entries:[{layout:cloneLayoutSnapshot(layout),label:"Start"}],index:0}}
+function appendEditHistoryState(history,layout,label="",limit=EDIT_HISTORY_LIMIT){
+  const base=history&&Array.isArray(history.entries)?history:{entries:[],index:-1};
+  const current=base.entries[base.index]?.layout;
+  if(current&&editHistoryKey(current)===editHistoryKey(layout))return base;
+  let entries=base.entries.slice(0,Math.max(0,base.index+1));
+  entries.push({layout:cloneLayoutSnapshot(layout),label:String(label||"Edit").slice(0,80)});
+  const cap=Math.max(2,Math.floor(Number(limit)||EDIT_HISTORY_LIMIT));
+  if(entries.length>cap)entries=entries.slice(entries.length-cap);
+  return {entries,index:entries.length-1};
+}
+function stepEditHistoryState(history,delta){
+  const base=history&&Array.isArray(history.entries)?history:{entries:[],index:-1};
+  const next=base.index+(delta<0?-1:1);
+  if(next<0||next>=base.entries.length)return {history:base,layout:null,label:"",moved:false};
+  return {history:{entries:base.entries,index:next},layout:cloneLayoutSnapshot(base.entries[next].layout),label:base.entries[next].label||"Edit",moved:true};
+}
+function updateEditHistoryControls(){
+  const undo=$("undoEdit"),redo=$("redoEdit");if(!undo||!redo)return;
+  undo.disabled=!editMode||editHistory.index<=0;
+  redo.disabled=!editMode||editHistory.index<0||editHistory.index>=editHistory.entries.length-1;
+}
+function resetEditHistory(layout){editHistory=makeEditHistory(layout);updateEditHistoryControls()}
+function recordEditHistory(label){
+  if(!editMode)return;
+  editHistory=appendEditHistoryState(editHistory,selectedManualLayout(),label);updateEditHistoryControls();
+}
+function moveEditHistory(delta){
+  if(!editMode)return false;
+  const fromLabel=editHistory.entries[editHistory.index]?.label||"Edit",step=stepEditHistoryState(editHistory,delta);
+  if(!step.moved)return false;
+  editHistory=step.history;layouts[selectedLayout]=step.layout;
+  if(selectedEditItem>=step.layout.length)selectedEditItem=-1;
+  selectedGap=-1;topDrag=null;updateSavePlanButton();updateEditHistoryControls();
+  setEditStatus((delta<0?"Undo: "+fromLabel:"Redo: "+step.label)+".");
+  refreshCurrentDetail();return true;
+}
 function mirrorLayoutGeometry(layout,W,D,axis){
   const width=Math.max(0,Number(W)||0),depth=Math.max(0,Number(D)||0);
   if(!Array.isArray(layout)||!["x","y"].includes(axis))return [];
