@@ -2803,7 +2803,7 @@ function mirrorCurrentLayout(axis){
     return false;
   }
   layouts[selectedLayout]=mirrored;
-  selectedGap=-1;updateSavePlanButton();
+  selectedGap=-1;updateSavePlanButton();recordEditHistory(axis==="x"?"Mirror left ↔ right":"Mirror front ↔ back");
   setEditStatus(axis==="x"?"Mirrored left ↔ right.":"Mirrored front ↔ back.");
   refreshCurrentDetail();return true;
 }
@@ -2870,7 +2870,7 @@ function relocateSelectedPlacement(target){
   for(const q of manualRelocationCandidates(layout,selectedEditItem,target,sz.W,sz.D,sz.H)){
     p.x=q.x;p.y=q.y;p.z=Number(q.z)||0;
     if(editItemValid(layout,selectedEditItem,sz.W,sz.D)){
-      selectedGap=-1;updateSavePlanButton();
+      selectedGap=-1;updateSavePlanButton();recordEditHistory(target==="stack"?"Stack item":"Move item to floor");
       setEditStatus(target==="stack"?`Stacked at level ${placementStackLevel(p,layout.filter((_,i)=>i!==selectedEditItem))}.`:"Moved to floor.");
       refreshCurrentDetail();return true;
     }
@@ -2888,7 +2888,7 @@ function nudgeSelectedPlacement(dx,dy){
   if(!editItemValid(layout,selectedEditItem,sz.W,sz.D)){
     p.x=old.x;p.y=old.y;setEditStatus("Nudge rejected: collision, bounds, or stack support.",true);refreshCurrentDetail();return false;
   }
-  selectedGap=-1;updateSavePlanButton();setEditStatus(`Moved to ${fmt(p.x)}, ${fmt(p.y)} ${state.unit}.`);refreshCurrentDetail();return true;
+  selectedGap=-1;updateSavePlanButton();recordEditHistory("Nudge item");setEditStatus(`Moved to ${fmt(p.x)}, ${fmt(p.y)} ${state.unit}.`);refreshCurrentDetail();return true;
 }
 function refreshCurrentDetail(){
   const sz=currentUsableSize();if(sz&&layouts.length)renderDetail(sz.W,sz.D,sz.H);
@@ -2904,6 +2904,7 @@ $("editLayoutBtn").addEventListener("click",()=>{
   if(!editMode){
     editMode=true;
     editOriginalLayout=selectedManualLayout().map(p=>({...p}));
+    resetEditHistory(editOriginalLayout);
     selectedEditItem=-1;
     detailView="top";
     setEditStatus("Click a box, drag it, use Arrow keys to nudge, or change its floor/stack level.");
@@ -2918,6 +2919,7 @@ $("placementLabel").addEventListener("input",()=>{
   updateSavePlanButton();
   const sz=currentUsableSize();if(sz)renderDetail(sz.W,sz.D,sz.H);
 });
+$("placementLabel").addEventListener("change",()=>recordEditHistory("Edit label"));
 $("placementLabel").addEventListener("keydown",e=>{
   if(e.key==="Enter"){e.preventDefault();$("placementLabel").blur()}
 });
@@ -2933,10 +2935,19 @@ $("moveItemFloor").addEventListener("click",()=>relocateSelectedPlacement("floor
 $("stackItem").addEventListener("click",()=>relocateSelectedPlacement("stack"));
 $("mirrorLayoutX").addEventListener("click",()=>mirrorCurrentLayout("x"));
 $("mirrorLayoutY").addEventListener("click",()=>mirrorCurrentLayout("y"));
+$("undoEdit").addEventListener("click",()=>moveEditHistory(-1));
+$("redoEdit").addEventListener("click",()=>moveEditHistory(1));
 
 document.addEventListener("keydown",e=>{
-  if(!editMode||detailView!=="top"||selectedEditItem<0)return;
-  if(e.target?.closest?.("input,textarea,select,button"))return;
+  if(!editMode)return;
+  const interactive=e.target?.closest?.("input,textarea,select,button"),key=String(e.key||"").toLowerCase(),mod=e.metaKey||e.ctrlKey;
+  if(!interactive&&mod&&key==="z"){
+    e.preventDefault();moveEditHistory(e.shiftKey?1:-1);return;
+  }
+  if(!interactive&&mod&&key==="y"){
+    e.preventDefault();moveEditHistory(1);return;
+  }
+  if(interactive||detailView!=="top"||selectedEditItem<0)return;
   const dir={ArrowLeft:[-1,0],ArrowRight:[1,0],ArrowUp:[0,-1],ArrowDown:[0,1]}[e.key];
   if(!dir)return;
   const step=normalizeSnapStep(state.editSnapStep)*(e.shiftKey?5:1);
@@ -2949,7 +2960,7 @@ $("doneEdit").addEventListener("click",()=>{
   if(sz&&invalidEditIndices(layout,sz.W,sz.D).size){
     setEditStatus("Resolve collisions before finishing.",true);return;
   }
-  editMode=false;selectedEditItem=-1;editOriginalLayout=null;
+  editMode=false;selectedEditItem=-1;editOriginalLayout=null;editHistory={entries:[],index:-1};updateEditHistoryControls();
   setEditStatus("Layout saved locally in this proposal.");
   refreshCurrentDetail();
 });
@@ -2957,7 +2968,7 @@ $("doneEdit").addEventListener("click",()=>{
 $("resetEdit").addEventListener("click",()=>{
   if(!editMode||!editOriginalLayout)return;
   layouts[selectedLayout]=editOriginalLayout.map(p=>({...p}));
-  selectedEditItem=-1;selectedGap=-1;setEditStatus("Proposal restored.");refreshCurrentDetail();
+  selectedEditItem=-1;selectedGap=-1;recordEditHistory("Reset proposal");setEditStatus("Proposal restored.");refreshCurrentDetail();
 });
 
 $("rotateItem").addEventListener("click",()=>{
@@ -2969,7 +2980,7 @@ $("rotateItem").addEventListener("click",()=>{
   p.w=old.d;p.d=old.w;
   if(!editItemValid(layout,selectedEditItem,sz.W,sz.D)){
     p.w=old.w;p.d=old.d;setEditStatus("That rotation would collide or leave the storage.",true);
-  }else {selectedGap=-1;setEditStatus("Rotated.");}
+  }else {selectedGap=-1;recordEditHistory("Rotate item");setEditStatus("Rotated.");}
   refreshCurrentDetail();
 });
 
@@ -2983,7 +2994,7 @@ $("removeItem").addEventListener("click",()=>{
     setEditStatus("Remove the items stacked above this one first.",true);
     refreshCurrentDetail();return;
   }
-  selectedEditItem=-1;selectedGap=-1;setEditStatus("Item removed.");refreshCurrentDetail();
+  selectedEditItem=-1;selectedGap=-1;recordEditHistory("Remove item");setEditStatus("Item removed.");refreshCurrentDetail();
 });
 
 $("duplicateItem").addEventListener("click",()=>{
@@ -2994,7 +3005,7 @@ $("duplicateItem").addEventListener("click",()=>{
   const type=boxById(src.typeId),gap=Math.max(0,state.fitTolerance||0);
   for(const p of candidatePlacementsFor(layout,type,[src.w,src.d,src.h],sz.W,sz.D,sz.H,usableObstacles(),gap)){
     p.label="";
-    layout.push(p);selectedEditItem=layout.length-1;selectedGap=-1;setEditStatus((p.z||0)>0?"Duplicate stacked.":"Duplicate added.");refreshCurrentDetail();return;
+    layout.push(p);selectedEditItem=layout.length-1;selectedGap=-1;recordEditHistory("Duplicate item");setEditStatus((p.z||0)>0?"Duplicate stacked.":"Duplicate added.");refreshCurrentDetail();return;
   }
   setEditStatus("No free position for another copy.",true);
 });
@@ -3036,7 +3047,7 @@ function stopTopDrag(e){
   if(sz&&layout&&!editItemValid(layout,selectedEditItem,sz.W,sz.D)){
     layout[selectedEditItem].x=topDrag.origX;layout[selectedEditItem].y=topDrag.origY;
     setEditStatus("Collision rejected; previous position restored.",true);
-  }else {selectedGap=-1;setEditStatus("Position updated.");}
+  }else {selectedGap=-1;recordEditHistory("Move item");setEditStatus("Position updated.");}
   topDrag=null;refreshCurrentDetail();
 }
 $("detailViz").addEventListener("pointerup",stopTopDrag);
