@@ -240,6 +240,22 @@
       var corners=api.constraintTemplateZones("corner-posts",templateStorage,{width:4,depth:3,height:12},constraintIds);
       result(corners.length===4&&corners.some(function(x){return x.x===96&&x.y===47})&&corners.every(function(x){return x.w===4&&x.d===3&&x.h===12}),"corner template creates four symmetric editable notches");
       result(api.constraintTemplateZones("unknown",templateStorage,{},constraintIds).length===0,"unknown constraint template produces no geometry");
+      var mirroredStorage={w:100,d:50,h:20,obstacles:[
+        {id:"o1",name:"Left rail",x:5,y:4,w:10,d:8,h:7}
+      ],dividers:[
+        {id:"dv",orientation:"vertical",position:25,thickness:1,h:20},
+        {id:"dh",orientation:"horizontal",position:15,thickness:1,h:20}
+      ]};
+      var mirrorConstraintsX=api.mirrorStorageConstraintsData(mirroredStorage,"x");
+      result(mirrorConstraintsX.obstacles[0].x===85&&mirrorConstraintsX.obstacles[0].y===4,"left-right constraint mirror reflects blocked-zone X");
+      result(mirrorConstraintsX.dividers[0].position===75&&mirrorConstraintsX.dividers[1].position===15,"left-right constraint mirror reflects only vertical divider positions");
+      result(mirrorConstraintsX.obstacles[0].id==="o1"&&mirrorConstraintsX.dividers[0].id==="dv","constraint mirroring preserves IDs for the same storage");
+      var mirrorConstraintsY=api.mirrorStorageConstraintsData(mirroredStorage,"y");
+      result(mirrorConstraintsY.obstacles[0].y===38&&mirrorConstraintsY.obstacles[0].x===5,"front-back constraint mirror reflects blocked-zone Y");
+      result(mirrorConstraintsY.dividers[1].position===35&&mirrorConstraintsY.dividers[0].position===25,"front-back constraint mirror reflects only horizontal divider positions");
+      var mirrorConstraintsTwice=api.mirrorStorageConstraintsData({...mirroredStorage,obstacles:mirrorConstraintsX.obstacles,dividers:mirrorConstraintsX.dividers},"x");
+      result(JSON.stringify(mirrorConstraintsTwice.obstacles)===JSON.stringify(mirroredStorage.obstacles)&&JSON.stringify(mirrorConstraintsTwice.dividers)===JSON.stringify(mirroredStorage.dividers),"mirroring constraints twice restores the exact geometry");
+      result(api.mirrorStorageConstraintsData(mirroredStorage,"diagonal")===null,"unknown storage-constraint mirror axis is rejected safely");
       var mirrorSource=[
         {typeId:"b1",x:10,y:5,z:0,w:20,d:10,h:6,label:"Left"},
         {typeId:"b1",x:10,y:5,z:6,w:20,d:10,h:6,label:"Top"}
