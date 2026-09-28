@@ -4,7 +4,7 @@ Storage Fit is a dependency-free browser tool for planning boxes and organizers 
 
 ## What it does
 
-- Models multiple storage spaces and reusable items.
+- Models your home as Room → Furniture → Storage space, while keeping reusable items in one shared library.
 - Supports opt-in true 3D stacking with per-item rules: stay upright, may sit on another item, and may support items above.
 - Generates practical maximal layouts with different optimization goals.
 - Shows front, top, side and draggable 3D views.
@@ -103,3 +103,20 @@ Smart Import is review-first:
 Duplicate matching prefers normalized SKU/article numbers and falls back to canonical product URLs with tracking parameters, URL fragments, and trailing slashes removed. The item library can also be searched by name, SKU, or retailer.
 
 Retailer pages and cross-origin policies can change, so automatic import remains best-effort. The app never adds an imported item until you explicitly confirm it.
+
+
+## Home hierarchy
+
+Storage spaces are organized as:
+
+Room → Furniture → Storage space
+
+Examples:
+
+- Bedroom → Wardrobe → Left drawer
+- Kitchen → Pantry → Upper shelf
+- Entryway → Console → Bottom drawer
+
+The sidebar focuses on one room/furniture context at a time, while the main storage picker can jump directly to any compartment using its full breadcrumb. A furniture-level progress indicator shows how many of its storage spaces already have saved plans.
+
+Existing V17 data migrates automatically into **Home → Unassigned furniture**, so introducing hierarchy does not require manual reassignment. Rooms or furniture that still contain children cannot be deleted until those children are moved or removed.
