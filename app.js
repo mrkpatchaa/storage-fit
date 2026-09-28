@@ -1161,8 +1161,10 @@ function createSavedPlanForStorage(target,layout,{name=null,note=""}={}){
     storageName:target.name,
     storagePath:storageBreadcrumb(target),
     storageSnapshot:captureStorageSnapshot(target),
+    itemSnapshots:capturePlanItems(layout),
     settings:capturePlanSettings(),
     savedAt:new Date().toISOString(),
+    validatedAt:new Date().toISOString(),
     goal:state.optimizeGoal,
     stacking:state.enableStacking,
     signature,
@@ -1342,11 +1344,21 @@ function isPlanChosen(plan){
   return !!plan && state.chosenPlanIds?.[plan.storageId]===plan.id;
 }
 function toggleChosenPlan(planId){
-  const plan=state.savedPlans.find(p=>p.id===planId);if(!plan)return;
+  const plan=state.savedPlans.find(p=>p.id===planId);if(!plan)return false;
   state.chosenPlanIds=state.chosenPlanIds||{};
-  if(state.chosenPlanIds[plan.storageId]===plan.id)delete state.chosenPlanIds[plan.storageId];
-  else state.chosenPlanIds[plan.storageId]=plan.id;
-  normalizeInstallState(state);
+  if(state.chosenPlanIds[plan.storageId]===plan.id){
+    delete state.chosenPlanIds[plan.storageId];
+    normalizeInstallState(state);return true;
+  }
+  const health=planHealth(plan);
+  if(health.status!=="current"){
+    alert(health.status==="review"
+      ?"Review and revalidate this plan before choosing it."
+      :"This plan is no longer valid with the current storage/items. Open it and rebuild or edit it first.");
+    return false;
+  }
+  state.chosenPlanIds[plan.storageId]=plan.id;
+  normalizeInstallState(state);return true;
 }
 function chosenPlans(){
   return Object.entries(state.chosenPlanIds||{})
@@ -1395,8 +1407,21 @@ function computeInstallAllocation(plans,ownedById={},installedPlanIds={},order=[
 }
 function currentInstallAllocation(){
   normalizeInstallState(state);
-  const owned=Object.fromEntries(state.boxes.map(b=>[b.id,b.ownedQty||0]));
-  return computeInstallAllocation(chosenPlans(),owned,state.installedPlanIds,state.installOrder);
+  const plans=chosenPlans(),owned=Object.fromEntries(state.boxes.map(b=>[b.id,b.ownedQty||0]));
+  const installed=p=>state.installedPlanIds?.[p.storageId]===p.id;
+  const healthById=new Map(plans.map(p=>[p.id,planHealth(p)]));
+  const active=plans.filter(p=>installed(p)||healthById.get(p.id)?.status==="current");
+  const base=computeInstallAllocation(active,owned,state.installedPlanIds,state.installOrder);
+  const byStorage=new Map(base.entries.map(e=>[e.storageId,{...e,health:healthById.get(e.plan.id)}]));
+  for(const p of plans){
+    if(installed(p))continue;
+    const health=healthById.get(p.id);
+    if(health?.status!=="current")byStorage.set(p.storageId,{plan:p,storageId:p.storageId,status:"stale",missing:[],health});
+  }
+  const order=[],seen=new Set();
+  for(const id of state.installOrder||[])if(byStorage.has(id)&&!seen.has(id)){seen.add(id);order.push(id)}
+  for(const p of plans)if(byStorage.has(p.storageId)&&!seen.has(p.storageId)){seen.add(p.storageId);order.push(p.storageId)}
+  return {entries:order.map(id=>byStorage.get(id)).filter(Boolean),remainingOwned:base.remainingOwned};
 }
 function moveInstallStorage(storageId,delta){
   normalizeInstallState(state);
@@ -1471,8 +1496,12 @@ function aggregateRequiredCounts(plans){
 }
 
 function projectProcurement(plans=chosenPlans()){
-  const counts=aggregateRequiredCounts(plans),storageUse={};
-  for(const plan of plans){
+  const installed=p=>state.installedPlanIds?.[p.storageId]===p.id;
+  const stalePlans=(plans||[]).filter(p=>!installed(p)&&planHealth(p).status!=="current");
+  const staleIds=new Set(stalePlans.map(p=>p.id));
+  const activePlans=(plans||[]).filter(p=>!staleIds.has(p.id));
+  const counts=aggregateRequiredCounts(activePlans),storageUse={};
+  for(const plan of activePlans){
     const perPlan=layoutCounts(plan.layout||[]);
     for(const [id] of Object.entries(perPlan)){
       if(!storageUse[id])storageUse[id]=new Set();
@@ -1506,7 +1535,7 @@ function projectProcurement(plans=chosenPlans()){
       else remainingMissing+=r.remainingQty;
     }
   }
-  return {plans,rows,totals,remainingTotals,missing,remainingMissing,purchaseUnits,boughtUnits,remainingUnits,ownedUsed,totalRequired};
+  return {plans,activePlans,stalePlans,rows,totals,remainingTotals,missing,remainingMissing,purchaseUnits,boughtUnits,remainingUnits,ownedUsed,totalRequired};
 }
 function moneyTotalsText(totals,missing,emptyText="Nothing to buy"){
   const parts=Object.entries(totals||{}).map(([c,v])=>money(v,c));
@@ -1517,6 +1546,7 @@ function projectTotalsText(summary){
   return summary.purchaseUnits===0?"Nothing to buy":moneyTotalsText(summary.totals,summary.missing);
 }
 function projectRemainingText(summary){
+  if(summary.stalePlans?.length)return `${summary.stalePlans.length} chosen plan${summary.stalePlans.length===1?"":"s"} need review`;
   if(summary.purchaseUnits===0)return "Ready to install";
   if(summary.remainingUnits===0)return "All purchased";
   return moneyTotalsText(summary.remainingTotals,summary.remainingMissing);
