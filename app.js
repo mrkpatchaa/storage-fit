@@ -1042,7 +1042,8 @@ function proposalTags(layout,W,D){
   if(layout.length===mostItems) tags.push("Most compartments");
   if(distinctTypes(layout)===minTypes) tags.push("Simplest setup");
   if(maxTypes>1 && distinctTypes(layout)===maxTypes) tags.push("Most mixed");
-  return tags.slice(0,2);
+  if(layoutUsesStacking(layout)) tags.push("Uses stacking");
+  return tags.slice(0,3);
 }
 
 function showMessage(text,type){$("message").className=`message ${type||""}`;$("message").textContent=text}
@@ -1059,7 +1060,7 @@ function renderGallery(W,D,H,truncated){
   $("gallerySubtitle").textContent=`${layouts.length} curated proposals${truncated?" (search capped)":""}, ordered for “${goalLabel()}”.`;
   const el=$("gallery");
   el.innerHTML=layouts.map((layout,i)=>`<button type="button" class="layoutcard ${i===selectedLayout?"selected":""}" data-layout="${i}">
-    <div class="layoutmeta"><div><strong>Layout ${i+1}</strong>${i===0?`<span class="proposalbadge">${esc(goalLabel())}</span>`:""}${proposalTags(layout,W,D).map(t=>`<span class="proposalbadge">${t}</span>`).join(" ")}</div><span>${(utilization(layout,W,D)*100).toFixed(1)}% usable floor</span></div>
+    <div class="layoutmeta"><div><strong>Layout ${i+1}</strong>${i===0?`<span class="proposalbadge">${esc(goalLabel())}</span>`:""}${proposalTags(layout,W,D).map(t=>`<span class="proposalbadge">${t}</span>`).join(" ")}</div><span>${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)}</span></div>
     ${svgTop(layout,W,D,360,210,false)}
     <div class="legend">${legendHtml(layout)}</div>
   </button>`).join("");
@@ -1075,13 +1076,14 @@ function renderGallery(W,D,H,truncated){
 }
 
 function invalidEditIndices(layout,W,D){
-  const bad=new Set(),gap=Math.max(0,state.fitTolerance||0),obstacles=usableObstacles();
+  const bad=new Set(),gap=Math.max(0,state.fitTolerance||0),obstacles=usableObstacles(),H=currentUsableSize()?.H||Infinity;
   for(let i=0;i<layout.length;i++){
-    const p=layout[i];
-    if(p.x<gap-1e-9||p.y<gap-1e-9||p.x+p.w+gap>W+1e-9||p.y+p.d+gap>D+1e-9) bad.add(i);
-    if(obstacles.some(o=>overlap(p,o,gap)))bad.add(i);
+    const p=layout[i],others=layout.filter((_,j)=>j!==i),type=boxById(p.typeId);
+    if(p.x<gap-1e-9||p.y<gap-1e-9||p.x+p.w+gap>W+1e-9||p.y+p.d+gap>D+1e-9||(p.z||0)<0||(p.z||0)+p.h>H+1e-9)bad.add(i);
+    if(obstacles.some(o=>overlap3D(p,o,gap)))bad.add(i);
+    if(!placementSupported(p,others,type))bad.add(i);
     for(let j=i+1;j<layout.length;j++){
-      if(overlap(p,layout[j],gap)){bad.add(i);bad.add(j)}
+      if(overlap3D(p,layout[j],gap)){bad.add(i);bad.add(j)}
     }
   }
   return bad;
@@ -1097,14 +1099,14 @@ function svgTop(layout,W,D,width,height,labels=true,editable=false,selected=-1,h
     <rect x="${g.ox+o.x*g.scale}" y="${g.oy+o.y*g.scale}" width="${o.w*g.scale}" height="${o.d*g.scale}" fill="url(#hatch-${o.id})" stroke="#b23c3c" stroke-width="1.7"/>
     ${labels?`<text x="${g.ox+(o.x+o.w/2)*g.scale}" y="${g.oy+(o.y+o.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="10" fill="#8b2e2e">blocked</text>`:""}
   </g>`).join("");
-  const rects=layout.map((p,idx)=>{
+  const rects=layout.map((p,idx)=>({p,idx})).sort((a,b)=>(a.p.z||0)-(b.p.z||0)).map(({p,idx})=>{
     const invalid=bad.has(idx),active=idx===selected;
     const stroke=invalid?"#b23c3c":active?"#111":colorFor(p.typeId);
     const fill=invalid?"#b23c3c":colorFor(p.typeId);
     const sw=active?3:invalid?2.5:1.7;
     return `<g data-item="${editable?idx:""}" style="${editable?"cursor:move":""}">
       <rect data-item="${editable?idx:""}" x="${g.ox+p.x*g.scale}" y="${g.oy+p.y*g.scale}" width="${p.w*g.scale}" height="${p.d*g.scale}" rx="3" fill="${fill}" fill-opacity="${invalid?".28":".34"}" stroke="${stroke}" stroke-width="${sw}"/>
-      ${labels?`<text data-item="${editable?idx:""}" x="${g.ox+(p.x+p.w/2)*g.scale}" y="${g.oy+(p.y+p.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#222" pointer-events="${editable?"auto":"none"}">${esc(shortName(boxById(p.typeId)?.name||String(idx+1)))}</text>`:""}
+      ${labels?`<text data-item="${editable?idx:""}" x="${g.ox+(p.x+p.w/2)*g.scale}" y="${g.oy+(p.y+p.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#222" pointer-events="${editable?"auto":"none"}">${esc(shortName(boxById(p.typeId)?.name||String(idx+1)))}${(p.z||0)>0?` ↑${fmt(p.z)}${state.unit}`:""}</text>`:""}
     </g>`;
   }).join("");
   const gapMark=highlightGap?`<rect x="${g.ox+highlightGap.x*g.scale}" y="${g.oy+highlightGap.y*g.scale}" width="${highlightGap.w*g.scale}" height="${highlightGap.d*g.scale}" fill="#166c45" fill-opacity=".08" stroke="#166c45" stroke-width="3" stroke-dasharray="8 5"/><text x="${g.ox+(highlightGap.x+highlightGap.w/2)*g.scale}" y="${g.oy+(highlightGap.y+highlightGap.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="800" fill="#166c45">${fmt(highlightGap.w)} × ${fmt(highlightGap.d)} ${esc(state.unit)}</text>`:"";
@@ -1116,7 +1118,7 @@ function svgFront(layout,W,H,width=760,height=390){
   const obstacles=usableObstacles();
   const obs=obstacles.map(o=>`<rect x="${ox+o.x*scale}" y="${oy+(H-o.h)*scale}" width="${o.w*scale}" height="${o.h*scale}" fill="#b23c3c" fill-opacity=".12" stroke="#b23c3c" stroke-dasharray="5 4" stroke-width="1.5"/>`).join("");
   const sorted=layout.slice().sort((a,b)=>b.y-a.y||a.x-b.x);
-  const rects=sorted.map(p=>`<rect x="${ox+p.x*scale}" y="${oy+(H-p.h)*scale}" width="${p.w*scale}" height="${p.h*scale}" rx="2" fill="${colorFor(p.typeId)}" fill-opacity=".28" stroke="${colorFor(p.typeId)}" stroke-width="1.5"/>`).join("");
+  const rects=sorted.map(p=>`<rect x="${ox+p.x*scale}" y="${oy+(H-(p.z||0)-p.h)*scale}" width="${p.w*scale}" height="${p.h*scale}" rx="2" fill="${colorFor(p.typeId)}" fill-opacity=".28" stroke="${colorFor(p.typeId)}" stroke-width="1.5"/>`).join("");
   return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Front view"><rect x="${ox}" y="${oy}" width="${W*scale}" height="${H*scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${obs}${rects}</svg>`;
 }
 function svgSide(layout,D,H,width=760,height=390){
@@ -1124,7 +1126,7 @@ function svgSide(layout,D,H,width=760,height=390){
   const obstacles=usableObstacles();
   const obs=obstacles.map(o=>`<rect x="${ox+o.y*scale}" y="${oy+(H-o.h)*scale}" width="${o.d*scale}" height="${o.h*scale}" fill="#b23c3c" fill-opacity=".12" stroke="#b23c3c" stroke-dasharray="5 4" stroke-width="1.5"/>`).join("");
   const sorted=layout.slice().sort((a,b)=>b.x-a.x||a.y-b.y);
-  const rects=sorted.map(p=>`<rect x="${ox+p.y*scale}" y="${oy+(H-p.h)*scale}" width="${p.d*scale}" height="${p.h*scale}" rx="2" fill="${colorFor(p.typeId)}" fill-opacity=".28" stroke="${colorFor(p.typeId)}" stroke-width="1.5"/>`).join("");
+  const rects=sorted.map(p=>`<rect x="${ox+p.y*scale}" y="${oy+(H-(p.z||0)-p.h)*scale}" width="${p.d*scale}" height="${p.h*scale}" rx="2" fill="${colorFor(p.typeId)}" fill-opacity=".28" stroke="${colorFor(p.typeId)}" stroke-width="1.5"/>`).join("");
   return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Side view"><rect x="${ox}" y="${oy}" width="${D*scale}" height="${H*scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${obs}${rects}</svg>`;
 }
 
@@ -1155,16 +1157,17 @@ function obstacleCuboidSvg(o,P){
   return poly([A,B,F,E],"#b23c3c","#b23c3c",.10)+poly([B,C,G,F],"#b23c3c","#b23c3c",.14)+poly([E,F,G,H],"#b23c3c","#b23c3c",.18);
 }
 function cuboidSvg(p,P){
-  const A=P(p.x,p.y,0),B=P(p.x+p.w,p.y,0),C=P(p.x+p.w,p.y+p.d,0),D=P(p.x,p.y+p.d,0);
-  const E=P(p.x,p.y,p.h),F=P(p.x+p.w,p.y,p.h),G=P(p.x+p.w,p.y+p.d,p.h),H=P(p.x,p.y+p.d,p.h);
+  const z=Number(p.z)||0;
+  const A=P(p.x,p.y,z),B=P(p.x+p.w,p.y,z),C=P(p.x+p.w,p.y+p.d,z),D=P(p.x,p.y+p.d,z);
+  const E=P(p.x,p.y,z+p.h),F=P(p.x+p.w,p.y,z+p.h),G=P(p.x+p.w,p.y+p.d,z+p.h),H=P(p.x,p.y+p.d,z+p.h);
   const c=colorFor(p.typeId);
   return poly([A,B,F,E],c,c,.18)+poly([B,C,G,F],c,c,.24)+poly([E,F,G,H],c,c,.34);
 }
 function svgIso(layout,W,D,H,width=760,height=430){
   const P=isoTransform(W,D,H,width,height);
   const sorted=layout.slice().sort((a,b)=>{
-    const ac=isoCameraRaw(a.x+a.w/2,a.y+a.d/2,a.h/2,W,D,H)[1];
-    const bc=isoCameraRaw(b.x+b.w/2,b.y+b.d/2,b.h/2,W,D,H)[1];
+    const ac=isoCameraRaw(a.x+a.w/2,a.y+a.d/2,(a.z||0)+a.h/2,W,D,H)[1];
+    const bc=isoCameraRaw(b.x+b.w/2,b.y+b.d/2,(b.z||0)+b.h/2,W,D,H)[1];
     return bc-ac;
   });
   const floor=poly([P(0,0,0),P(W,0,0),P(W,D,0),P(0,D,0)],"#ffffff","#bbbbbb",1);
@@ -1180,7 +1183,8 @@ function renderDetail(W,D,H){
   const layout=layouts[selectedLayout];if(!layout)return;
   $("detailTitle").textContent=`Layout ${selectedLayout+1}`;
   updateModalNav();updateSavePlanButton();
-  $("detailSubtitle").textContent=`${(utilization(layout,W,D)*100).toFixed(1)}% usable-floor utilization · ${layout.length} item${layout.length===1?"":"s"}.`;
+  const stackedCount=layout.filter(p=>(p.z||0)>1e-9).length;
+  $("detailSubtitle").textContent=`${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)} utilization · ${layout.length} item${layout.length===1?"":"s"}${stackedCount?` · ${stackedCount} stacked`:""}.`;
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.view===detailView));
   $("reset3d").disabled=detailView!=="iso";
   $("editLayoutBtn").textContent=editMode?"Editing":"Edit layout";
@@ -1197,7 +1201,8 @@ function renderDetail(W,D,H){
   $("layoutItems").innerHTML=Object.entries(counts).map(([id,n])=>{
     const b=boxById(id),ps=layout.filter(p=>p.typeId===id);
     const os=[...new Set(ps.map(p=>`${fmt(p.w)} × ${fmt(p.d)} × ${fmt(p.h)}`))];
-    return `<li><strong>${esc(b?.name||id)} ×${n}</strong> — ${os.join(", ")} ${esc(state.unit)}</li>`;
+    const stacked=ps.filter(p=>(p.z||0)>1e-9).length;
+    return `<li><strong>${esc(b?.name||id)} ×${n}</strong> — ${os.join(", ")} ${esc(state.unit)}${stacked?` · ${stacked} stacked`:""}</li>`;
   }).join("");
 
   currentGaps=findEmptyRectangles(layout,W,D);
@@ -1267,11 +1272,12 @@ function currentUsableSize(){
 function selectedManualLayout(){return layouts[selectedLayout]}
 function editItemValid(layout,index,W,D){
   if(index<0||index>=layout.length)return false;
-  const p=layout[index],gap=Math.max(0,state.fitTolerance||0),obstacles=usableObstacles();
-  if(p.x<gap-1e-9||p.y<gap-1e-9||p.x+p.w+gap>W+1e-9||p.y+p.d+gap>D+1e-9)return false;
-  if(obstacles.some(o=>overlap(p,o,gap)))return false;
-  for(let i=0;i<layout.length;i++)if(i!==index&&overlap(p,layout[i],gap))return false;
-  return true;
+  const p=layout[index],gap=Math.max(0,state.fitTolerance||0),obstacles=usableObstacles(),H=currentUsableSize()?.H||Infinity;
+  const others=layout.filter((_,i)=>i!==index),type=boxById(p.typeId);
+  if(p.x<gap-1e-9||p.y<gap-1e-9||p.x+p.w+gap>W+1e-9||p.y+p.d+gap>D+1e-9||(p.z||0)<0||(p.z||0)+p.h>H+1e-9)return false;
+  if(obstacles.some(o=>overlap3D(p,o,gap)))return false;
+  if(others.some(q=>overlap3D(p,q,gap)))return false;
+  return placementSupported(p,others,type);
 }
 function setEditStatus(msg,bad=false){
   $("editStatus").textContent=msg;
@@ -1293,7 +1299,7 @@ $("editLayoutBtn").addEventListener("click",()=>{
     editOriginalLayout=selectedManualLayout().map(p=>({...p}));
     selectedEditItem=-1;
     detailView="top";
-    setEditStatus("Click a box, drag it to move, or use the edit buttons.");
+    setEditStatus("Click a box, drag it to move, or use the edit buttons. Stacked items keep their current elevation.");
   }
   refreshCurrentDetail();
 });
@@ -1337,13 +1343,9 @@ $("duplicateItem").addEventListener("click",()=>{
   if(!editMode||!layout||!sz||selectedEditItem<0){setEditStatus("Select a box first.",true);return}
   const src=layout[selectedEditItem],max=allowedMaxFor(src.typeId);
   if(max!==null&&countType(layout,src.typeId)>=max){setEditStatus(`Maximum quantity (${max}) reached for this item.`,true);return}
-  const points=candidatePoints(layout);
-  for(const [x,y] of points){
-    const p={...src,x:round6(x),y:round6(y)};
-    const gap=Math.max(0,state.fitTolerance||0);
-    if(p.x>=gap-1e-9&&p.y>=gap-1e-9&&p.x+p.w+gap<=sz.W+1e-9&&p.y+p.d+gap<=sz.D+1e-9&&!layout.some(q=>overlap(p,q,gap))&&!usableObstacles().some(o=>overlap(p,o,gap))){
-      layout.push(p);selectedEditItem=layout.length-1;selectedGap=-1;setEditStatus("Duplicate added.");refreshCurrentDetail();return;
-    }
+  const type=boxById(src.typeId),gap=Math.max(0,state.fitTolerance||0);
+  for(const p of candidatePlacementsFor(layout,type,[src.w,src.d,src.h],sz.W,sz.D,sz.H,usableObstacles(),gap)){
+    layout.push(p);selectedEditItem=layout.length-1;selectedGap=-1;setEditStatus((p.z||0)>0?"Duplicate stacked.":"Duplicate added.");refreshCurrentDetail();return;
   }
   setEditStatus("No free position for another copy.",true);
 });
