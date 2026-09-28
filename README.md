@@ -815,3 +815,32 @@ Invalid coordinates are rejected and the existing layout remains unchanged.
 Every successful coordinate change is a normal Undo/Redo history step.
 
 No state schema change is required; the app remains on V28.
+
+
+## Quick placement alignment
+
+Manual editing now includes a **Quick align** control for the selected organizer.
+
+Available alignments:
+
+- **Left**
+- **Horizontal center**
+- **Right**
+- **Front**
+- **Depth center**
+- **Back**
+
+Edge alignment uses the current fit tolerance as the inset from the usable storage boundary. Center alignment uses the exact usable-space center.
+
+Alignment changes only X or Y. It preserves:
+
+- organizer type and orientation;
+- dimensions;
+- Z elevation;
+- purpose label.
+
+Like exact-coordinate editing, alignment is transactional. Storage Fit tests the complete candidate layout first against bounds, blocked zones, dividers, collisions, stack support, max stack level, and dependent stacked items.
+
+If the aligned placement would be invalid, nothing changes. Every successful alignment is one Undo/Redo history step.
+
+No state schema change is required; the app remains on V28.
