@@ -7,6 +7,7 @@ const PREV_KEYS = ["storage-fit-planner-v27","storage-fit-planner-v26","storage-
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
+const SHARE_LINK_LIMIT = 12000;
 
 let state = loadState();
 ensureHomeHierarchy(state);
@@ -1156,6 +1157,77 @@ function renderShoppingList(layout){
 function slugify(s){
   return String(s||"plan").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,60)||"storage-plan";
 }
+function base64UrlEncodeUtf8(text){
+  const bytes=new TextEncoder().encode(String(text)),chunk=0x8000;
+  let binary="";
+  for(let i=0;i<bytes.length;i+=chunk)binary+=String.fromCharCode(...bytes.subarray(i,i+chunk));
+  return btoa(binary).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+}
+function base64UrlDecodeUtf8(value){
+  const raw=String(value||"").replace(/-/g,"+").replace(/_/g,"/");
+  const padded=raw+"=".repeat((4-raw.length%4)%4),binary=atob(padded),bytes=new Uint8Array(binary.length);
+  for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+function validateSharePayload(payload){
+  if(!payload||typeof payload!=="object"||payload.v!==1)return "Unsupported shared-plan format.";
+  if(typeof payload.n!=="string"||!payload.n.trim()||payload.n.length>160)return "Shared plan has an invalid name.";
+  if(!["cm","mm","in"].includes(payload.u))return "Shared plan has an invalid unit.";
+  if(!Array.isArray(payload.d)||payload.d.length!==3||payload.d.some(v=>!Number.isFinite(Number(v))||Number(v)<=0))return "Shared plan has invalid storage dimensions.";
+  if(!Array.isArray(payload.z)||payload.z.length!==3||payload.z.some(v=>!Number.isFinite(Number(v))||Number(v)<=0))return "Shared plan has invalid usable dimensions.";
+  if(!Array.isArray(payload.i)||payload.i.length>100)return "Shared plan has invalid item definitions.";
+  for(const row of payload.i){
+    if(!Array.isArray(row)||row.length<2||typeof row[0]!=="string"||typeof row[1]!=="string"||row[0].length>100||row[1].length>200)return "Shared plan has a malformed item definition.";
+  }
+  const itemIds=new Set(payload.i.map(row=>row[0]));
+  if(!Array.isArray(payload.o)||payload.o.length>100)return "Shared plan has invalid physical constraints.";
+  for(const row of payload.o){
+    if(!Array.isArray(row)||row.length!==6||![0,1].includes(row[0])||row.slice(1).some(v=>!Number.isFinite(Number(v))||Number(v)<0))return "Shared plan has a malformed physical constraint.";
+  }
+  if(!Array.isArray(payload.p)||!payload.p.length||payload.p.length>500)return "Shared plan has invalid placements.";
+  for(const row of payload.p){
+    if(!Array.isArray(row)||row.length!==8||!itemIds.has(row[0])||row.slice(1,7).some(v=>!Number.isFinite(Number(v))||Number(v)<0)||typeof row[7]!=="string"||row[7].length>60)return "Shared plan has a malformed placement.";
+  }
+  return "";
+}
+function encodeSharePayload(payload){
+  const error=validateSharePayload(payload);if(error)throw new Error(error);
+  return base64UrlEncodeUtf8(JSON.stringify(payload));
+}
+function decodeSharePayload(value){
+  try{
+    const payload=JSON.parse(base64UrlDecodeUtf8(value)),error=validateSharePayload(payload);
+    return error?{error,payload:null}:{error:"",payload};
+  }catch(e){return {error:"This shared-plan link is damaged or incomplete.",payload:null}}
+}
+function currentSharePayload(){
+  const layout=layouts[selectedLayout],s=storage();if(!layout||!s)return null;
+  const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0,W=s.w-2*c,D=s.d-2*c,H=s.h-2*c;
+  const ids=[...new Set(layout.map(p=>p.typeId))];
+  return {
+    v:1,n:s.name,u:state.unit,g:goalLabel(),k:!!state.enableStacking,
+    d:[round6(s.w),round6(s.d),round6(s.h)],z:[round6(W),round6(D),round6(H)],
+    c:round6(c),t:round6(Math.max(0,state.fitTolerance||0)),
+    r:Number((utilization(layout,W,D,H)*100).toFixed(2)),q:utilizationNoun(layout),
+    o:usableObstacles().map(o=>[o.kind==="divider"?1:0,round6(o.x),round6(o.y),round6(o.w),round6(o.d),round6(o.h)]),
+    i:ids.map(id=>[id,String(boxById(id)?.name||id).slice(0,200)]),
+    p:layout.map(p=>[p.typeId,round6(p.x),round6(p.y),round6(Number(p.z)||0),round6(p.w),round6(p.d),round6(p.h),placementLabel(p)])
+  };
+}
+function currentShareUrl(baseHref=location.href){
+  const payload=currentSharePayload();if(!payload)return null;
+  const encoded=encodeSharePayload(payload),url=new URL("share.html",baseHref);
+  url.hash="p="+encoded;
+  return url.toString();
+}
+async function copyText(text){
+  if(navigator.clipboard?.writeText){try{await navigator.clipboard.writeText(text);return true}catch(e){}}
+  const ta=document.createElement("textarea");ta.value=text;ta.setAttribute("readonly","");ta.style.position="fixed";ta.style.opacity="0";
+  document.body.appendChild(ta);ta.select();let ok=false;
+  try{ok=document.execCommand("copy")}catch(e){}
+  ta.remove();return ok;
+}
+
 function currentExportPayload(){
   const layout=layouts[selectedLayout],s=storage();if(!layout||!s)return null;
   const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0;
@@ -2876,6 +2948,19 @@ $("exportPlanBtn").addEventListener("click",()=>{
   const old=$("exportPlanBtn").textContent;$("exportPlanBtn").textContent="Exported ✓";
   setTimeout(()=>{$("exportPlanBtn").textContent=old},1200);
 });
+$("sharePlanBtn").addEventListener("click",async()=>{
+  let url;
+  try{url=currentShareUrl()}catch(e){alert(e.message||"Could not create a share link.");return}
+  if(!url)return;
+  if(url.length>SHARE_LINK_LIMIT){
+    alert("This layout is too large for a reliable share link. Use Export to share the full JSON plan instead.");
+    return;
+  }
+  const ok=await copyText(url),btn=$("sharePlanBtn"),old=btn.textContent;
+  btn.textContent=ok?"Copied ✓":"Link ready";
+  if(!ok)prompt("Copy this read-only share link:",url);
+  setTimeout(()=>{btn.textContent=old},1400);
+});
 
 $("savePlanBtn").addEventListener("click",()=>{
   const layout=layouts[selectedLayout],s=storage();if(!layout||!s)return;
@@ -3260,6 +3345,11 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeSnapStep,
     snapValue,
     clampSnappedValue,
+    base64UrlEncodeUtf8,
+    base64UrlDecodeUtf8,
+    validateSharePayload,
+    encodeSharePayload,
+    decodeSharePayload,
     overlap3D,
     footprintContains
   };

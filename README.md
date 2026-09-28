@@ -511,3 +511,54 @@ If no valid destination exists, the existing placement is preserved.
 Dragging, keyboard nudging, rotation, duplication, floor moves, and stacking all use the same collision/support validation path. There is no manual-edit loophole around optimizer constraints.
 
 V28 migrates V27 automatically and adds only manual-editor preferences; saved-plan geometry and project data remain compatible.
+
+
+## Read-only share links
+
+Any selected layout can now be shared without exporting or exposing the rest of the planner.
+
+Use **Share link** from the selected-layout toolbar. Storage Fit copies a URL to the standalone `share.html` viewer.
+
+The shared viewer is intentionally read-only and shows:
+
+- Front, Top, Side, and 3D views;
+- storage and usable dimensions;
+- utilization;
+- organizer mix;
+- placement purpose labels;
+- blocked zones and custom dividers;
+- stacked placement elevation.
+
+### Privacy scope
+
+A share link contains only the selected plan data needed to render that one layout:
+
+- storage geometry;
+- usable geometry after clearance;
+- physical blocked/divider geometry;
+- organizer names used by the layout;
+- exact placements and labels;
+- unit, optimization label, stacking flag, and utilization.
+
+It does **not** include:
+
+- rooms or other furniture/storage spaces;
+- the full item library;
+- prices or product URLs;
+- owned inventory;
+- shopping/purchase progress;
+- saved-plan history;
+- recovery checkpoints;
+- other plans.
+
+The encoded plan is stored in the URL fragment (`#p=...`). URL fragments are handled by the browser and are not included in normal HTTP page requests to the server.
+
+Opening a shared link does not import, overwrite, or write planner data. The standalone viewer never uses `localStorage`.
+
+### Reliability
+
+Share payloads are validated before encoding and again by the viewer. Damaged or malformed links show an error instead of rendering partial data.
+
+To avoid unreliable oversized URLs, Storage Fit limits generated share links to approximately 12,000 characters. Very large plans should use the existing JSON **Export** instead.
+
+CI syntax-checks both `app.js` and the standalone `share.js` viewer.

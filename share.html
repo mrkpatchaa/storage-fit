@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Shared Storage Fit plan</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="sharepage">
+  <main class="sharewrap">
+    <div class="sharebrand"><strong>Storage Fit</strong><span>Read-only shared plan</span></div>
+    <section class="card shareerror" id="shareError" hidden>
+      <h1>Could not open this plan</h1>
+      <p id="shareErrorText">The link is invalid or incomplete.</p>
+      <a class="btn soft" href="index.html">Open Storage Fit</a>
+    </section>
+    <div id="shareViewer" hidden>
+      <section class="card sharehero">
+        <div>
+          <div class="small">Shared organization plan</div>
+          <h1 id="shareTitle">Storage plan</h1>
+          <div class="small" id="shareMeta"></div>
+        </div>
+        <div class="shareactions">
+          <button class="btn soft" id="copySharedLink" type="button">Copy link</button>
+          <a class="btn soft" href="index.html">Open planner</a>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="detailtabs sharetabs">
+          <button class="tab active" type="button" data-share-view="front">Front</button>
+          <button class="tab" type="button" data-share-view="top">Top</button>
+          <button class="tab" type="button" data-share-view="side">Side</button>
+          <button class="tab" type="button" data-share-view="iso">3D</button>
+        </div>
+        <div class="detailviz shareviz" id="shareViz"></div>
+        <div class="sharelegend"><span><i class="shareblocked"></i> blocked zone</span><span><i class="sharedivider"></i> divider</span></div>
+      </section>
+
+      <section class="sharestats" id="shareStats"></section>
+
+      <section class="sharecolumns">
+        <div class="card">
+          <h2>Organizer mix</h2>
+          <div id="shareItems"></div>
+        </div>
+        <div class="card">
+          <h2>Contents / purposes</h2>
+          <div id="shareContents"></div>
+        </div>
+      </section>
+
+      <p class="shareprivacy">This link contains only this plan’s geometry and labels. It does not include the sender’s rooms, full item library, prices, owned inventory, shopping progress, recovery history, or other saved plans.</p>
+    </div>
+  </main>
+  <script src="share.js"></script>
+</body>
+</html>
