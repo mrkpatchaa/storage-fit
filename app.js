@@ -356,7 +356,7 @@ function renderAll(){
   $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;$("enableStacking").checked=!!state.enableStacking;
   $("clearanceEnabled").checked=!!state.clearanceEnabled;$("clearance").value=state.clearance??0.5;$("fitTolerance").value=state.fitTolerance??0;
   $("clearanceField").style.display=state.clearanceEnabled?"block":"none";
-  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();loadBoxEditor();renderSavedPlans();renderHomeProcurement();renderBackupStats();resetResults();
+  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();loadBoxEditor();renderSavedPlans();renderInstallDashboard();renderHomeProcurement();renderBackupStats();resetResults();
 }
 function plannedStorageIds(){return new Set((state.savedPlans||[]).map(p=>p.storageId))}
 function renderHierarchy(){
@@ -1026,12 +1026,120 @@ function toggleChosenPlan(planId){
   state.chosenPlanIds=state.chosenPlanIds||{};
   if(state.chosenPlanIds[plan.storageId]===plan.id)delete state.chosenPlanIds[plan.storageId];
   else state.chosenPlanIds[plan.storageId]=plan.id;
+  normalizeInstallState(state);
 }
 function chosenPlans(){
   return Object.entries(state.chosenPlanIds||{})
     .map(([storageId,planId])=>state.savedPlans.find(p=>p.id===planId&&p.storageId===storageId))
     .filter(Boolean);
 }
+function computeInstallAllocation(plans,ownedById={},installedPlanIds={},order=[]){
+  const byStorage=new Map((plans||[]).map(p=>[p.storageId,p]));
+  const orderedIds=[],seen=new Set();
+  for(const id of order||[]){
+    if(byStorage.has(id)&&!seen.has(id)){seen.add(id);orderedIds.push(id)}
+  }
+  for(const p of plans||[]){
+    if(!seen.has(p.storageId)){seen.add(p.storageId);orderedIds.push(p.storageId)}
+  }
+
+  const available={};
+  for(const [id,qty] of Object.entries(ownedById||{}))available[id]=Math.max(0,Math.floor(Number(qty)||0));
+
+  const requirements=p=>layoutCounts(p.layout||[]);
+  for(const storageId of orderedIds){
+    const plan=byStorage.get(storageId);
+    if(!plan||installedPlanIds?.[storageId]!==plan.id)continue;
+    for(const [id,qty] of Object.entries(requirements(plan))){
+      available[id]=Math.max(0,(available[id]||0)-qty);
+    }
+  }
+
+  const entries=[];
+  for(const storageId of orderedIds){
+    const plan=byStorage.get(storageId);if(!plan)continue;
+    const req=requirements(plan),installed=installedPlanIds?.[storageId]===plan.id;
+    if(installed){
+      entries.push({plan,storageId,status:"installed",missing:[]});
+      continue;
+    }
+    const missing=Object.entries(req).map(([id,qty])=>({id,qty:Math.max(0,qty-(available[id]||0))})).filter(x=>x.qty>0);
+    if(!missing.length){
+      for(const [id,qty] of Object.entries(req))available[id]=Math.max(0,(available[id]||0)-qty);
+      entries.push({plan,storageId,status:"ready",missing:[]});
+    }else{
+      entries.push({plan,storageId,status:"waiting",missing});
+    }
+  }
+  return {entries,remainingOwned:available};
+}
+function currentInstallAllocation(){
+  normalizeInstallState(state);
+  const owned=Object.fromEntries(state.boxes.map(b=>[b.id,b.ownedQty||0]));
+  return computeInstallAllocation(chosenPlans(),owned,state.installedPlanIds,state.installOrder);
+}
+function moveInstallStorage(storageId,delta){
+  normalizeInstallState(state);
+  const order=state.installOrder,i=order.indexOf(storageId),j=i+delta;
+  if(i<0||j<0||j>=order.length)return;
+  [order[i],order[j]]=[order[j],order[i]];
+  localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();
+}
+function renderInstallDashboard(){
+  const sec=$("installDashboardSection");if(!sec)return;
+  normalizeInstallState(state);
+  const allocation=currentInstallAllocation(),entries=allocation.entries;
+  if(!entries.length){
+    sec.style.display="none";$("installQueue").innerHTML="";return;
+  }
+  sec.style.display="block";
+  const installed=entries.filter(e=>e.status==="installed").length;
+  const ready=entries.filter(e=>e.status==="ready").length;
+  const waiting=entries.filter(e=>e.status==="waiting").length;
+  $("installProgressText").textContent=`${installed}/${entries.length} installed`;
+  $("installSummary").innerHTML=`
+    <div class="installstat"><div class="k">Chosen spaces</div><div class="v">${entries.length}</div></div>
+    <div class="installstat"><div class="k">Ready now</div><div class="v">${ready}</div></div>
+    <div class="installstat"><div class="k">Waiting</div><div class="v">${waiting}</div></div>
+    <div class="installstat"><div class="k">Installed</div><div class="v">${installed}</div><div class="progressbar"><span style="width:${entries.length?Math.round(installed/entries.length*100):0}%"></span></div></div>`;
+
+  $("installQueue").innerHTML=entries.map((entry,index)=>{
+    const plan=entry.plan,m=planMetrics(plan);
+    const missing=entry.missing.map(x=>`${esc(boxById(x.id)?.name||"Item")} ×${x.qty}`).join(" · ");
+    const label=entry.status==="installed"?"Installed":entry.status==="ready"?"Ready now":"Waiting for inventory";
+    return `<div class="installcard ${entry.status}">
+      <div>
+        <div class="installtitle">${esc(m.storagePath)}</div>
+        <div class="installmeta">${esc(plan.name)} · ${m.itemCount} organizer${m.itemCount===1?"":"s"}</div>
+        <span class="installstatus ${entry.status}">${label}</span>
+        ${entry.status==="waiting"?`<div class="installmissing">Missing: ${missing}</div>`:""}
+      </div>
+      <div class="installactions">
+        <button class="btn soft" type="button" data-install-up="${entry.storageId}" ${index===0?"disabled":""}>↑</button>
+        <button class="btn soft" type="button" data-install-down="${entry.storageId}" ${index===entries.length-1?"disabled":""}>↓</button>
+        <button class="btn soft" type="button" data-install-open="${plan.id}">Open</button>
+        ${entry.status==="installed"
+          ?`<button class="btn soft" type="button" data-install-undo="${entry.storageId}">Undo installed</button>`
+          :`<button class="btn primary" type="button" data-install-done="${entry.storageId}" ${entry.status!=="ready"?"disabled":""}>Mark installed</button>`}
+      </div>
+    </div>`;
+  }).join("");
+
+  $("installQueue").querySelectorAll("[data-install-up]").forEach(btn=>btn.addEventListener("click",()=>moveInstallStorage(btn.dataset.installUp,-1)));
+  $("installQueue").querySelectorAll("[data-install-down]").forEach(btn=>btn.addEventListener("click",()=>moveInstallStorage(btn.dataset.installDown,1)));
+  $("installQueue").querySelectorAll("[data-install-open]").forEach(btn=>btn.addEventListener("click",()=>openSavedPlan(btn.dataset.installOpen)));
+  $("installQueue").querySelectorAll("[data-install-done]").forEach(btn=>btn.addEventListener("click",()=>{
+    const storageId=btn.dataset.installDone,entry=currentInstallAllocation().entries.find(e=>e.storageId===storageId);
+    if(!entry||entry.status!=="ready")return;
+    state.installedPlanIds[storageId]=entry.plan.id;
+    localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();renderHomeProcurement();
+  }));
+  $("installQueue").querySelectorAll("[data-install-undo]").forEach(btn=>btn.addEventListener("click",()=>{
+    delete state.installedPlanIds[btn.dataset.installUndo];
+    localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();renderHomeProcurement();
+  }));
+}
+
 function aggregateRequiredCounts(plans){
   const counts={};
   for(const plan of plans||[]){
