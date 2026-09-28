@@ -279,3 +279,36 @@ Dividers are preserved through:
 Structural propagation requires divider geometry to match too, so a drawer with a divider at 30 cm will not be treated as identical to one with the same divider at 31 cm.
 
 V23 migrates V22 automatically; existing storage spaces simply start with no dividers.
+
+
+## Placement purposes and contents
+
+A layout can now describe not only **where organizers go**, but **what each individual organizer is for**.
+
+In **Edit layout**:
+
+1. select a placed organizer in Top view;
+2. enter a purpose such as `Socks`, `Cables`, `Belts`, or `First aid`;
+3. repeat for any other placement, including identical organizer types.
+
+Placement purposes belong to the exact placement, not the catalog item type. Four identical boxes can therefore carry four different purposes.
+
+Purposes are shown in:
+
+- Top view;
+- the layout detail panel;
+- saved-plan cards;
+- side-by-side plan comparison;
+- the installation queue;
+- printed plan sheets.
+
+They are preserved in:
+
+- saved plans;
+- **Apply to matching** propagation;
+- plan JSON export;
+- full browser backups.
+
+The single-plan JSON export is version 2 and adds an explicit `contents` list while keeping labels on each placement. It also includes custom dividers in the storage snapshot.
+
+Relabeling a placement counts as a real plan change: V24 uses a label-aware saved-plan signature while leaving the optimizer's geometry deduplication unchanged. Existing V23 saved plans migrate automatically with blank labels where none existed.

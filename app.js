@@ -1,7 +1,7 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v23";
-const PREV_KEYS = ["storage-fit-planner-v22","storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v24";
+const PREV_KEYS = ["storage-fit-planner-v23","storage-fit-planner-v22","storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -33,7 +33,11 @@ state.savedPlans = Array.isArray(state.savedPlans)?state.savedPlans:[];
 normalizeChosenPlanSelections(state);
 normalizeShoppingBought(state);
 normalizeInstallState(state);
-for(const p of state.savedPlans){p.note=String(p.note||"");p.settings=p.settings||null;}
+for(const p of state.savedPlans){
+  p.note=String(p.note||"");p.settings=p.settings||null;
+  for(const q of p.layout||[])q.label=String(q.label||"").trim().slice(0,60);
+  p.signature=planSignature(p.storageId,p.layout||[]);
+}
 for(const b of state.boxes){
   if(!(b.id in state.itemLimits)) state.itemLimits[b.id] = null;
   b.price = Math.max(0,Number(b.price)||0);
@@ -315,7 +319,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:23,
+    appVersion:24,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
@@ -1014,20 +1018,22 @@ function currentExportPayload(){
   const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0;
   return {
     format:"storage-fit-plan",
-    version:1,
+    version:2,
     exportedAt:new Date().toISOString(),
     storage:{
       id:s.id,name:s.name,width:s.w,depth:s.d,height:s.h,unit:state.unit,
       wallClearance:state.clearanceEnabled?state.clearance:0,
       fitTolerance:state.fitTolerance,
-      obstacles:(s.obstacles||[]).map(o=>({...o}))
+      obstacles:(s.obstacles||[]).map(o=>({...o})),
+      dividers:(s.dividers||[]).map(d=>({...d}))
     },
     optimizationGoal:state.optimizeGoal,
     stackingEnabled:state.enableStacking,
     utilizationKind:utilizationNoun(layout),
     utilization:Number((utilization(layout,s.w-2*c,s.d-2*c,s.h-2*c)*100).toFixed(2)),
     items:shoppingRows(layout),
-    placements:layout.map(p=>({...p}))
+    contents:labeledPlacements(layout),
+    placements:layout.map(p=>({...p,label:placementLabel(p)}))
   };
 }
 function downloadJson(filename,data){
@@ -1047,6 +1053,7 @@ function buildPrintSheet(){
       <div class="printviz"><h2>Front view</h2>${svgFront(layout,W,H,640,340)}</div>
       <div class="printviz"><h2>Top view</h2>${svgTop(layout,W,D,640,340,true,false,-1,null)}</div>
     </div>
+    ${labeledPlacements(layout).length?`<h2>Contents / labels</h2><table><thead><tr><th>#</th><th>Purpose</th><th>Organizer</th><th>Position</th></tr></thead><tbody>${labeledPlacements(layout).map(x=>`<tr><td>${x.index+1}</td><td><strong>${esc(x.label)}</strong></td><td>${esc(x.itemName)}</td><td>${fmt(x.x)}, ${fmt(x.y)}${x.z>0?`, z ${fmt(x.z)}`:""} ${esc(state.unit)}</td></tr>`).join("")}</tbody></table>`:""}
     <h2>Shopping list</h2>
     <table><thead><tr><th>Item</th><th>Use</th><th>Owned</th><th>Buy</th><th>Unit price</th><th>Subtotal</th></tr></thead>
     <tbody>${rows.map(r=>`<tr><td>${esc(r.name)}${r.sku?` · ${esc(r.sku)}`:""}${r.url&&r.buyQty?`<br><a href="${esc(r.url)}">${esc(r.url)}</a>`:""}</td><td>${r.qty}</td><td>${r.ownedUsed}</td><td>${r.buyQty}</td><td>${r.buyQty&&r.price>0?money(r.price,r.currency):"—"}</td><td>${r.buyQty&&r.price>0?money(r.subtotal,r.currency):r.buyQty?"—":"✓"}</td></tr>`).join("")}</tbody></table>
@@ -1076,7 +1083,7 @@ function compareLayoutsForGoal(a,b,W,D){
 }
 
 function planSignature(storageId,layout){
-  return `${storageId}|${canonicalLayout(layout)}`;
+  return `${storageId}|${canonicalPlanLayout(layout)}`;
 }
 function storageStructureSignature(s){
   if(!s)return "";
@@ -1265,13 +1272,14 @@ function renderInstallDashboard(){
     <div class="installstat"><div class="k">Installed</div><div class="v">${installed}</div><div class="progressbar"><span style="width:${entries.length?Math.round(installed/entries.length*100):0}%"></span></div></div>`;
 
   $("installQueue").innerHTML=entries.map((entry,index)=>{
-    const plan=entry.plan,m=planMetrics(plan);
+    const plan=entry.plan,m=planMetrics(plan),contents=labeledPlacements(plan.layout||[]);
     const missing=entry.missing.map(x=>`${esc(boxById(x.id)?.name||"Item")} ×${x.qty}`).join(" · ");
     const label=entry.status==="installed"?"Installed":entry.status==="ready"?"Ready now":"Waiting for inventory";
     return `<div class="installcard ${entry.status}">
       <div>
         <div class="installtitle">${esc(m.storagePath)}</div>
         <div class="installmeta">${esc(plan.name)} · ${m.itemCount} organizer${m.itemCount===1?"":"s"}</div>
+        ${contents.length?`<div class="installmeta">Contents: ${contents.slice(0,4).map(x=>esc(x.label)).join(" · ")}${contents.length>4?` · +${contents.length-4} more`:""}</div>`:""}
         <span class="installstatus ${entry.status}">${label}</span>
         ${entry.status==="waiting"?`<div class="installmissing">Missing: ${missing}</div>`:""}
       </div>
@@ -1478,7 +1486,7 @@ function renderCompareModal(){
   const plans=[...comparePlanIds].map(id=>state.savedPlans.find(p=>p.id===id)).filter(Boolean).slice(0,3);
   const el=$("compareGrid");
   el.innerHTML=plans.map(plan=>{
-    const m=planMetrics(plan),counts=layoutCounts(plan.layout||[]);
+    const m=planMetrics(plan),counts=layoutCounts(plan.layout||[]),contents=labeledPlacements(plan.layout||[]);
     const items=Object.entries(counts).map(([id,n])=>`<li>${esc(boxById(id)?.name||"Item")} ×${n}</li>`).join("");
     const chosen=isPlanChosen(plan);
     return `<article class="comparecard ${chosen?"chosen":""}">
@@ -1491,6 +1499,7 @@ function renderCompareModal(){
         <div class="comparestat"><div class="k">To buy</div><div class="v" style="font-size:12px">${esc(m.cost)}</div><div class="small">${m.ownedUsed} owned used</div></div>
       </div>
       <div class="compareitems"><strong>Item mix</strong><ul>${items||"<li>No items</li>"}</ul></div>
+      ${contents.length?`<div class="compareitems"><strong>Contents</strong><ul>${contents.map(x=>`<li>${esc(x.label)} — ${esc(x.itemName)}</li>`).join("")}</ul></div>`:""}
       ${plan.note?`<div class="comparnote">${esc(plan.note)}</div>`:""}
       <div class="savedactions">
         <button class="btn ${chosen?"primary":"soft"}" type="button" data-compare-choose="${plan.id}">${chosen?"Chosen here ✓":"Choose for this storage"}</button>
@@ -1534,7 +1543,7 @@ function renderSavedPlans(){
   sec.style.display="block";
   $("savedPlansCount").textContent=`${state.savedPlans.length} saved`;
   el.innerHTML=state.savedPlans.map(p=>{
-    const m=planMetrics(p),counts=layoutCounts(p.layout||[]);
+    const m=planMetrics(p),counts=layoutCounts(p.layout||[]),contents=labeledPlacements(p.layout||[]);
     const summary=Object.entries(counts).map(([id,n])=>`${esc(boxById(id)?.name||"Item")} ×${n}`).join(" · ");
     const chosen=isPlanChosen(p),selected=comparePlanIds.has(p.id);
     return `<div class="savedcard ${chosen?"chosen":""}">
@@ -1547,6 +1556,7 @@ function renderSavedPlans(){
         <label class="savedselect"><input type="checkbox" data-compare-plan="${p.id}" ${selected?"checked":""}> compare</label>
       </div>
       <div class="small" style="margin-top:8px">${summary||"Saved layout"}</div>
+      ${contents.length?`<div class="savedmeta" style="margin-top:5px">Contents: ${contents.slice(0,4).map(x=>esc(x.label)).join(" · ")}${contents.length>4?` · +${contents.length-4} more`:""}</div>`:""}
       <div class="savedmeta" style="margin-top:6px">To buy: ${esc(m.cost)}${m.ownedUsed?` · ${m.ownedUsed} owned used`:""}${m.stackedCount?` · ${m.stackedCount} stacked`:""}</div>
       ${p.note?`<div class="savednote">${esc(p.note)}</div>`:""}
       <div class="savedactions">
@@ -1705,6 +1715,10 @@ function candidatePoints(placed){
 function canonicalLayout(placed){
   return placed.slice().sort((a,b)=>a.typeId.localeCompare(b.typeId)||((a.z||0)-(b.z||0))||a.x-b.x||a.y-b.y||a.w-b.w||a.d-b.d)
     .map(p=>`${p.typeId}:${round6(p.x)},${round6(p.y)},${round6(p.z||0)},${round6(p.w)},${round6(p.d)},${round6(p.h)}`).join(";");
+}
+function canonicalPlanLayout(placed){
+  return placed.slice().sort((a,b)=>a.typeId.localeCompare(b.typeId)||((a.z||0)-(b.z||0))||a.x-b.x||a.y-b.y||a.w-b.w||a.d-b.d)
+    .map(p=>`${p.typeId}:${round6(p.x)},${round6(p.y)},${round6(p.z||0)},${round6(p.w)},${round6(p.d)},${round6(p.h)}:${encodeURIComponent(String(p.label||"").trim())}`).join(";");
 }
 function occupiedArea(layout){return layout.filter(p=>(Number(p.z)||0)<=1e-9).reduce((s,p)=>s+p.w*p.d,0)}
 function occupiedVolume(layout){return layout.reduce((s,p)=>s+p.w*p.d*p.h,0)}
@@ -2062,13 +2076,23 @@ function svgTop(layout,W,D,width,height,labels=true,editable=false,selected=-1,h
     const sw=active?3:invalid?2.5:1.7;
     return `<g data-item="${editable?idx:""}" style="${editable?"cursor:move":""}">
       <rect data-item="${editable?idx:""}" x="${g.ox+p.x*g.scale}" y="${g.oy+p.y*g.scale}" width="${p.w*g.scale}" height="${p.d*g.scale}" rx="3" fill="${fill}" fill-opacity="${invalid?".28":".34"}" stroke="${stroke}" stroke-width="${sw}"/>
-      ${labels?`<text data-item="${editable?idx:""}" x="${g.ox+(p.x+p.w/2)*g.scale}" y="${g.oy+(p.y+p.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#222" pointer-events="${editable?"auto":"none"}">${esc(shortName(boxById(p.typeId)?.name||String(idx+1)))}${(p.z||0)>0?` ↑${fmt(p.z)}${state.unit}`:""}</text>`:""}
+      ${labels?`<text data-item="${editable?idx:""}" x="${g.ox+(p.x+p.w/2)*g.scale}" y="${g.oy+(p.y+p.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#222" pointer-events="${editable?"auto":"none"}">${esc(shortName(placementDisplayName(p,idx)))}${(p.z||0)>0?` ↑${fmt(p.z)}${state.unit}`:""}</text>`:""}
     </g>`;
   }).join("");
   const gapMark=highlightGap?`<rect x="${g.ox+highlightGap.x*g.scale}" y="${g.oy+highlightGap.y*g.scale}" width="${highlightGap.w*g.scale}" height="${highlightGap.d*g.scale}" fill="#166c45" fill-opacity=".08" stroke="#166c45" stroke-width="3" stroke-dasharray="8 5"/><text x="${g.ox+(highlightGap.x+highlightGap.w/2)*g.scale}" y="${g.oy+(highlightGap.y+highlightGap.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="800" fill="#166c45">${fmt(highlightGap.w)} × ${fmt(highlightGap.d)} ${esc(state.unit)}</text>`:"";
   return `<svg class="preview" viewBox="0 0 ${width} ${height}" role="img" aria-label="Top view"><rect x="${g.ox}" y="${g.oy}" width="${W*g.scale}" height="${D*g.scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${obstacleRects}${gapMark}${rects}</svg>`;
 }
 function shortName(s){return s.length>12?s.slice(0,10)+"…":s}
+function placementLabel(p){return String(p?.label||"").trim().slice(0,60)}
+function placementDisplayName(p,index=0){
+  return placementLabel(p)||boxById(p?.typeId)?.name||String(index+1);
+}
+function labeledPlacements(layout){
+  return (layout||[]).map((p,index)=>({
+    index,label:placementLabel(p),itemName:boxById(p.typeId)?.name||p.typeId,
+    x:p.x,y:p.y,z:Number(p.z)||0
+  })).filter(x=>x.label);
+}
 function svgFront(layout,W,H,width=760,height=390){
   const pad=28,scale=Math.min((width-2*pad)/W,(height-2*pad)/H),ox=(width-W*scale)/2,oy=(height-H*scale)/2;
   const obstacles=usableObstacles();
@@ -2152,6 +2176,10 @@ function renderDetail(W,D,H){
   $("reset3d").disabled=detailView!=="iso";
   $("editLayoutBtn").textContent=editMode?"Editing":"Edit layout";
   $("editBar").classList.toggle("active",editMode);
+  const labelInput=$("placementLabel"),selectedPlacement=selectedEditItem>=0?layout[selectedEditItem]:null;
+  labelInput.disabled=!editMode||!selectedPlacement;
+  labelInput.value=selectedPlacement?placementLabel(selectedPlacement):"";
+  labelInput.placeholder=selectedPlacement?"e.g. Socks":"Select a box, e.g. Socks";
   $("detailViz").classList.toggle("is-3d",detailView==="iso"&&!editMode);
   let svg="";
   if(detailView==="front")svg=svgFront(layout,W,H);
@@ -2167,6 +2195,8 @@ function renderDetail(W,D,H){
     const stacked=ps.filter(p=>(p.z||0)>1e-9).length;
     return `<li><strong>${esc(b?.name||id)} ×${n}</strong> — ${os.join(", ")} ${esc(state.unit)}${stacked?` · ${stacked} stacked`:""}</li>`;
   }).join("");
+  const labels=labeledPlacements(layout);
+  $("layoutLabels").innerHTML=labels.length?labels.map(x=>`<div class="placementlabelrow"><span class="n">${x.index+1}</span><div><strong>${esc(x.label)}</strong><span>${esc(x.itemName)}</span></div></div>`).join(""):'<div class="empty">No placement labels yet. Use Edit layout and select a box.</div>';
 
   currentGaps=findEmptyRectangles(layout,W,D);
   if(selectedGap>=currentGaps.length)selectedGap=-1;
@@ -2271,6 +2301,17 @@ $("editLayoutBtn").addEventListener("click",()=>{
   refreshCurrentDetail();
 });
 
+$("placementLabel").addEventListener("input",()=>{
+  const layout=selectedManualLayout();
+  if(!editMode||!layout||selectedEditItem<0)return;
+  layout[selectedEditItem].label=$("placementLabel").value.trim().slice(0,60);
+  updateSavePlanButton();
+  const sz=currentUsableSize();if(sz)renderDetail(sz.W,sz.D,sz.H);
+});
+$("placementLabel").addEventListener("keydown",e=>{
+  if(e.key==="Enter"){e.preventDefault();$("placementLabel").blur()}
+});
+
 $("doneEdit").addEventListener("click",()=>{
   if(!editMode)return;
   const sz=currentUsableSize(),layout=selectedManualLayout();
@@ -2319,6 +2360,7 @@ $("duplicateItem").addEventListener("click",()=>{
   if(max!==null&&countType(layout,src.typeId)>=max){setEditStatus(`Maximum quantity (${max}) reached for this item.`,true);return}
   const type=boxById(src.typeId),gap=Math.max(0,state.fitTolerance||0);
   for(const p of candidatePlacementsFor(layout,type,[src.w,src.d,src.h],sz.W,sz.D,sz.H,usableObstacles(),gap)){
+    p.label="";
     layout.push(p);selectedEditItem=layout.length-1;selectedGap=-1;setEditStatus((p.z||0)>0?"Duplicate stacked.":"Duplicate added.");refreshCurrentDetail();return;
   }
   setEditStatus("No free position for another copy.",true);
@@ -2751,6 +2793,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeInstallState,
     computeInstallAllocation,
     repeatStorageNames,
+    canonicalPlanLayout,
+    labeledPlacements,
     dividerRectsForStorage,
     physicalObstaclesForStorage,
     storageStructureSignature,
