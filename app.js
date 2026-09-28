@@ -1,7 +1,7 @@
 (() => {
 const $ = id => document.getElementById(id);
-const KEY = "storage-fit-planner-v23";
-const PREV_KEYS = ["storage-fit-planner-v22","storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
+const KEY = "storage-fit-planner-v24";
+const PREV_KEYS = ["storage-fit-planner-v23","storage-fit-planner-v22","storage-fit-planner-v21","storage-fit-planner-v20","storage-fit-planner-v19","storage-fit-planner-v18","storage-fit-planner-v17","storage-fit-planner-v16","storage-fit-planner-v15","storage-fit-planner-v14","storage-fit-planner-v13","storage-fit-planner-v12","storage-fit-planner-v11","storage-fit-planner-v10","storage-fit-planner-v9","storage-fit-planner-v8","storage-fit-planner-v7","storage-fit-planner-v6","storage-fit-planner-v4","storage-fit-planner-v3","storage-fit-planner-v2"];
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
@@ -33,7 +33,11 @@ state.savedPlans = Array.isArray(state.savedPlans)?state.savedPlans:[];
 normalizeChosenPlanSelections(state);
 normalizeShoppingBought(state);
 normalizeInstallState(state);
-for(const p of state.savedPlans){p.note=String(p.note||"");p.settings=p.settings||null;}
+for(const p of state.savedPlans){
+  p.note=String(p.note||"");p.settings=p.settings||null;
+  for(const q of p.layout||[])q.label=String(q.label||"").trim().slice(0,60);
+  p.signature=planSignature(p.storageId,p.layout||[]);
+}
 for(const b of state.boxes){
   if(!(b.id in state.itemLimits)) state.itemLimits[b.id] = null;
   b.price = Math.max(0,Number(b.price)||0);
@@ -315,7 +319,7 @@ function backupPayload(){
   return {
     format:"storage-fit-backup",
     version:1,
-    appVersion:23,
+    appVersion:24,
     exportedAt:new Date().toISOString(),
     localStorageKey:KEY,
     data:JSON.parse(JSON.stringify(state))
@@ -1076,7 +1080,7 @@ function compareLayoutsForGoal(a,b,W,D){
 }
 
 function planSignature(storageId,layout){
-  return `${storageId}|${canonicalLayout(layout)}`;
+  return `${storageId}|${canonicalPlanLayout(layout)}`;
 }
 function storageStructureSignature(s){
   if(!s)return "";
@@ -1705,6 +1709,10 @@ function candidatePoints(placed){
 function canonicalLayout(placed){
   return placed.slice().sort((a,b)=>a.typeId.localeCompare(b.typeId)||((a.z||0)-(b.z||0))||a.x-b.x||a.y-b.y||a.w-b.w||a.d-b.d)
     .map(p=>`${p.typeId}:${round6(p.x)},${round6(p.y)},${round6(p.z||0)},${round6(p.w)},${round6(p.d)},${round6(p.h)}`).join(";");
+}
+function canonicalPlanLayout(placed){
+  return placed.slice().sort((a,b)=>a.typeId.localeCompare(b.typeId)||((a.z||0)-(b.z||0))||a.x-b.x||a.y-b.y||a.w-b.w||a.d-b.d)
+    .map(p=>`${p.typeId}:${round6(p.x)},${round6(p.y)},${round6(p.z||0)},${round6(p.w)},${round6(p.d)},${round6(p.h)}:${encodeURIComponent(String(p.label||"").trim())}`).join(";");
 }
 function occupiedArea(layout){return layout.filter(p=>(Number(p.z)||0)<=1e-9).reduce((s,p)=>s+p.w*p.d,0)}
 function occupiedVolume(layout){return layout.reduce((s,p)=>s+p.w*p.d*p.h,0)}
