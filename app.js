@@ -373,6 +373,9 @@ function validateBackupState(candidate){
   if(!Array.isArray(candidate.storages))return "Backup has no storage-space list.";
   if(!Array.isArray(candidate.boxes))return "Backup has no item list.";
   if(candidate.savedPlans!=null&&!Array.isArray(candidate.savedPlans))return "Saved plans are malformed.";
+  for(const p of candidate.savedPlans||[]){
+    if(p.itemSnapshots!=null&&(typeof p.itemSnapshots!=="object"||Array.isArray(p.itemSnapshots)))return "A saved plan has malformed item snapshots.";
+  }
   if(candidate.chosenPlanIds!=null&&(typeof candidate.chosenPlanIds!=="object"||Array.isArray(candidate.chosenPlanIds)))return "Chosen plan selections are malformed.";
   if(candidate.shoppingBought!=null&&(typeof candidate.shoppingBought!=="object"||Array.isArray(candidate.shoppingBought)))return "Shopping progress is malformed.";
   if(candidate.installedPlanIds!=null&&(typeof candidate.installedPlanIds!=="object"||Array.isArray(candidate.installedPlanIds)))return "Installed plan status is malformed.";
@@ -576,12 +579,12 @@ function renderObstacleEditor(){
     row.querySelectorAll("[data-okey]").forEach(inp=>inp.addEventListener("change",()=>{
       const k=inp.dataset.okey;
       o[k]=k==="name"?(inp.value.trim()||"Blocked zone"):Math.max(0,Number(inp.value)||0);
-      save();renderStorageList();resetResults();
+      save();renderStorageList();renderSavedPlans();resetResults();
     }));
   });
   el.querySelectorAll("[data-remove-obstacle]").forEach(btn=>btn.addEventListener("click",()=>{
     s.obstacles=s.obstacles.filter(o=>o.id!==btn.dataset.removeObstacle);
-    save();renderObstacleEditor();renderStorageList();resetResults();
+    save();renderObstacleEditor();renderStorageList();renderSavedPlans();resetResults();
   }));
 }
 
@@ -612,12 +615,12 @@ function renderDividerEditor(){
       else d[k]=Math.max(0,Number(inp.value)||0);
       d.position=Math.min(d.position,d.orientation==="horizontal"?s.d:s.w);
       d.h=Math.min(d.h,s.h);
-      save();renderDividerEditor();renderStorageList();resetResults();
+      save();renderDividerEditor();renderStorageList();renderSavedPlans();resetResults();
     }));
   });
   el.querySelectorAll("[data-remove-divider]").forEach(btn=>btn.addEventListener("click",()=>{
     s.dividers=s.dividers.filter(d=>d.id!==btn.dataset.removeDivider);
-    save();renderDividerEditor();renderStorageList();resetResults();
+    save();renderDividerEditor();renderStorageList();renderSavedPlans();resetResults();
   }));
 }
 
@@ -1676,9 +1679,9 @@ function renderCompareModal(){
   el.innerHTML=plans.map(plan=>{
     const m=planMetrics(plan),counts=layoutCounts(plan.layout||[]),contents=labeledPlacements(plan.layout||[]);
     const items=Object.entries(counts).map(([id,n])=>`<li>${esc(boxById(id)?.name||"Item")} ×${n}</li>`).join("");
-    const chosen=isPlanChosen(plan);
+    const chosen=isPlanChosen(plan),health=planHealth(plan);
     return `<article class="comparecard ${chosen?"chosen":""}">
-      <div class="comparetitle">${esc(plan.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}</div>
+      <div class="comparetitle">${esc(plan.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}${health.status!=="current"?`<span class="planhealth ${health.status}">${health.status==="review"?"Review":"Invalid"}</span>`:""}</div>
       <div class="comparestorage">${esc(m.storagePath)} · ${esc(goalLabel(plan.goal))}</div>
       <div class="comparestats">
         <div class="comparestat"><div class="k">Utilization</div><div class="v">${m.utilizationPct.toFixed(1)}%</div><div class="small">${esc(m.utilizationKind)}</div></div>
@@ -1688,9 +1691,10 @@ function renderCompareModal(){
       </div>
       <div class="compareitems"><strong>Item mix</strong><ul>${items||"<li>No items</li>"}</ul></div>
       ${contents.length?`<div class="compareitems"><strong>Contents</strong><ul>${contents.map(x=>`<li>${esc(x.label)} — ${esc(x.itemName)}</li>`).join("")}</ul></div>`:""}
+      ${health.status!=="current"?`<div class="planissues">${health.reasons.slice(0,3).map(esc).join(" · ")}</div>`:""}
       ${plan.note?`<div class="comparnote">${esc(plan.note)}</div>`:""}
       <div class="savedactions">
-        <button class="btn ${chosen?"primary":"soft"}" type="button" data-compare-choose="${plan.id}">${chosen?"Chosen here ✓":"Choose for this storage"}</button>
+        <button class="btn ${chosen?"primary":"soft"}" type="button" data-compare-choose="${plan.id}" ${!chosen&&health.status!=="current"?"disabled":""}>${chosen?"Chosen here ✓":"Choose for this storage"}</button>
         <button class="btn soft" type="button" data-compare-open="${plan.id}">Open</button>
       </div>
     </article>`;
@@ -2876,7 +2880,7 @@ $("addObstacle").addEventListener("click",()=>{
   s.obstacles=s.obstacles||[];
   const n=s.obstacles.length+1;
   s.obstacles.push({id:uid("o"),name:`Blocked zone ${n}`,x:0,y:0,w:5,d:5,h:Math.min(s.h||5,5)});
-  save();renderObstacleEditor();renderStorageList();resetResults();
+  save();renderObstacleEditor();renderStorageList();renderSavedPlans();resetResults();
 });
 function addDivider(orientation){
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
@@ -2888,7 +2892,7 @@ function addDivider(orientation){
     thickness:Math.max(0.01,state.unit==="mm"?5:state.unit==="in"?0.2:0.5),
     h:s.h
   });
-  save();renderDividerEditor();renderStorageList();resetResults();
+  save();renderDividerEditor();renderStorageList();renderSavedPlans();resetResults();
 }
 $("addVerticalDivider").addEventListener("click",()=>addDivider("vertical"));
 $("addHorizontalDivider").addEventListener("click",()=>addDivider("horizontal"));
@@ -3021,6 +3025,10 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     repeatStorageNames,
     canonicalPlanLayout,
     labeledPlacements,
+    itemPlanningSnapshot,
+    itemPlanningSignature,
+    validatePlanLayoutAgainst,
+    planHealthFromData,
     dividerRectsForStorage,
     physicalObstaclesForStorage,
     storageStructureSignature,
