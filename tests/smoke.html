@@ -148,6 +148,14 @@
       ]);
       result(labels.length===2&&labels[0].label==="Socks"&&labels[1].label==="Cables","label summary trims and excludes blank placement labels");
       result(labels[1].z===2,"label summary preserves stacked placement elevation");
+      var printLabels=api.printablePlacementLabels([
+        {typeId:"b1",w:20,d:10,h:6,z:0,label:" Socks "},
+        {typeId:"b1",w:20,d:10,h:6,z:0,label:""},
+        {typeId:"b2",w:12,d:8,h:4,z:6,label:"Cables"}
+      ],function(id){return {name:id==="b1"?"Cotton box":"Small tray"}});
+      result(printLabels.length===2&&printLabels[0].index===1&&printLabels[1].index===3,"print labels include only purposeful placements while preserving placement numbers");
+      result(printLabels[0].purpose==="Socks"&&printLabels[0].itemName==="Cotton box","print labels trim purposes and resolve organizer names");
+      result(printLabels[1].z===6&&printLabels[1].w===12&&printLabels[1].d===8&&printLabels[1].h===4,"print labels preserve stacked elevation and dimensions");
       var lockedUpright={w:30,d:20,h:10,uprightOnly:true,floorRotationLocked:true};
       var freeUpright={w:30,d:20,h:10,uprightOnly:true,floorRotationLocked:false};
       result(api.orientations(lockedUpright,true).length===1,"rotation-locked upright items keep one floor orientation");
