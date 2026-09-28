@@ -62,7 +62,7 @@ for(const s of state.storages){
     d.orientation=d.orientation==="horizontal"?"horizontal":"vertical";
     d.position=Math.max(0,Number(d.position)||0);
     d.thickness=Math.max(0.01,Number(d.thickness)||0.5);
-    d.h=Math.max(0,Number(d.h)||s.h||0);
+    d.h=Math.max(0.01,Number(d.h)||s.h||0.01);
   }
 }
 
@@ -1634,7 +1634,7 @@ function placementSupported(p,placed,type){
 function dividerRectsForStorage(S){
   if(!S)return [];
   return (S.dividers||[]).map(d=>{
-    const thickness=Math.max(0.01,Number(d.thickness)||0.5),h=Math.max(0,Math.min(Number(d.h)||S.h,S.h));
+    const thickness=Math.max(0.01,Number(d.thickness)||0.5),h=Math.max(0.01,Math.min(Number(d.h)||S.h,S.h));
     if(d.orientation==="horizontal"){
       const y=(Number(d.position)||0)-thickness/2;
       return {id:d.id,name:"Divider",kind:"divider",z:0,x:0,y,w:S.w,d:thickness,h};
@@ -1957,7 +1957,12 @@ function findLayouts(){
     showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${rejected.map(x=>x.name).join(", ")} cannot fit at all and was excluded.${truncated?" Results are capped.":""}`,"warn");
   }else{
     const costNote=state.optimizeGoal==="cost"?"Owned quantities reduce purchases; unpriced purchases are treated conservatively. Different currencies are not converted. ":"";
-    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${costNote}Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${state.enableStacking?"Stacking rules enabled. ":""}${obstacles.length?`${obstacles.length} blocked zone${obstacles.length===1?"":"s"} avoided. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?"Results are capped to keep the browser responsive.":""}`,"good");
+    const blockedCount=obstacles.filter(o=>o.kind!=="divider").length,dividerCount=obstacles.filter(o=>o.kind==="divider").length;
+    const constraintNote=[
+      blockedCount?`${blockedCount} blocked zone${blockedCount===1?"":"s"} avoided`:"",
+      dividerCount?`${dividerCount} divider${dividerCount===1?"":"s"} respected`:""
+    ].filter(Boolean).join(" · ");
+    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${costNote}Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${state.enableStacking?"Stacking rules enabled. ":""}${constraintNote?`${constraintNote}. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?"Results are capped to keep the browser responsive.":""}`,"good");
   }
   selectedLayout=0;selectedGap=-1;currentGaps=[];
   editMode=false;
@@ -2744,6 +2749,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeInstallState,
     computeInstallAllocation,
     repeatStorageNames,
+    dividerRectsForStorage,
+    physicalObstaclesForStorage,
     storageStructureSignature,
     matchingSiblingStorages,
     cloneStorageDefinition,
