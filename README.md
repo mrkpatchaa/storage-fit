@@ -197,3 +197,32 @@ Installed plans reserve the inventory they consume before the rest of the queue 
 Purchased-but-not-received items are intentionally excluded from readiness. They only become installable inventory after **Receive purchases** moves them into Owned quantity.
 
 The home shopping JSON export is version 3 and includes the install queue, order, readiness status, and any missing organizer quantities. V22 migrates V21 automatically and preserves shopping progress, chosen plans, and owned inventory.
+
+
+## Repeated furniture and compartments
+
+Real furniture often repeats the same geometry, so Storage Fit can now clone structure instead of making you re-enter it.
+
+### Storage spaces
+
+For any selected storage space:
+
+- **Duplicate** creates one fresh structural copy.
+- **Repeat…** creates 1–20 additional copies in one action.
+- Repeated names are numbered automatically: `Drawer` → `Drawer 2`, `Drawer 3`, etc.
+- Existing numeric suffixes continue naturally and preserve padding: `Drawer 07` → `Drawer 08`.
+
+Dimensions and blocked zones are copied. Every blocked zone receives a new internal ID, so editing a clone never mutates the source.
+
+### Furniture
+
+**Duplicate** on furniture creates a new furniture entry in the same room and copies all of its child storage spaces, including their blocked zones.
+
+Structural clones intentionally start fresh:
+
+- no saved plans are copied;
+- no chosen-plan status is copied;
+- no shopping/install progress is copied;
+- no installed status is copied.
+
+This makes it fast to model repeated wardrobes, kitchen cabinets, drawer units, or matching bedside furniture without falsely marking the new structure as already planned or installed.
