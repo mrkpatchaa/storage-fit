@@ -60,7 +60,7 @@ for(const s of state.storages){
   for(const d of s.dividers){
     d.id=d.id||uid("d");
     d.orientation=d.orientation==="horizontal"?"horizontal":"vertical";
-    d.position=Math.max(0,Number(d.position)||0);
+    d.position=Math.min(Math.max(0,Number(d.position)||0),d.orientation==="horizontal"?s.d:s.w);
     d.thickness=Math.max(0.01,Number(d.thickness)||0.5);
     d.h=Math.max(0.01,Number(d.h)||s.h||0.01);
   }
@@ -1636,11 +1636,13 @@ function dividerRectsForStorage(S){
   return (S.dividers||[]).map(d=>{
     const thickness=Math.max(0.01,Number(d.thickness)||0.5),h=Math.max(0.01,Math.min(Number(d.h)||S.h,S.h));
     if(d.orientation==="horizontal"){
-      const y=(Number(d.position)||0)-thickness/2;
-      return {id:d.id,name:"Divider",kind:"divider",z:0,x:0,y,w:S.w,d:thickness,h};
+      const center=Math.min(Math.max(0,Number(d.position)||0),S.d);
+      const y1=Math.max(0,center-thickness/2),y2=Math.min(S.d,center+thickness/2);
+      return {id:d.id,name:"Divider",kind:"divider",z:0,x:0,y:y1,w:S.w,d:Math.max(0,y2-y1),h};
     }
-    const x=(Number(d.position)||0)-thickness/2;
-    return {id:d.id,name:"Divider",kind:"divider",z:0,x,y:0,w:thickness,d:S.d,h};
+    const center=Math.min(Math.max(0,Number(d.position)||0),S.w);
+    const x1=Math.max(0,center-thickness/2),x2=Math.min(S.w,center+thickness/2);
+    return {id:d.id,name:"Divider",kind:"divider",z:0,x:x1,y:0,w:Math.max(0,x2-x1),d:S.d,h};
   });
 }
 function physicalObstaclesForStorage(S){
