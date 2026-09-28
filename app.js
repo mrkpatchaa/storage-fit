@@ -683,6 +683,8 @@ function renderObstacleEditor(){
     }));
   });
   el.querySelectorAll("[data-remove-obstacle]").forEach(btn=>btn.addEventListener("click",()=>{
+    const obstacle=s.obstacles.find(o=>o.id===btn.dataset.removeObstacle);
+    createRecoveryCheckpoint(`Before deleting blocked zone “${obstacle?.name||"Blocked zone"}”`);
     s.obstacles=s.obstacles.filter(o=>o.id!==btn.dataset.removeObstacle);
     save();renderObstacleEditor();renderStorageList();renderSavedPlans();resetResults();
   }));
@@ -719,6 +721,8 @@ function renderDividerEditor(){
     }));
   });
   el.querySelectorAll("[data-remove-divider]").forEach(btn=>btn.addEventListener("click",()=>{
+    const divider=s.dividers.find(d=>d.id===btn.dataset.removeDivider);
+    createRecoveryCheckpoint(`Before deleting ${divider?.orientation||"custom"} divider`);
     s.dividers=s.dividers.filter(d=>d.id!==btn.dataset.removeDivider);
     save();renderDividerEditor();renderStorageList();renderSavedPlans();resetResults();
   }));
@@ -3137,6 +3141,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     itemPlanningSignature,
     validatePlanLayoutAgainst,
     planHealthFromData,
+    normalizeRecoveryJournal,
+    recoveryEntryMeta,
     dividerRectsForStorage,
     physicalObstaclesForStorage,
     storageStructureSignature,
