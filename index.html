@@ -54,6 +54,16 @@
           <div class="obstaclepanel">
             <div class="obstaclehead"><strong>Blocked zones</strong><button class="btn soft" id="addObstacle" type="button">+ Add</button></div>
             <div class="small" style="margin-bottom:8px">Use for rails, hinges, pipes or unusable corners. X is from the inside left edge; Y is from the inside front edge.</div>
+            <div class="constrainttemplates">
+              <select class="picker" id="constraintTemplate">
+                <option value="side-runners">Side runners · pair</option>
+                <option value="rear-strip">Rear obstruction · full width</option>
+                <option value="front-strip">Front lip / track · full width</option>
+                <option value="corner-posts">Corner posts / notches · four</option>
+              </select>
+              <button class="btn soft" id="applyConstraintTemplate" type="button">Add template</button>
+            </div>
+            <div class="small constrainthelp">Templates create normal blocked zones from a few measurements. You can edit every generated zone afterward.</div>
             <div class="obstaclelist" id="obstacleList"></div>
           </div>
           <div class="dividerpanel">
