@@ -293,6 +293,15 @@
             <label for="placementLabel">Purpose / label</label>
             <input id="placementLabel" type="text" maxlength="60" placeholder="Select a box, e.g. Socks" disabled>
           </div>
+          <div class="placementcoords">
+            <label>Exact position</label>
+            <div class="coordline">
+              <label>X <input id="placementX" type="number" step="0.01" disabled></label>
+              <label>Y <input id="placementY" type="number" step="0.01" disabled></label>
+              <label>Z <input id="placementZ" type="number" step="0.01" disabled></label>
+              <span id="placementCoordUnit">cm</span>
+            </div>
+          </div>
           <div class="editsetting">
             <label for="editSnapStep">Snap</label>
             <div class="editsettingline"><input id="editSnapStep" type="number" min="0.01" step="0.01"><span id="editSnapUnit">cm</span></div>
@@ -325,6 +334,7 @@
               <li>Front is the default view, followed by the draggable 3D view.</li>
               <li>Top view is useful for checking exact drawer-floor placement.</li>
               <li>Use Edit layout to drag or nudge boxes in Top view. Arrow keys move by one snap step; Shift + Arrow moves by five.</li>
+              <li>Exact position lets you type X from the inside left edge, Y from the inside front edge, and Z from the floor.</li>
               <li>Undo / Redo tracks up to 60 successful edits. Ctrl/Cmd+Z undoes; Ctrl/Cmd+Shift+Z or Ctrl/Cmd+Y redoes.</li>
               <li>Replace organizer swaps a selected placement while keeping its purpose label and position when possible.</li>
               <li>Use Move to floor / Stack on support to change elevation without rebuilding the layout.</li>
