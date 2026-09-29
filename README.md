@@ -890,6 +890,8 @@ The lookup uses the planner’s real geometry rules:
 
 Compatible spaces are ranked with the tightest valid geometry first. Each result shows the Room → Furniture → Storage breadcrumb, usable dimensions, the orientation that fits, and any modeled constraints.
 
+The item editor also has **Used in plans**. It lists every saved plan that already contains the organizer, shows how many copies each plan uses, marks plans that are currently **Chosen** or **Installed**, and lets you open the exact plan directly. This is especially useful before editing or deleting a library item because you can see its impact across the home instead of getting only a generic dependency warning.
+
 Each compatible result can also **Calculate capacity**. Storage Fit searches for the maximum number of identical copies that can sit on the storage floor while respecting the same wall clearance, fit tolerance, blocked zones, dividers and allowed orientations. Capacity is calculated on demand so opening the whole-home finder stays fast. The search is bounded for browser responsiveness; normal cases report an exact maximum, while unusually large/dense cases are labeled as **at least N** rather than pretending an incomplete search is exact.
 
 After capacity is calculated, **Open packing** turns the returned arrangement into a normal Storage Fit layout. It opens directly in the existing layout detail workspace, so the packing can be inspected in Top / Front / Side / 3D, manually edited, labeled, printed, exported, shared, or saved as a plan. Exact-capacity results are identified as an exact floor maximum; bounded searches are identified as the best packing found before the search cap.
