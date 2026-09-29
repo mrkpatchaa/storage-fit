@@ -32,6 +32,12 @@ jobs:
           PY
           node --check /tmp/storage-fit-smoke.js
 
+      - name: Check browser-smoke runner syntax
+        run: bash -n tests/run-browser-smoke.sh
+
+      - name: Run browser smoke tests
+        run: bash tests/run-browser-smoke.sh
+
       - name: Check static app structure
         run: |
           python3 - <<'PY'
