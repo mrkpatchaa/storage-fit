@@ -413,11 +413,47 @@ function maxAdditionalFloorCopiesInPlan(item,plan,liveStorage,options={}){
   return {count:best.length,layout:best,exact:!truncated&&!capped,truncated,capped,nodes,W,D,H};
 }
 
+function packingStackSummary(additions=[],fixedLayout=[],itemLookup=boxById){
+  const proposed=(additions||[]).map(p=>({...p}));
+  const fixed=(fixedLayout||[]).map(p=>({...p}));
+  const combined=[...fixed,...proposed];
+  const levels=new Map(),roots=new Set();
+  let floorCount=0,stackedCount=0,maxLevel=1,invalid=0;
+  for(const p of proposed){
+    const z=Number(p.z)||0;
+    const level=z<=1e-9?1:placementStackLevelLookup(p,combined,itemLookup);
+    if(!isFinite(level)){invalid++;continue}
+    levels.set(level,(levels.get(level)||0)+1);
+    maxLevel=Math.max(maxLevel,level);
+    if(level===1){floorCount++;continue}
+    stackedCount++;
+    let current=p,base=null,guard=0;
+    while((Number(current.z)||0)>1e-9&&guard++<combined.length+1){
+      base=supportingBaseForLookup(current,combined,itemLookup);
+      if(!base)break;
+      current=base;
+    }
+    if(base||((Number(current.z)||0)<=1e-9)){
+      const idx=combined.indexOf(current);
+      roots.add(idx>=0?"i:"+idx:["g",current.typeId,round6(current.x),round6(current.y),round6(current.z||0),round6(current.w),round6(current.d),round6(current.h)].join("|"));
+    }
+  }
+  const levelCounts=[...levels.entries()].sort((a,b)=>a[0]-b[0]).map(([level,count])=>({level,count}));
+  return {floorCount,stackedCount,maxLevel,stackCount:roots.size,levelCounts,invalid};
+}
+function packingStackSummaryText(summary){
+  if(!summary||!summary.stackedCount)return "";
+  const stacks=summary.stackCount+" stack"+(summary.stackCount===1?"":"s");
+  const tallest="tallest level "+summary.maxLevel;
+  const layers=summary.levelCounts.map(x=>"L"+x.level+":"+x.count).join(" / ");
+  return stacks+" · "+tallest+(layers?" · "+layers:"");
+}
+
 function maxAdditionalCopiesInPlan(item,plan,liveStorage,options={}){
   const stackingEnabled=!!(plan&&(plan.stacking ?? layoutUsesStacking(plan.layout||[])));
   if(!stackingEnabled||!item?.canBeStacked){
     const floor=maxAdditionalFloorCopiesInPlan(item,plan,liveStorage,options);
-    return {...floor,mode:"floor",floorCount:floor.count,stackedCount:0};
+    return {...floor,mode:"floor",floorCount:floor.count,stackedCount:0,stackSummary:packingStackSummary(floor.layout||[],[],id=>id===item?.id?item:null)};
   }
   if(!item||!plan||!liveStorage)return {count:0,layout:[],exact:true,truncated:false,capped:false,nodes:0,mode:"3d",floorCount:0,stackedCount:0};
   const settings=plan.settings||{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true};
@@ -524,9 +560,10 @@ function maxAdditionalCopiesInPlan(item,plan,liveStorage,options={}){
   recurse([]);
   const floorCount=best.filter(p=>(Number(p.z)||0)<=1e-9).length;
   const stackedCount=best.length-floorCount;
+  const stackSummary=packingStackSummary(best,fixedLayout,ruleLookup);
   return {
     count:best.length,layout:best,exact:provenOptimal||(!truncated&&!capped),truncated,capped,nodes,
-    mode:"3d",floorCount,stackedCount,W,D,H,volumeUpper
+    mode:"3d",floorCount,stackedCount,W,D,H,volumeUpper,stackSummary
   };
 }
 
@@ -3292,7 +3329,7 @@ function maxCopiesInStorage(item,S,settings={},options={}){
   const stackingEnabled=!!settings.enableStacking&&!!item?.canBeStacked&&!!item?.canSupportStack;
   if(!stackingEnabled){
     const floor=maxFloorCopiesInStorage(item,S,settings,options);
-    return {...floor,mode:"floor",floorCount:floor.count,stackedCount:0,stackingEnabled:!!settings.enableStacking};
+    return {...floor,mode:"floor",floorCount:floor.count,stackedCount:0,stackingEnabled:!!settings.enableStacking,stackSummary:packingStackSummary(floor.layout||[],[],id=>id===item?.id?item:null)};
   }
   const plan={id:"capacity:"+String(S?.id||""),storageId:S?.id||"",stacking:true,settings:{clearanceEnabled:!!settings.clearanceEnabled,clearance:Math.max(0,Number(settings.clearance)||0),fitTolerance:Math.max(0,Number(settings.fitTolerance)||0),uprightOnly:settings.uprightOnly!==false},layout:[]};
   const lookup=typeof options.itemLookup==="function"?options.itemLookup:(id=>id===item.id?item:null);
@@ -4683,6 +4720,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     extraItemAddition,
     maxAdditionalFloorCopiesInPlan,
     maxAdditionalCopiesInPlan,
+    packingStackSummary,
+    packingStackSummaryText,
     ownedPackingFromCapacity,
     itemPlanRoomRows,
     openSavedPlanWithExtraItems,
