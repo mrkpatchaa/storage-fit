@@ -448,6 +448,10 @@
     }).join("");
     html+="</ul>";
     document.getElementById("results").innerHTML=html;
+    document.body.dataset.smokeComplete="true";
+    document.body.dataset.smokePassed=String(pass);
+    document.body.dataset.smokeTotal=String(rows.length);
+    document.body.dataset.smokeFailures=String(rows.length-pass);
   },{once:true});
 })();
 </script>
