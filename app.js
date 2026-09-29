@@ -805,7 +805,8 @@ function openItemFitModal(){
   const settingBits=[
     settings.clearanceEnabled?`${fmt(settings.clearance)} ${state.unit} wall clearance`:"no wall clearance",
     settings.fitTolerance>0?`${fmt(settings.fitTolerance)} ${state.unit} fit tolerance`:"no fit tolerance",
-    settings.uprightOnly?"all items forced upright":"item orientation rules"
+    settings.uprightOnly?"all items forced upright":"item orientation rules",
+    settings.enableStacking?"stacking enabled":"stacking off"
   ];
   $("itemFitTitle").textContent=`Where can ${item.name} fit?`;
   $("itemFitSubtitle").textContent=`${fmt(item.w)} × ${fmt(item.d)} × ${fmt(item.h)} ${state.unit} · ${settingBits.join(" · ")}`;
@@ -827,11 +828,14 @@ function openItemFitModal(){
     const storageId=btn.dataset.fitCapacityBtn,S=state.storages.find(s=>s.id===storageId),out=$("itemFitList").querySelector(`[data-fit-capacity="${storageId}"]`);
     if(!S||!out)return;
     btn.disabled=true;btn.textContent="Calculating…";
-    const result=maxFloorCopiesInStorage(item,S,settings);
+    const result=maxCopiesInStorage(item,S,settings);
     capacityResults.set(storageId,result);
+    const mix=result.stackedCount
+      ? `${result.floorCount} floor + ${result.stackedCount} stacked`
+      : `${result.floorCount} floor`;
     out.textContent=result.exact
-      ? `${result.count} maximum on the floor · open the packing to inspect, edit or save it`
-      : `At least ${result.count} fit on the floor · open the best packing found before the search cap`;
+      ? `${result.count} maximum · ${mix} · open the packing to inspect, edit or save it`
+      : `At least ${result.count} fit · ${mix} · open the best packing found before the search cap`;
     const openBtn=$("itemFitList").querySelector(`[data-open-capacity-layout="${storageId}"]`);
     if(openBtn)openBtn.disabled=!result.layout.length;
     btn.textContent=result.exact?"Recalculate":"Try again";btn.disabled=false;
@@ -3669,7 +3673,11 @@ function renderDetail(W,D,H){
   updateModalNav();updateSavePlanButton();
   const stackedCount=layout.filter(p=>(p.z||0)>1e-9).length;
   const capacityNote=capacityLayoutContext
-    ? (capacityLayoutContext.exact?`Exact floor maximum: ${capacityLayoutContext.count}. `:`Best packing found before search cap: ${capacityLayoutContext.count}. `)
+    ? (capacityLayoutContext.mode==="3d"
+      ? (capacityLayoutContext.exact
+        ? `Exact 3D maximum: ${capacityLayoutContext.count} (${capacityLayoutContext.floorCount} floor${capacityLayoutContext.stackedCount?` + ${capacityLayoutContext.stackedCount} stacked`:""}). `
+        : `Best 3D packing found before search cap: ${capacityLayoutContext.count} (${capacityLayoutContext.floorCount} floor${capacityLayoutContext.stackedCount?` + ${capacityLayoutContext.stackedCount} stacked`:""}). `)
+      : (capacityLayoutContext.exact?`Exact floor maximum: ${capacityLayoutContext.count}. `:`Best packing found before search cap: ${capacityLayoutContext.count}. `))
     : "";
   $("detailSubtitle").textContent=`${capacityNote}${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)} utilization · ${layout.length} item${layout.length===1?"":"s"}${stackedCount?` · ${stackedCount} stacked`:""}.`;
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.view===detailView));
