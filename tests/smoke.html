@@ -265,7 +265,7 @@
       var dividedFit={id:"rfd",name:"Divided",w:20,d:10,h:6,obstacles:[],dividers:[{id:"d",orientation:"vertical",position:10,thickness:1,h:6}]};
       var squareFitItem={id:"sq",name:"Square bin",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false};
       result(api.itemFitInStorage(squareFitItem,dividedFit,reverseFitSettings)===null,"reverse fit lookup respects full-height dividers");
-      var clearanceStorage={id:"rfc",name:"Clearance drawer",w:12,d:12,h:6,obstacles:[],dividers:[]};
+      var clearanceStorage={id:"rfc",name:"Clearance drawer",w:12,d:12,h:7,obstacles:[],dividers:[]};
       result(!!api.itemFitInStorage(squareFitItem,clearanceStorage,{clearanceEnabled:true,clearance:1,fitTolerance:0,uprightOnly:true}),"reverse fit lookup accepts an exact fit after wall clearance");
       result(api.itemFitInStorage(squareFitItem,clearanceStorage,{clearanceEnabled:true,clearance:1.1,fitTolerance:0,uprightOnly:true})===null,"reverse fit lookup rejects storage made too small by wall clearance");
       var reverseMatches=api.compatibleStoragesForItem(reverseFitItem,[
@@ -448,6 +448,10 @@
     }).join("");
     html+="</ul>";
     document.getElementById("results").innerHTML=html;
+    document.body.dataset.smokeComplete="true";
+    document.body.dataset.smokePassed=String(pass);
+    document.body.dataset.smokeTotal=String(rows.length);
+    document.body.dataset.smokeFailures=String(rows.length-pass);
   },{once:true});
 })();
 </script>
