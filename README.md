@@ -12,6 +12,7 @@ Storage Fit is a dependency-free browser tool for planning boxes and organizers 
 - Models blocked zones such as rails, hinges and unusable corners.
 - Detects leftover rectangles and suggests saved items that fit them.
 - Imports public IKEA/product URLs when product metadata is available, previews the result before saving, and detects existing catalog items by SKU or canonical product URL.
+- Finds every storage space where a selected organizer can physically fit, using the same clearance, orientation, obstacle and divider rules as the planner.
 - Saves plans, builds inventory-aware shopping lists, prints/exports layouts, and backs up/restores all browser data.
 - Turns saved plans into a shortlist: rename them, add notes, mark a chosen plan, and compare up to three side-by-side.
 
@@ -871,3 +872,27 @@ A local Recovery checkpoint is created immediately before the transformation.
 Because these are normal storage constraints, saved-plan health refreshes immediately: a previously saved plan can become Review or Invalid if the mirrored hardware conflicts with it.
 
 No state schema change is required; the app remains on V28.
+
+## Find compatible storage spaces
+
+The item library now works in both directions.
+
+After selecting an organizer, **Find spaces** checks every storage space in the home and lists the compartments where one copy can physically fit.
+
+The lookup uses the planner’s real geometry rules:
+
+- current wall-clearance setting;
+- current fit tolerance;
+- global upright setting plus the item’s own tipping/rotation rules;
+- blocked zones;
+- custom dividers;
+- storage height.
+
+Compatible spaces are ranked with the tightest valid geometry first. Each result shows the Room → Furniture → Storage breadcrumb, usable dimensions, the orientation that fits, and any modeled constraints.
+
+**Open space** jumps directly to that compartment so planning can continue without hunting through the hierarchy.
+
+The lookup intentionally answers a structural question: whether the organizer fits the storage geometry when empty. It does not treat unused area inside an existing saved layout as available space. Leftover-space suggestions remain the right tool for filling gaps inside a particular layout.
+
+No state migration is required; the app remains on V28.
+
