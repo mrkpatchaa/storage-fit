@@ -124,7 +124,7 @@
           <div class="field" style="margin-top:8px"><label for="boxSku">SKU / reference</label><input id="boxSku" type="text" placeholder="Optional"></div>
           <div class="field" style="margin-top:8px"><label for="boxUrl">Product link (optional)</label><input id="boxUrl" type="url" placeholder="https://…"></div>
           <div class="field" style="margin-top:8px"><label for="boxImage">Product image URL (optional)</label><input id="boxImage" type="url" placeholder="Automatically filled when available"></div>
-          <div class="actions"><button class="btn soft" id="saveBox" type="button">Save</button><button class="btn danger" id="deleteBox" type="button">Delete</button></div>
+          <div class="actions"><button class="btn soft" id="saveBox" type="button">Save</button><button class="btn soft" id="findItemFits" type="button">Find spaces</button><button class="btn danger" id="deleteBox" type="button">Delete</button></div>
         </div>
       </section>
 
@@ -250,6 +250,22 @@
         </div>
         <div class="gallery" id="gallery"></div>
       </section>
+
+      <div class="modal" id="itemFitModal" aria-hidden="true">
+        <div class="modalbackdrop" id="itemFitBackdrop"></div>
+        <div class="modalpanel fitfinderpanel" role="dialog" aria-modal="true" aria-labelledby="itemFitTitle">
+          <div class="modaltoolbar">
+            <div><div class="modaltitle" id="itemFitTitle">Compatible storage spaces</div><div class="small" id="itemFitSubtitle"></div></div>
+            <button class="btn" id="closeItemFitModal" type="button">Close</button>
+          </div>
+          <div class="modalbody">
+            <section class="card">
+              <div class="fitfindersummary" id="itemFitSummary"></div>
+              <div class="fitfinderlist" id="itemFitList"></div>
+            </section>
+          </div>
+        </div>
+      </div>
 
       <div class="modal" id="compareModal" aria-hidden="true">
         <div class="modalbackdrop" id="compareBackdrop"></div>
