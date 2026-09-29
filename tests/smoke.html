@@ -114,6 +114,25 @@
       var freshImpact=api.planChoiceImpact("other-storage",choiceState);
       result(freshImpact.previousChosenId===""&&freshImpact.previousInstalledId===""&&freshImpact.clearsInstalled===false,"choosing a plan for an untouched storage has no installation impact");
       result(api.planChoiceImpact("missing",choiceState)===null,"plan choice impact rejects unknown plan ids");
+      var deltaBefore=[
+        {typeId:"b1",x:0,y:0,z:0,w:10,d:10,h:5,label:""},
+        {typeId:"b1",x:10,y:0,z:0,w:10,d:10,h:5,label:"Socks"},
+        {typeId:"b2",x:0,y:10,z:0,w:6,d:4,h:3,label:""},
+        {typeId:"b3",x:20,y:0,z:0,w:5,d:5,h:5,label:""}
+      ];
+      var deltaAfter=[
+        {typeId:"b1",x:0,y:0,z:0,w:10,d:10,h:5,label:""},
+        {typeId:"b1",x:12,y:0,z:0,w:10,d:10,h:5,label:"Cables"},
+        {typeId:"b2",x:0,y:10,z:0,w:4,d:6,h:3,label:""},
+        {typeId:"new-type",x:20,y:0,z:0,w:5,d:5,h:5,label:""}
+      ];
+      var placementDelta=api.placementDeltaSummary(deltaBefore,deltaAfter);
+      result(placementDelta.unchanged===1&&placementDelta.changed===2&&placementDelta.added===1&&placementDelta.removed===1,"revision delta separates unchanged changed added and removed placements");
+      result(placementDelta.moved===1&&placementDelta.reoriented===1&&placementDelta.relabeled===1&&placementDelta.quantityDelta===0,"revision delta detects move orientation and label changes without double-counting quantity");
+      var deltaText=api.revisionDeltaText({placements:placementDelta,utilizationDelta:3.25,purchaseUnitsDelta:-1,costDelta:null});
+      result(deltaText.indexOf("+1 added")>=0&&deltaText.indexOf("-1 removed")>=0&&deltaText.indexOf("1 moved")>=0&&deltaText.indexOf("+3.3 pp utilization")>=0&&deltaText.indexOf("-1 units to buy")>=0,"revision delta text summarizes physical utilization and purchase changes");
+      var noChangeDelta=api.placementDeltaSummary(deltaBefore,deltaBefore.map(function(p){return {...p};}));
+      result(noChangeDelta.unchanged===4&&noChangeDelta.changed===0&&noChangeDelta.added===0&&noChangeDelta.removed===0,"revision delta recognizes an identical layout");
       var shoppingState={shoppingBought:{b1:3.9,b2:-2,b3:"4"}};
       api.normalizeShoppingBought(shoppingState);
       result(shoppingState.shoppingBought.b1===3&&shoppingState.shoppingBought.b3===4&&!shoppingState.shoppingBought.b2,"shopping progress normalizes to non-negative whole quantities");
