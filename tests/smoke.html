@@ -267,6 +267,14 @@
       result(usageRows[0].count===3&&usageRows[1].count===2&&usageRows[2].count===1,"item usage counts copies per saved plan");
       result(usageRows[0].installed===true&&usageRows[0].chosen===true&&usageRows[1].installed===false&&usageRows[1].chosen===true,"item usage preserves installed and chosen status");
       result(!usageRows.some(function(row){return row.planId==="unused"}),"item usage excludes plans that do not contain the organizer");
+      var usageTarget=api.usageEditTarget([
+        {typeId:"sq",x:20,y:15,z:5},
+        {typeId:"other",x:0,y:0,z:0},
+        {typeId:"sq",x:30,y:10,z:0},
+        {typeId:"sq",x:5,y:10,z:0}
+      ],"sq");
+      result(usageTarget.index===3&&usageTarget.count===3,"usage edit targets a floor copy nearest the front-left first");
+      result(api.usageEditTarget([{typeId:"other"}],"sq")===null,"usage edit target is null when the organizer is absent");
       var fourCapacity=api.maxFloorCopiesInStorage(squareFitItem,{id:"cap4",name:"Four",w:20,d:20,h:6,obstacles:[],dividers:[]},reverseFitSettings,{nodeLimit:5000,copyLimit:20});
       result(fourCapacity.count===4&&fourCapacity.exact===true,"capacity finder computes an exact four-item floor maximum");
       var mixedCapacity=api.maxFloorCopiesInStorage({id:"mix",name:"Mixed rectangle",w:6,d:4,h:2,uprightOnly:true,floorRotationLocked:false},{id:"capmix",name:"Mixed orientation",w:10,d:10,h:3,obstacles:[],dividers:[]},reverseFitSettings,{nodeLimit:10000,copyLimit:20});
