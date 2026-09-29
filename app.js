@@ -9,6 +9,8 @@ const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
 const SHARE_LINK_LIMIT = 12000;
 const EDIT_HISTORY_LIMIT = 60;
+const CAPACITY_SEARCH_LIMIT = 25000;
+const CAPACITY_COPY_LIMIT = 40;
 
 let state = loadState();
 ensureHomeHierarchy(state);
@@ -349,10 +351,21 @@ function openItemFitModal(){
     const constraints=[blocked?`${blocked} blocked zone${blocked===1?"":"s"}`:"",dividers?`${dividers} divider${dividers===1?"":"s"}`:""].filter(Boolean).join(" · ");
     return `<div class="fitmatch">
       <div><div class="fitmatchtitle">${esc(S?storageBreadcrumb(S):match.storageName)}</div>
-      <div class="fitmatchmeta">Usable ${fmt(match.W)} × ${fmt(match.D)} × ${fmt(match.H)} ${esc(state.unit)} · fits as ${fmt(match.w)} × ${fmt(match.d)} × ${fmt(match.h)}${constraints?` · ${esc(constraints)}`:""}</div></div>
-      <button class="btn soft" type="button" data-open-fit-storage="${match.storageId}">Open space</button>
+      <div class="fitmatchmeta">Usable ${fmt(match.W)} × ${fmt(match.D)} × ${fmt(match.H)} ${esc(state.unit)} · fits as ${fmt(match.w)} × ${fmt(match.d)} × ${fmt(match.h)}${constraints?` · ${esc(constraints)}`:""}</div>
+      <div class="fitcapacity" data-fit-capacity="${match.storageId}">Capacity not calculated yet.</div></div>
+      <div class="fitmatchactions"><button class="btn soft" type="button" data-fit-capacity-btn="${match.storageId}">Calculate capacity</button><button class="btn soft" type="button" data-open-fit-storage="${match.storageId}">Open space</button></div>
     </div>`;
   }).join(""):'<div class="empty">Try reducing wall clearance / fit tolerance, allowing the item to rotate or tip, or add a larger storage space.</div>';
+  $("itemFitList").querySelectorAll("[data-fit-capacity-btn]").forEach(btn=>btn.addEventListener("click",()=>{
+    const storageId=btn.dataset.fitCapacityBtn,S=state.storages.find(s=>s.id===storageId),out=$("itemFitList").querySelector(`[data-fit-capacity="${storageId}"]`);
+    if(!S||!out)return;
+    btn.disabled=true;btn.textContent="Calculating…";
+    const result=maxFloorCopiesInStorage(item,S,settings);
+    out.textContent=result.exact
+      ? `${result.count} maximum on the floor`
+      : `At least ${result.count} fit on the floor · search capped for responsiveness`;
+    btn.textContent=result.exact?"Recalculate":"Try again";btn.disabled=false;
+  }));
   $("itemFitList").querySelectorAll("[data-open-fit-storage]").forEach(btn=>btn.addEventListener("click",()=>openCompatibleStorage(btn.dataset.openFitStorage)));
   itemFitModalOpen=true;
   $("itemFitModal").classList.add("open");
@@ -2404,6 +2417,74 @@ function gapSuggestions(gap,H,layout){
 }
 
 
+
+function floorPlacementValid(p,placed,W,D,H,obstacles,gap){
+  const z=Number(p.z)||0;
+  if(z>1e-9||p.x<gap-1e-9||p.y<gap-1e-9||p.x+p.w+gap>W+1e-9||p.y+p.d+gap>D+1e-9||p.h>H+1e-9)return false;
+  if(obstacles.some(o=>overlap3D(p,o,gap)))return false;
+  if(placed.some(q=>overlap3D(p,q,gap)))return false;
+  return true;
+}
+function maxFloorCopiesInStorage(item,S,settings={},options={}){
+  if(!item||!S)return {count:0,layout:[],exact:true,truncated:false,capped:false,nodes:0};
+  const c=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
+  const W=Math.max(0,(Number(S.w)||0)-2*c),D=Math.max(0,(Number(S.d)||0)-2*c),H=Math.max(0,(Number(S.h)||0)-2*c);
+  const gap=Math.max(0,Number(settings.fitTolerance)||0);
+  const nodeLimit=Math.max(100,Math.floor(Number(options.nodeLimit)||CAPACITY_SEARCH_LIMIT));
+  const copyLimit=Math.max(1,Math.floor(Number(options.copyLimit)||CAPACITY_COPY_LIMIT));
+  if(W<=0||D<=0||H<=0)return {count:0,layout:[],exact:true,truncated:false,capped:false,nodes:0,W,D,H};
+  const obstacles=usableObstaclesFor(S,c),forceUpright=settings.uprightOnly!==false;
+  const oris=orientations(item,forceUpright).filter(o=>o[0]+2*gap<=W+1e-9&&o[1]+2*gap<=D+1e-9&&o[2]<=H+1e-9);
+  if(!oris.length)return {count:0,layout:[],exact:true,truncated:false,capped:false,nodes:0,W,D,H};
+  const minArea=Math.min(...oris.map(o=>o[0]*o[1])),freeArea=freeFloorArea(W,D,obstacles);
+  const areaUpper=Math.max(0,Math.floor((freeArea+1e-9)/Math.max(1e-9,minArea)));
+  const target=Math.min(copyLimit,areaUpper);
+  let best=[],nodes=0,truncated=false,capped=false;
+  const visited=new Set();
+
+  // Seed the search with a fast deterministic packing so pruning starts from
+  // a useful lower bound instead of zero.
+  for(const o of oris){
+    const placed=[];
+    while(placed.length<target){
+      let next=null;
+      for(const [x,y] of candidatePointsFor(placed,obstacles,o[0],o[1],gap)){
+        const p={typeId:item.id,name:item.name,x:round6(x),y:round6(y),z:0,w:o[0],d:o[1],h:o[2]};
+        if(floorPlacementValid(p,placed,W,D,H,obstacles,gap)){next=p;break}
+      }
+      if(!next)break;
+      placed.push(next);
+    }
+    if(placed.length>best.length)best=placed.map(p=>({...p}));
+  }
+
+  function recurse(placed){
+    nodes++;
+    if(nodes>nodeLimit){truncated=true;return}
+    if(placed.length>best.length)best=placed.map(p=>({...p}));
+    if(placed.length>=target){
+      if(areaUpper>copyLimit)capped=true;
+      return;
+    }
+    const remainingArea=Math.max(0,freeArea-occupiedArea(placed));
+    if(placed.length+Math.floor((remainingArea+1e-9)/Math.max(1e-9,minArea))<=best.length)return;
+    const sig=canonicalLayout(placed);
+    if(visited.has(sig))return;
+    visited.add(sig);
+
+    for(const o of oris){
+      for(const [x,y] of candidatePointsFor(placed,obstacles,o[0],o[1],gap)){
+        const p={typeId:item.id,name:item.name,x:round6(x),y:round6(y),z:0,w:o[0],d:o[1],h:o[2]};
+        if(!floorPlacementValid(p,placed,W,D,H,obstacles,gap))continue;
+        recurse([...placed,p]);
+        if(truncated||capped)return;
+      }
+    }
+  }
+  recurse([]);
+  return {count:best.length,layout:best,exact:!truncated&&!capped,truncated,capped,nodes,W,D,H};
+}
+
 function itemFitInStorage(item,S,settings={}){
   if(!item||!S)return null;
   const c=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
@@ -3759,6 +3840,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     defaultConstraintMeasure,
     mirrorStorageConstraintsData,
     itemFitInStorage,
+    maxFloorCopiesInStorage,
     compatibleStoragesForItem,
     constraintTemplateZones,
     dividerRectsForStorage,

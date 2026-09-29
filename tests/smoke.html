@@ -257,6 +257,16 @@
         {id:"tight",name:"Tight",w:12,d:21,h:6,obstacles:[],dividers:[]}
       ],reverseFitSettings);
       result(reverseMatches.length===2&&reverseMatches[0].storageId==="tight","compatible-space lookup ranks tighter valid spaces first");
+      var fourCapacity=api.maxFloorCopiesInStorage(squareFitItem,{id:"cap4",name:"Four",w:20,d:20,h:6,obstacles:[],dividers:[]},reverseFitSettings,{nodeLimit:5000,copyLimit:20});
+      result(fourCapacity.count===4&&fourCapacity.exact===true,"capacity finder computes an exact four-item floor maximum");
+      var mixedCapacity=api.maxFloorCopiesInStorage({id:"mix",name:"Mixed rectangle",w:6,d:4,h:2,uprightOnly:true,floorRotationLocked:false},{id:"capmix",name:"Mixed orientation",w:10,d:10,h:3,obstacles:[],dividers:[]},reverseFitSettings,{nodeLimit:10000,copyLimit:20});
+      result(mixedCapacity.count===4&&mixedCapacity.exact===true&&mixedCapacity.layout.some(function(p){return p.w===6})&&mixedCapacity.layout.some(function(p){return p.w===4}),"capacity finder mixes allowed rotations to improve packing");
+      var obstacleCapacity=api.maxFloorCopiesInStorage(squareFitItem,{id:"capobs",name:"Split",w:25,d:10,h:6,obstacles:[{id:"o",x:10,y:0,w:5,d:10,h:6}],dividers:[]},reverseFitSettings,{nodeLimit:5000,copyLimit:20});
+      result(obstacleCapacity.count===2&&obstacleCapacity.exact===true,"capacity finder packs around blocked geometry");
+      var toleranceCapacity=api.maxFloorCopiesInStorage(squareFitItem,{id:"captol",name:"Gap",w:22,d:12,h:6,obstacles:[],dividers:[]},{clearanceEnabled:false,clearance:0,fitTolerance:1,uprightOnly:true},{nodeLimit:5000,copyLimit:20});
+      result(toleranceCapacity.count===1&&toleranceCapacity.exact===true,"capacity finder applies wall and between-item fit tolerance");
+      var cappedCapacity=api.maxFloorCopiesInStorage({id:"tiny",name:"Tiny",w:1,d:1,h:1,uprightOnly:true,floorRotationLocked:false},{id:"huge",name:"Huge",w:100,d:100,h:2,obstacles:[],dividers:[]},reverseFitSettings,{nodeLimit:5000,copyLimit:3});
+      result(cappedCapacity.count===3&&cappedCapacity.capped===true&&cappedCapacity.exact===false,"capacity finder reports a lower bound when the copy safety cap is reached");
       var mirroredStorage={w:100,d:50,h:20,obstacles:[
         {id:"o1",name:"Left rail",x:5,y:4,w:10,d:8,h:7}
       ],dividers:[

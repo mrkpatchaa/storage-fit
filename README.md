@@ -890,6 +890,8 @@ The lookup uses the planner’s real geometry rules:
 
 Compatible spaces are ranked with the tightest valid geometry first. Each result shows the Room → Furniture → Storage breadcrumb, usable dimensions, the orientation that fits, and any modeled constraints.
 
+Each compatible result can also **Calculate capacity**. Storage Fit searches for the maximum number of identical copies that can sit on the storage floor while respecting the same wall clearance, fit tolerance, blocked zones, dividers and allowed orientations. Capacity is calculated on demand so opening the whole-home finder stays fast. The search is bounded for browser responsiveness; normal cases report an exact maximum, while unusually large/dense cases are labeled as **at least N** rather than pretending an incomplete search is exact.
+
 **Open space** jumps directly to that compartment so planning can continue without hunting through the hierarchy.
 
 The lookup intentionally answers a structural question: whether the organizer fits the storage geometry when empty. It does not treat unused area inside an existing saved layout as available space. Leftover-space suggestions remain the right tool for filling gaps inside a particular layout.
