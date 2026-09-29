@@ -368,6 +368,26 @@ function itemPlanUsageRows(itemId,savedPlans,chosenPlanIds={},installedPlanIds={
     a.planName.localeCompare(b.planName)
   );
 }
+function usageEditTarget(layout,itemId){
+  const matches=(layout||[]).map((p,index)=>p?.typeId===itemId?{index,p}:null).filter(Boolean);
+  if(!matches.length)return null;
+  matches.sort((a,b)=>(Number(a.p.z)||0)-(Number(b.p.z)||0)||(Number(a.p.y)||0)-(Number(b.p.y)||0)||(Number(a.p.x)||0)-(Number(b.p.x)||0)||a.index-b.index);
+  return {index:matches[0].index,count:matches.length};
+}
+function openSavedPlanForItem(planId,itemId){
+  const plan=state.savedPlans.find(p=>p.id===planId);if(!plan)return false;
+  const target=usageEditTarget(plan.layout,itemId);if(!target)return false;
+  openSavedPlan(planId);
+  const layout=selectedManualLayout();if(!layout||target.index>=layout.length)return false;
+  editMode=true;
+  editOriginalLayout=cloneLayoutSnapshot(layout);
+  resetEditHistory(editOriginalLayout);
+  selectedEditItem=target.index;selectedGap=-1;topDrag=null;detailView="top";
+  setEditStatus(`Selected ${boxById(itemId)?.name||"organizer"} copy 1 of ${target.count}. Use Replace organizer or any other edit control.`);
+  refreshCurrentDetail();openDetailModal();
+  return true;
+}
+
 function openItemUsageModal(){
   save();
   const item=boxById(editingBox);if(!item)return;
@@ -377,16 +397,19 @@ function openItemUsageModal(){
   $("itemFitTitle").textContent=`Where is ${item.name} used?`;
   $("itemFitSubtitle").textContent=`${fmt(item.w)} × ${fmt(item.d)} × ${fmt(item.h)} ${state.unit} · saved-plan usage`;
   $("itemFitSummary").textContent=rows.length
-    ? `${totalCopies} cop${totalCopies===1?"y":"ies"} across ${rows.length} saved plan${rows.length===1?"":"s"}${chosenCount?` · ${chosenCount} chosen`:""}${installedCount?` · ${installedCount} installed`:""}. Open a plan to inspect or replace those placements.`
+    ? `${totalCopies} cop${totalCopies===1?"y":"ies"} across ${rows.length} saved plan${rows.length===1?"":"s"}${chosenCount?` · ${chosenCount} chosen`:""}${installedCount?` · ${installedCount} installed`:""}. Edit layout selects the first affected placement; saving edits creates a new saved plan and leaves this original unchanged.`
     : "This organizer is not used by any saved plan yet.";
   $("itemFitList").innerHTML=rows.length?rows.map(row=>{
     const badges=[row.installed?'<span class="usagebadge installed">Installed</span>':"",row.chosen?'<span class="usagebadge chosen">Chosen</span>':""].filter(Boolean).join("");
     return `<div class="fitmatch">
       <div><div class="fitmatchtitle">${esc(row.planName)} ${badges}</div>
       <div class="fitmatchmeta">${esc(row.storagePath)} · ${row.count} cop${row.count===1?"y":"ies"} of this organizer</div></div>
-      <div class="fitmatchactions"><button class="btn soft" type="button" data-open-usage-plan="${row.planId}">Open plan</button></div>
+      <div class="fitmatchactions"><button class="btn soft" type="button" data-edit-usage-plan="${row.planId}">Edit layout</button><button class="btn soft" type="button" data-open-usage-plan="${row.planId}">Open plan</button></div>
     </div>`;
   }).join(""):'<div class="empty">Save a layout containing this organizer and it will appear here.</div>';
+  $("itemFitList").querySelectorAll("[data-edit-usage-plan]").forEach(btn=>btn.addEventListener("click",()=>{
+    const itemId=item.id;closeItemFitModal();openSavedPlanForItem(btn.dataset.editUsagePlan,itemId);
+  }));
   $("itemFitList").querySelectorAll("[data-open-usage-plan]").forEach(btn=>btn.addEventListener("click",()=>{
     closeItemFitModal();openSavedPlan(btn.dataset.openUsagePlan);
   }));
@@ -3924,6 +3947,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     openCapacityPacking,
     compatibleStoragesForItem,
     itemPlanUsageRows,
+    usageEditTarget,
+    openSavedPlanForItem,
     constraintTemplateZones,
     dividerRectsForStorage,
     physicalObstaclesForStorage,
