@@ -438,6 +438,9 @@
       );
       result(towerCapacity.count===2&&towerCapacity.exact===true&&towerCapacity.floorCount===0&&towerCapacity.stackedCount===2,"3D extra capacity finds an exact two-copy vertical stack");
       result(towerCapacity.layout.map(function(p){return p.z;}).join(",")==="5,9","3D extra capacity keeps stacked additions in support-safe order");
+      result(towerCapacity.stackSummary.floorCount===0&&towerCapacity.stackSummary.stackedCount===2&&towerCapacity.stackSummary.maxLevel===3&&towerCapacity.stackSummary.stackCount===1,"stack summary includes existing saved-plan bases when computing levels");
+      result(towerCapacity.stackSummary.levelCounts.map(function(x){return "L"+x.level+":"+x.count;}).join("/") === "L2:1/L3:1","stack summary reports proposed copies by physical level");
+      result(api.packingStackSummaryText(towerCapacity.stackSummary)==="1 stack · tallest level 3 · L2:1 / L3:1","stack summary text is compact and deterministic");
       var mixedItem={id:"mixed-bin",name:"Mixed bin",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false,canBeStacked:true,canSupportStack:true,maxStackLevel:2};
       var mixedPlan={id:"mixed-plan",storageId:"mixed-space",stacking:true,settings:{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true},layout:[
         {typeId:"mixed-base",x:0,y:0,z:0,w:10,d:10,h:5}
