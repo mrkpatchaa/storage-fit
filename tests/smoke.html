@@ -328,14 +328,15 @@
         {nodeLimit:5000,copyLimit:3}
       );
       result(cappedExtra.count===3&&cappedExtra.capped===true&&cappedExtra.exact===false,"saved-plan extra capacity reports a lower bound when the copy cap is reached");
-      var ownedPacking=api.ownedPackingFromCapacity(2,{layout:[
+      var ownedCapacity={layout:[
         {typeId:"room",x:10,y:0,z:0,w:10,d:10,h:5},
         {typeId:"room",x:20,y:0,z:0,w:10,d:10,h:5},
         {typeId:"room",x:10,y:10,z:0,w:10,d:10,h:5}
-      ]});
+      ]};
+      var ownedPacking=api.ownedPackingFromCapacity(2,ownedCapacity);
       result(ownedPacking.available===2&&ownedPacking.capacity===3&&ownedPacking.count===2&&ownedPacking.layout.length===2,"owned packing caps suggested additions at unallocated stock");
       ownedPacking.layout[0].x=999;
-      result(ownedPacking.capacity===3,"owned packing returns an independent placement copy");
+      result(ownedCapacity.layout[0].x===10,"owned packing clones placements instead of mutating the capacity result");
       var noOwnedPacking=api.ownedPackingFromCapacity(0,{layout:[{typeId:"room"}]});
       result(noOwnedPacking.count===0&&noOwnedPacking.layout.length===0,"owned packing is empty when no owned stock is unallocated");
       var fourCapacity=api.maxFloorCopiesInStorage(squareFitItem,{id:"cap4",name:"Four",w:20,d:20,h:6,obstacles:[],dividers:[]},reverseFitSettings,{nodeLimit:5000,copyLimit:20});
