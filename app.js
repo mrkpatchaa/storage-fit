@@ -1904,6 +1904,96 @@ function planFamilyInfo(planId,plans=[]){
     .sort((a,b)=>String(a.savedAt||"").localeCompare(String(b.savedAt||""))||String(a.name||"").localeCompare(String(b.name||"")));
   return {current,parent,children,visibleCount:1+(parent?1:0)+children.length};
 }
+function placementDeltaSummary(before=[],after=[]){
+  const a=(before||[]).map((p,index)=>({p,index,matched:false}));
+  const b=(after||[]).map((p,index)=>({p,index,matched:false}));
+  const eps=1e-6;
+  const num=v=>Number(v)||0;
+  const label=p=>String(p?.label||"").trim();
+  const exactKey=p=>JSON.stringify([
+    p?.typeId||"",round6(num(p?.x)),round6(num(p?.y)),round6(num(p?.z)),
+    round6(num(p?.w)),round6(num(p?.d)),round6(num(p?.h)),label(p)
+  ]);
+  const sameNum=(x,y)=>Math.abs(num(x)-num(y))<=eps;
+  const queues=new Map();
+  for(const row of b){
+    const key=exactKey(row.p);
+    if(!queues.has(key))queues.set(key,[]);
+    queues.get(key).push(row);
+  }
+  let unchanged=0;
+  for(const row of a){
+    const q=queues.get(exactKey(row.p));
+    const match=q?.find(x=>!x.matched);
+    if(!match)continue;
+    row.matched=true;match.matched=true;unchanged++;
+  }
+
+  let moved=0,reoriented=0,relabeled=0,changed=0;
+  const types=new Set([
+    ...a.filter(x=>!x.matched).map(x=>x.p?.typeId||""),
+    ...b.filter(x=>!x.matched).map(x=>x.p?.typeId||"")
+  ]);
+  for(const typeId of types){
+    const aa=a.filter(x=>!x.matched&&(x.p?.typeId||"")===typeId);
+    const bb=b.filter(x=>!x.matched&&(x.p?.typeId||"")===typeId);
+    const candidates=[];
+    for(const left of aa)for(const right of bb){
+      const pos=Math.abs(num(left.p.x)-num(right.p.x))+Math.abs(num(left.p.y)-num(right.p.y))+Math.abs(num(left.p.z)-num(right.p.z));
+      const dims=Math.abs(num(left.p.w)-num(right.p.w))+Math.abs(num(left.p.d)-num(right.p.d))+Math.abs(num(left.p.h)-num(right.p.h));
+      const labelPenalty=label(left.p)===label(right.p)?0:0.25;
+      candidates.push({left,right,score:pos+dims*2+labelPenalty});
+    }
+    candidates.sort((x,y)=>x.score-y.score||x.left.index-y.left.index||x.right.index-y.right.index);
+    for(const pair of candidates){
+      if(pair.left.matched||pair.right.matched)continue;
+      pair.left.matched=true;pair.right.matched=true;
+      const positionChanged=!sameNum(pair.left.p.x,pair.right.p.x)||!sameNum(pair.left.p.y,pair.right.p.y)||!sameNum(pair.left.p.z,pair.right.p.z);
+      const dimensionsChanged=!sameNum(pair.left.p.w,pair.right.p.w)||!sameNum(pair.left.p.d,pair.right.p.d)||!sameNum(pair.left.p.h,pair.right.p.h);
+      const labelChanged=label(pair.left.p)!==label(pair.right.p);
+      if(positionChanged)moved++;
+      if(dimensionsChanged)reoriented++;
+      if(labelChanged)relabeled++;
+      if(positionChanged||dimensionsChanged||labelChanged)changed++;
+    }
+  }
+  const removed=a.filter(x=>!x.matched).length,added=b.filter(x=>!x.matched).length;
+  return {
+    beforeCount:a.length,afterCount:b.length,unchanged,changed,added,removed,moved,reoriented,relabeled,
+    quantityDelta:b.length-a.length
+  };
+}
+function revisionDeltaInfo(basePlan,revisionPlan){
+  if(!basePlan||basePlan.removed||!revisionPlan)return null;
+  const placements=placementDeltaSummary(basePlan.layout||[],revisionPlan.layout||[]);
+  const a=planMetrics(basePlan),b=planMetrics(revisionPlan);
+  const pa=purchaseCostProfile(basePlan.layout||[]),pb=purchaseCostProfile(revisionPlan.layout||[]);
+  const costDelta=pa.singleCurrency&&pa.singleCurrency===pb.singleCurrency&&pa.knownTotal!==null&&pb.knownTotal!==null
+    ? {currency:pa.singleCurrency,value:pb.knownTotal-pa.knownTotal}
+    : null;
+  return {
+    placements,
+    utilizationDelta:b.utilizationPct-a.utilizationPct,
+    purchaseUnitsDelta:pb.purchaseUnits-pa.purchaseUnits,
+    costDelta
+  };
+}
+function revisionDeltaText(delta){
+  if(!delta)return "";
+  const p=delta.placements,parts=[];
+  if(p.added)parts.push("+"+p.added+" added");
+  if(p.removed)parts.push("-"+p.removed+" removed");
+  if(p.moved)parts.push(p.moved+" moved");
+  if(p.reoriented)parts.push(p.reoriented+" reoriented");
+  if(p.relabeled)parts.push(p.relabeled+" relabeled");
+  if(!parts.length)parts.push("same placements");
+  const util=(delta.utilizationDelta>=0?"+":"")+delta.utilizationDelta.toFixed(1)+" pp utilization";
+  const buy=delta.purchaseUnitsDelta===0?"same units to buy":(delta.purchaseUnitsDelta>0?"+":"")+delta.purchaseUnitsDelta+" units to buy";
+  const cost=delta.costDelta&&Math.abs(delta.costDelta.value)>1e-9
+    ? " · "+(delta.costDelta.value>0?"+":"")+money(delta.costDelta.value,delta.costDelta.currency)
+    : "";
+  return parts.join(" · ")+" · "+util+" · "+buy+cost;
+}
 function createSavedPlanForStorage(target,layout,{name=null,note="",derivedFrom=null}={}){
   const signature=planSignature(target.id,layout);
   const existing=state.savedPlans.find(p=>p.signature===signature);
@@ -2441,11 +2531,12 @@ function closePlanFamilyModal(){
   $("planFamilyModal").setAttribute("aria-hidden","true");
   if(!detailModalOpen&&!compareModalOpen&&!itemFitModalOpen)document.body.classList.remove("modal-open");
 }
-function planFamilyRow(plan,role,currentId){
+function planFamilyRow(plan,role,currentId,basePlan=null){
   if(plan?.removed){
     return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(plan.name||"Previous saved plan")+' <span class="usagebadge">Parent removed</span></div><div class="fitmatchmeta">The immediate parent is no longer saved. This name comes from the child plan\'s lineage snapshot.</div></div></div>';
   }
   const m=planMetrics(plan),health=planHealth(plan),chosen=isPlanChosen(plan),impact=planChoiceImpact(plan.id);
+  const delta=revisionDeltaInfo(basePlan,plan),deltaText=revisionDeltaText(delta);
   const badges=[
     role==="parent"?'<span class="usagebadge">Parent</span>':"",
     role==="current"?'<span class="usagebadge chosen">Current</span>':"",
@@ -2454,7 +2545,7 @@ function planFamilyRow(plan,role,currentId){
     health.status!=="current"?'<span class="usagebadge">'+esc(health.status==="review"?"Review":"Invalid")+'</span>':""
   ].filter(Boolean).join("");
   const chooseLabel=chosen?"Chosen ✓":impact?.clearsInstalled?"Choose · re-install":role==="revision"?"Choose revision":role==="parent"?"Choose parent":"Choose";
-  return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(plan.name||"Saved plan")+' '+badges+'</div><div class="fitmatchmeta">'+esc(m.storagePath)+' · '+m.itemCount+' item'+(m.itemCount===1?'':'s')+' · '+m.utilizationPct.toFixed(1)+'% '+esc(m.utilizationKind)+(impact?.clearsInstalled?' · switching will clear Installed':"")+'</div></div><div class="fitmatchactions"><button class="btn '+(chosen?"primary":"soft")+'" type="button" data-family-choose="'+plan.id+'" '+(chosen||health.status!=="current"?"disabled":"")+'>'+chooseLabel+'</button><button class="btn soft" type="button" data-family-open="'+plan.id+'">'+(plan.id===currentId?'Open current':'Open')+'</button></div></div>';
+  return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(plan.name||"Saved plan")+' '+badges+'</div><div class="fitmatchmeta">'+esc(m.storagePath)+' · '+m.itemCount+' item'+(m.itemCount===1?'':'s')+' · '+m.utilizationPct.toFixed(1)+'% '+esc(m.utilizationKind)+(impact?.clearsInstalled?' · switching will clear Installed':"")+'</div>'+(deltaText?'<div class="revisiondelta"><strong>Δ vs parent</strong> · '+esc(deltaText)+'</div>':"")+'</div><div class="fitmatchactions"><button class="btn '+(chosen?"primary":"soft")+'" type="button" data-family-choose="'+plan.id+'" '+(chosen||health.status!=="current"?"disabled":"")+'>'+chooseLabel+'</button><button class="btn soft" type="button" data-family-open="'+plan.id+'">'+(plan.id===currentId?'Open current':'Open')+'</button></div></div>';
 }
 function openPlanFamilyModal(planId){
   const family=planFamilyInfo(planId,state.savedPlans);if(!family)return;
@@ -2464,8 +2555,8 @@ function openPlanFamilyModal(planId){
   $("planFamilySummary").textContent=parentText+" · "+family.children.length+" direct revision"+(family.children.length===1?"":"s")+" · "+family.visibleCount+" visible family member"+(family.visibleCount===1?"":"s")+".";
   const rows=[];
   if(family.parent)rows.push(planFamilyRow(family.parent,"parent",family.current.id));
-  rows.push(planFamilyRow(family.current,"current",family.current.id));
-  for(const child of family.children)rows.push(planFamilyRow(child,"revision",family.current.id));
+  rows.push(planFamilyRow(family.current,"current",family.current.id,family.parent&&!family.parent.removed?family.parent:null));
+  for(const child of family.children)rows.push(planFamilyRow(child,"revision",family.current.id,family.current));
   $("planFamilyList").innerHTML=rows.join("");
   $("planFamilyList").querySelectorAll("[data-family-choose]").forEach(btn=>btn.addEventListener("click",()=>{
     const planId=btn.dataset.familyChoose,impact=planChoiceImpact(planId);
@@ -4340,6 +4431,9 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     planLineageMetadata,
     planLineageInfo,
     planFamilyInfo,
+    placementDeltaSummary,
+    revisionDeltaInfo,
+    revisionDeltaText,
     planChoiceImpact,
     itemStockStatus,
     aggregateRequiredCounts,
