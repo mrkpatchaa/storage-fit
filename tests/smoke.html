@@ -615,6 +615,12 @@
       ]});
       result(stackedCapacityOpened===true,"stacked capacity packing can be opened as a real planner layout");
       result(w.document.getElementById("detailSubtitle").textContent.indexOf("Exact 3D maximum: 2 (1 floor + 1 stacked).")===0,"stacked capacity layout detail preserves 3D-capacity provenance");
+      api.openCapacityPacking("s1",{count:3,exact:true,mode:"3d",floorCount:1,stackedCount:2,stackingEnabled:true,stackSummary:{floorCount:1,stackedCount:2,maxLevel:3,stackCount:1,levelCounts:[{level:1,count:1},{level:2,count:1},{level:3,count:1}],invalid:0},layout:[
+        {typeId:"b3",name:"Small box",x:0,y:0,z:0,w:20,d:13,h:4},
+        {typeId:"b3",name:"Small box",x:0,y:0,z:4,w:20,d:13,h:4},
+        {typeId:"b3",name:"Small box",x:0,y:0,z:8,w:20,d:13,h:4}
+      ]});
+      result(w.document.getElementById("detailSubtitle").textContent.indexOf("1 stack · tallest level 3 · L1:1 / L2:1 / L3:1")>0,"capacity detail keeps the stack-structure explanation after opening");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{
