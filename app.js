@@ -347,6 +347,95 @@ function openCompatibleStorage(storageId){
   closeItemFitModal();renderAll();
   $("storageSelect")?.scrollIntoView({behavior:"smooth",block:"center"});
 }
+
+function extraItemPlacementInPlan(item,plan,liveStorage){
+  if(!item||!plan||!liveStorage)return null;
+  const settings=plan.settings||{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true};
+  const clearance=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
+  const gap=Math.max(0,Number(settings.fitTolerance)||0);
+  const W=(Number(liveStorage.w)||0)-2*clearance,D=(Number(liveStorage.d)||0)-2*clearance,H=(Number(liveStorage.h)||0)-2*clearance;
+  if(W<=0||D<=0||H<=0)return null;
+  const layout=plan.layout||[],obstacles=usableObstaclesFor(liveStorage,clearance);
+  const floorPlaced=layout.filter(p=>(Number(p.z)||0)<=1e-9);
+  for(const o of orientations(item,settings.uprightOnly!==false)){
+    for(const point of candidatePointsFor(floorPlaced,obstacles,o[0],o[1],gap)){
+      const x=point[0],y=point[1];
+      const p={typeId:item.id,name:item.name,x:round6(x),y:round6(y),z:0,w:o[0],d:o[1],h:o[2]};
+      if(!floorPlacementValid(p,layout,W,D,H,obstacles,gap))continue;
+      return {...p,W,D,H,clearance,fitTolerance:gap,remainingFloor:Math.max(0,freeFloorArea(W,D,obstacles)-occupiedArea(layout)-o[0]*o[1])};
+    }
+  }
+  return null;
+}
+function itemPlanRoomRows(item,savedPlans,storages,chosenPlanIds={},installedPlanIds={},isPlanUsable=()=>true){
+  const storageMap=new Map((storages||[]).map(s=>[s.id,s]));
+  return (savedPlans||[]).map(plan=>{
+    if(!isPlanUsable(plan))return null;
+    const S=storageMap.get(plan.storageId),placement=extraItemPlacementInPlan(item,plan,S);
+    if(!placement)return null;
+    const storageId=plan.storageId||"";
+    return {
+      planId:plan.id,planName:plan.name||"Saved plan",storageId,
+      storagePath:plan.storagePath||plan.storageName||(S&&S.name)||"Storage",
+      chosen:chosenPlanIds&&chosenPlanIds[storageId]===plan.id,
+      installed:installedPlanIds&&installedPlanIds[storageId]===plan.id,
+      placement
+    };
+  }).filter(Boolean).sort((a,b)=>
+    Number(b.installed)-Number(a.installed) ||
+    Number(b.chosen)-Number(a.chosen) ||
+    a.placement.remainingFloor-b.placement.remainingFloor ||
+    a.storagePath.localeCompare(b.storagePath) ||
+    a.planName.localeCompare(b.planName)
+  );
+}
+function openSavedPlanWithExtraItem(planId,itemId,placement){
+  const plan=state.savedPlans.find(p=>p.id===planId),item=boxById(itemId);
+  if(!plan||!item||!placement)return false;
+  openSavedPlan(planId);
+  const layout=selectedManualLayout(),sz=currentUsableSize();if(!layout||!sz)return false;
+  const p={typeId:item.id,name:item.name,x:Number(placement.x)||0,y:Number(placement.y)||0,z:0,w:Number(placement.w)||item.w,d:Number(placement.d)||item.d,h:Number(placement.h)||item.h,label:""};
+  const trial=[...layout,p];
+  if(!editItemValid(trial,trial.length-1,sz.W,sz.D))return false;
+  editMode=true;
+  editOriginalLayout=cloneLayoutSnapshot(layout);
+  resetEditHistory(editOriginalLayout);
+  layout.push(p);selectedEditItem=layout.length-1;selectedGap=-1;topDrag=null;detailView="top";
+  recordEditHistory("Add organizer");
+  setEditStatus(item.name+" added to free floor space. Adjust it if needed, then save to create a new plan.");
+  refreshCurrentDetail();openDetailModal();
+  return true;
+}
+function openItemPlanRoomModal(){
+  save();
+  const item=boxById(editingBox);if(!item)return;
+  const currentPlans=state.savedPlans.filter(plan=>planHealth(plan).status==="current");
+  const rows=itemPlanRoomRows(item,currentPlans,state.storages,state.chosenPlanIds,state.installedPlanIds);
+  $("itemFitTitle").textContent="Which saved plans have room for "+item.name+"?";
+  $("itemFitSubtitle").textContent=fmt(item.w)+" × "+fmt(item.d)+" × "+fmt(item.h)+" "+state.unit+" · one additional floor copy";
+  const skipped=state.savedPlans.length-currentPlans.length;
+  $("itemFitSummary").textContent=rows.length
+    ? rows.length+" current saved plan"+(rows.length===1?" has":"s have")+" room for one more copy on the floor. Add copy opens an editable copy of that plan; the original saved plan stays unchanged."
+    : "No current saved plan has valid floor space for one more copy. "+(skipped?skipped+" stale or invalid plan"+(skipped===1?" was":"s were")+" skipped.":"");
+  $("itemFitList").innerHTML=rows.length?rows.map(row=>{
+    const p=row.placement;
+    const badges=[row.installed?'<span class="usagebadge installed">Installed</span>':"",row.chosen?'<span class="usagebadge chosen">Chosen</span>':""].filter(Boolean).join("");
+    return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(row.planName)+" "+badges+'</div><div class="fitmatchmeta">'+esc(row.storagePath)+" · suggested at X "+fmt(p.x)+", Y "+fmt(p.y)+" · "+fmt(p.w)+" × "+fmt(p.d)+" × "+fmt(p.h)+" "+esc(state.unit)+'</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-add-plan-copy="'+row.planId+'">Add copy</button><button class="btn soft" type="button" data-open-room-plan="'+row.planId+'">Open plan</button></div></div>';
+  }).join(""):'<div class="empty">Try another organizer, or edit a saved plan to free some floor space.</div>';
+  const byPlan=new Map(rows.map(row=>[row.planId,row]));
+  $("itemFitList").querySelectorAll("[data-add-plan-copy]").forEach(btn=>btn.addEventListener("click",()=>{
+    const row=byPlan.get(btn.dataset.addPlanCopy);if(!row)return;
+    const itemId=item.id;closeItemFitModal();openSavedPlanWithExtraItem(row.planId,itemId,row.placement);
+  }));
+  $("itemFitList").querySelectorAll("[data-open-room-plan]").forEach(btn=>btn.addEventListener("click",()=>{
+    closeItemFitModal();openSavedPlan(btn.dataset.openRoomPlan);
+  }));
+  itemFitModalOpen=true;
+  $("itemFitModal").classList.add("open");
+  $("itemFitModal").setAttribute("aria-hidden","false");
+  document.body.classList.add("modal-open");
+}
+
 function itemPlanUsageRows(itemId,savedPlans,chosenPlanIds={},installedPlanIds={}){
   return (savedPlans||[]).map(plan=>{
     const count=(plan.layout||[]).filter(p=>p.typeId===itemId).length;
@@ -990,6 +1079,7 @@ function renderDividerEditor(){
 function loadBoxEditor(){
   const b=state.boxes.find(x=>x.id===editingBox);
   $("findItemFits").disabled=!b;
+  $("findItemPlanRoom").disabled=!b;
   $("showItemUsage").disabled=!b;
   $("boxName").value=b?.name||"";$("bw").value=b?.w??"";$("bd").value=b?.d??"";$("bh").value=b?.h??"";
   $("boxPrice").value=b?.price||"";$("boxCurrency").value=b?.currency||"MAD";$("boxOwnedQty").value=b?.ownedQty??0;$("boxSku").value=b?.sku||"";$("boxUrl").value=b?.url||"";$("boxImage").value=b?.image||"";
@@ -3619,6 +3709,7 @@ $("exportHomeShoppingBtn").addEventListener("click",()=>{
   setTimeout(()=>{btn.textContent=old},1200);
 });
 $("findItemFits").addEventListener("click",openItemFitModal);
+$("findItemPlanRoom").addEventListener("click",openItemPlanRoomModal);
 $("showItemUsage").addEventListener("click",openItemUsageModal);
 $("closeItemFitModal").addEventListener("click",closeItemFitModal);
 $("itemFitBackdrop").addEventListener("click",closeItemFitModal);
@@ -3946,6 +4037,9 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     maxFloorCopiesInStorage,
     openCapacityPacking,
     compatibleStoragesForItem,
+    extraItemPlacementInPlan,
+    itemPlanRoomRows,
+    openSavedPlanWithExtraItem,
     itemPlanUsageRows,
     usageEditTarget,
     openSavedPlanForItem,
