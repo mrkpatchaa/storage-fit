@@ -4486,6 +4486,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     placementDeltaDetails,
     placementDeltaSummary,
     planPreviewSnapshot,
+    savedPlanTopPreview,
     revisionDeltaInfo,
     revisionDeltaText,
     planChoiceImpact,
