@@ -503,15 +503,19 @@ function itemPlanRoomRows(item,savedPlans,storages,chosenPlanIds={},installedPla
     a.planName.localeCompare(b.planName)
   );
 }
+function extraItemAddition(item,placement){
+  if(!item||!placement)return null;
+  return {
+    typeId:item.id,name:item.name,x:Number(placement.x)||0,y:Number(placement.y)||0,z:Number(placement.z)||0,
+    w:Number(placement.w)||item.w,d:Number(placement.d)||item.d,h:Number(placement.h)||item.h,label:""
+  };
+}
 function openSavedPlanWithExtraItems(planId,itemId,placements){
   const plan=state.savedPlans.find(p=>p.id===planId),item=boxById(itemId),source=Array.isArray(placements)?placements:[];
   if(!plan||!item||!source.length)return false;
   openSavedPlan(planId);
   const layout=selectedManualLayout(),sz=currentUsableSize();if(!layout||!sz)return false;
-  const additions=source.map(placement=>({
-    typeId:item.id,name:item.name,x:Number(placement.x)||0,y:Number(placement.y)||0,z:Number(placement.z)||0,
-    w:Number(placement.w)||item.w,d:Number(placement.d)||item.d,h:Number(placement.h)||item.h,label:""
-  }));
+  const additions=source.map(placement=>extraItemAddition(item,placement)).filter(Boolean);
   const trial=cloneLayoutSnapshot(layout);
   for(const p of additions){
     trial.push(p);
@@ -4530,6 +4534,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     compatibleStoragesForItem,
     stackedExtraItemPlacementInPlan,
     extraItemPlacementInPlan,
+    extraItemAddition,
     maxAdditionalFloorCopiesInPlan,
     ownedPackingFromCapacity,
     itemPlanRoomRows,
