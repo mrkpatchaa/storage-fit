@@ -33,6 +33,7 @@ let itemFitModalOpen = false;
 let comparePlanIds = new Set();
 let pendingImport = null;
 let capacityLayoutContext = null;
+let savedPlanSourceContext = null;
 
 state.itemLimits = state.itemLimits || {};
 state.fitTolerance = Math.max(0, Number(state.fitTolerance)||0);
@@ -1859,7 +1860,38 @@ function eligiblePropagationTargets(source){
     !state.installedPlanIds?.[target.id]
   );
 }
-function createSavedPlanForStorage(target,layout,{name=null,note=""}={}){
+function savedPlanSourceSnapshot(plan){
+  if(!plan)return null;
+  return {
+    planId:String(plan.planId||plan.id||""),
+    name:String(plan.name||"").trim().slice(0,120),
+    savedAt:String(plan.savedAt||""),
+    storageId:String(plan.storageId||"")
+  };
+}
+function planLineageMetadata(source){
+  const s=savedPlanSourceSnapshot(source);
+  if(!s||!s.planId)return {};
+  return {
+    derivedFromPlanId:s.planId,
+    derivedFromName:s.name||"Saved plan",
+    derivedFromSavedAt:s.savedAt||""
+  };
+}
+function planLineageInfo(plan,plans=[]){
+  const id=String(plan?.derivedFromPlanId||"");
+  const snapshot=String(plan?.derivedFromName||"").trim();
+  if(!id&&!snapshot)return null;
+  const source=(plans||[]).find(p=>p.id===id);
+  const name=String(source?.name||snapshot||"Previous saved plan").trim();
+  return {
+    planId:id,
+    name,
+    sourceExists:!!source,
+    label:"Based on "+name+(id&&!source?" · source removed":"")
+  };
+}
+function createSavedPlanForStorage(target,layout,{name=null,note="",derivedFrom=null}={}){
   const signature=planSignature(target.id,layout);
   const existing=state.savedPlans.find(p=>p.signature===signature);
   if(existing)return existing;
@@ -1879,6 +1911,7 @@ function createSavedPlanForStorage(target,layout,{name=null,note=""}={}){
     goal:state.optimizeGoal,
     stacking:state.enableStacking,
     signature,
+    ...planLineageMetadata(derivedFrom),
     layout:layout.map(q=>({...q}))
   };
   state.savedPlans.push(plan);
@@ -2388,10 +2421,11 @@ function renderCompareModal(){
   el.innerHTML=plans.map(plan=>{
     const m=planMetrics(plan),counts=layoutCounts(plan.layout||[]),contents=labeledPlacements(plan.layout||[]);
     const items=Object.entries(counts).map(([id,n])=>`<li>${esc(boxById(id)?.name||"Item")} ×${n}</li>`).join("");
-    const chosen=isPlanChosen(plan),health=planHealth(plan);
+    const chosen=isPlanChosen(plan),health=planHealth(plan),lineage=planLineageInfo(plan,state.savedPlans);
     return `<article class="comparecard ${chosen?"chosen":""}">
       <div class="comparetitle">${esc(plan.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}${health.status!=="current"?`<span class="planhealth ${health.status}">${health.status==="review"?"Review":"Invalid"}</span>`:""}</div>
       <div class="comparestorage">${esc(m.storagePath)} · ${esc(goalLabel(plan.goal))}</div>
+      ${lineage?`<div class="planlineage">${esc(lineage.label)}</div>`:""}
       <div class="comparestats">
         <div class="comparestat"><div class="k">Utilization</div><div class="v">${m.utilizationPct.toFixed(1)}%</div><div class="small">${esc(m.utilizationKind)}</div></div>
         <div class="comparestat"><div class="k">Items</div><div class="v">${m.itemCount}</div><div class="small">${m.distinctTypes} type${m.distinctTypes===1?"":"s"}</div></div>
@@ -2431,6 +2465,7 @@ function openSavedPlan(planId){
   }
   localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
   renderAll();
+  savedPlanSourceContext=savedPlanSourceSnapshot(plan);
   layouts=[plan.layout.map(q=>({...q}))];
   selectedLayout=0;selectedGap=-1;currentGaps=[];galleryWasCapped=false;
   const sz=currentUsableSize();if(!sz)return;
@@ -2447,12 +2482,13 @@ function renderSavedPlans(){
   el.innerHTML=state.savedPlans.map(p=>{
     const m=planMetrics(p),counts=layoutCounts(p.layout||[]),contents=labeledPlacements(p.layout||[]);
     const summary=Object.entries(counts).map(([id,n])=>`${esc(boxById(id)?.name||"Item")} ×${n}`).join(" · ");
-    const chosen=isPlanChosen(p),selected=comparePlanIds.has(p.id),health=planHealth(p);
+    const chosen=isPlanChosen(p),selected=comparePlanIds.has(p.id),health=planHealth(p),lineage=planLineageInfo(p,state.savedPlans);
     return `<div class="savedcard ${chosen?"chosen":""} ${health.status!=="current"?health.status:""}">
       <div class="savedhead">
         <div>
           <div class="savedname">${esc(p.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}${health.status!=="current"?`<span class="planhealth ${health.status}">${health.status==="review"?"Review":"Invalid"}</span>`:""}</div>
           <div class="savedmeta">${esc(m.storagePath)} · ${m.itemCount} item${m.itemCount===1?"":"s"} · ${m.utilizationPct.toFixed(1)}% ${esc(m.utilizationKind)}</div>
+          ${lineage?`<div class="planlineage">${esc(lineage.label)}</div>`:""}
           <span class="goallabel">${esc(goalLabel(p.goal))}</span>
         </div>
         <label class="savedselect"><input type="checkbox" data-compare-plan="${p.id}" ${selected?"checked":""}> compare</label>
@@ -2520,6 +2556,7 @@ function updateSavePlanButton(){
 
 function resetResults(){
   capacityLayoutContext=null;
+  savedPlanSourceContext=null;
   layouts=[];selectedLayout=0;currentGaps=[];selectedGap=-1;galleryWasCapped=false;closeDetailModal();closeCompareModal();
   $("resultLabel").textContent="—";$("layoutCount").textContent="—";$("bestFill").textContent="—";$("searchState").textContent="Ready";
   $("message").className="message";$("message").textContent="Select the item types you want to use, then find arrangements.";
@@ -2915,6 +2952,7 @@ function canPlaceAny(placed,types,W,D){
 
 function findLayouts(){
   capacityLayoutContext=null;
+  savedPlanSourceContext=null;
   save();
   const S=storage(), selected=selectedBoxes();
   if(!S){showMessage("Add or select a storage space first.","bad");return}
@@ -3825,7 +3863,12 @@ $("savePlanBtn").addEventListener("click",()=>{
     comparePlanIds.delete(existing.id);
     if(state.chosenPlanIds?.[existing.storageId]===existing.id)delete state.chosenPlanIds[existing.storageId];
     normalizeInstallState(state);
-  }else createSavedPlanForStorage(s,layout);
+    if(savedPlanSourceContext?.planId===existing.id)savedPlanSourceContext=null;
+  }else{
+    const source=savedPlanSourceContext?.storageId===s.id?savedPlanSourceContext:null;
+    const created=createSavedPlanForStorage(s,layout,{derivedFrom:source});
+    savedPlanSourceContext=savedPlanSourceSnapshot(created);
+  }
   localStorage.setItem(KEY,JSON.stringify(state));
   renderSavedPlans();updateSavePlanButton();
 });
@@ -4215,6 +4258,9 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     nextCopyName,
     ensureHomeHierarchy,
     purchaseBreakdown,
+    savedPlanSourceSnapshot,
+    planLineageMetadata,
+    planLineageInfo,
     itemStockStatus,
     aggregateRequiredCounts,
     orientations,
