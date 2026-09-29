@@ -3292,7 +3292,7 @@ function maxCopiesInStorage(item,S,settings={},options={}){
   const stackingEnabled=!!settings.enableStacking&&!!item?.canBeStacked&&!!item?.canSupportStack;
   if(!stackingEnabled){
     const floor=maxFloorCopiesInStorage(item,S,settings,options);
-    return {...floor,mode:"floor",floorCount:floor.count,stackedCount:0,stackingEnabled:false};
+    return {...floor,mode:"floor",floorCount:floor.count,stackedCount:0,stackingEnabled:!!settings.enableStacking};
   }
   const plan={id:"capacity:"+String(S?.id||""),storageId:S?.id||"",stacking:true,settings:{clearanceEnabled:!!settings.clearanceEnabled,clearance:Math.max(0,Number(settings.clearance)||0),fitTolerance:Math.max(0,Number(settings.fitTolerance)||0),uprightOnly:settings.uprightOnly!==false},layout:[]};
   const lookup=typeof options.itemLookup==="function"?options.itemLookup:(id=>id===item.id?item:null);
