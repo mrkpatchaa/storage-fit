@@ -2421,10 +2421,11 @@ function renderCompareModal(){
   el.innerHTML=plans.map(plan=>{
     const m=planMetrics(plan),counts=layoutCounts(plan.layout||[]),contents=labeledPlacements(plan.layout||[]);
     const items=Object.entries(counts).map(([id,n])=>`<li>${esc(boxById(id)?.name||"Item")} ×${n}</li>`).join("");
-    const chosen=isPlanChosen(plan),health=planHealth(plan);
+    const chosen=isPlanChosen(plan),health=planHealth(plan),lineage=planLineageInfo(plan,state.savedPlans);
     return `<article class="comparecard ${chosen?"chosen":""}">
       <div class="comparetitle">${esc(plan.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}${health.status!=="current"?`<span class="planhealth ${health.status}">${health.status==="review"?"Review":"Invalid"}</span>`:""}</div>
       <div class="comparestorage">${esc(m.storagePath)} · ${esc(goalLabel(plan.goal))}</div>
+      ${lineage?`<div class="planlineage">${esc(lineage.label)}</div>`:""}
       <div class="comparestats">
         <div class="comparestat"><div class="k">Utilization</div><div class="v">${m.utilizationPct.toFixed(1)}%</div><div class="small">${esc(m.utilizationKind)}</div></div>
         <div class="comparestat"><div class="k">Items</div><div class="v">${m.itemCount}</div><div class="small">${m.distinctTypes} type${m.distinctTypes===1?"":"s"}</div></div>
@@ -2481,12 +2482,13 @@ function renderSavedPlans(){
   el.innerHTML=state.savedPlans.map(p=>{
     const m=planMetrics(p),counts=layoutCounts(p.layout||[]),contents=labeledPlacements(p.layout||[]);
     const summary=Object.entries(counts).map(([id,n])=>`${esc(boxById(id)?.name||"Item")} ×${n}`).join(" · ");
-    const chosen=isPlanChosen(p),selected=comparePlanIds.has(p.id),health=planHealth(p);
+    const chosen=isPlanChosen(p),selected=comparePlanIds.has(p.id),health=planHealth(p),lineage=planLineageInfo(p,state.savedPlans);
     return `<div class="savedcard ${chosen?"chosen":""} ${health.status!=="current"?health.status:""}">
       <div class="savedhead">
         <div>
           <div class="savedname">${esc(p.name)}${chosen?'<span class="chosenbadge">Chosen</span>':""}${health.status!=="current"?`<span class="planhealth ${health.status}">${health.status==="review"?"Review":"Invalid"}</span>`:""}</div>
           <div class="savedmeta">${esc(m.storagePath)} · ${m.itemCount} item${m.itemCount===1?"":"s"} · ${m.utilizationPct.toFixed(1)}% ${esc(m.utilizationKind)}</div>
+          ${lineage?`<div class="planlineage">${esc(lineage.label)}</div>`:""}
           <span class="goallabel">${esc(goalLabel(p.goal))}</span>
         </div>
         <label class="savedselect"><input type="checkbox" data-compare-plan="${p.id}" ${selected?"checked":""}> compare</label>
