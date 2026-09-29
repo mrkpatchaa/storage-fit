@@ -27,6 +27,7 @@ let selectedGap = -1;
 let galleryWasCapped = false;
 let detailModalOpen = false;
 let compareModalOpen = false;
+let itemFitModalOpen = false;
 let comparePlanIds = new Set();
 let pendingImport = null;
 
@@ -307,6 +308,57 @@ function convertAllUnits(from,to){
   state.unit=to;
 }
 
+
+function fitLookupSettings(){
+  return {
+    clearanceEnabled:!!state.clearanceEnabled,
+    clearance:Math.max(0,Number(state.clearance)||0),
+    fitTolerance:Math.max(0,Number(state.fitTolerance)||0),
+    uprightOnly:state.uprightOnly!==false
+  };
+}
+function closeItemFitModal(){
+  itemFitModalOpen=false;
+  $("itemFitModal").classList.remove("open");
+  $("itemFitModal").setAttribute("aria-hidden","true");
+  document.body.classList.remove("modal-open");
+}
+function openCompatibleStorage(storageId){
+  const S=state.storages.find(s=>s.id===storageId);if(!S)return;
+  state.selectedStorage=S.id;editingStorage=S.id;syncHierarchyToStorage(S.id);
+  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
+  closeItemFitModal();renderAll();
+  $("storageSelect")?.scrollIntoView({behavior:"smooth",block:"center"});
+}
+function openItemFitModal(){
+  save();
+  const item=boxById(editingBox);if(!item)return;
+  const settings=fitLookupSettings(),matches=compatibleStoragesForItem(item,state.storages,settings);
+  const settingBits=[
+    settings.clearanceEnabled?`${fmt(settings.clearance)} ${state.unit} wall clearance`:"no wall clearance",
+    settings.fitTolerance>0?`${fmt(settings.fitTolerance)} ${state.unit} fit tolerance`:"no fit tolerance",
+    settings.uprightOnly?"all items forced upright":"item orientation rules"
+  ];
+  $("itemFitTitle").textContent=`Where can ${item.name} fit?`;
+  $("itemFitSubtitle").textContent=`${fmt(item.w)} × ${fmt(item.d)} × ${fmt(item.h)} ${state.unit} · ${settingBits.join(" · ")}`;
+  $("itemFitSummary").textContent=matches.length
+    ? `${matches.length} of ${state.storages.length} storage space${state.storages.length===1?"":"s"} can fit one copy. Tightest compatible spaces are shown first. This checks storage geometry only, not occupancy inside a saved layout.`
+    : `No storage space can fit one copy with the current geometry and fit settings. This checks storage geometry only, not occupancy inside a saved layout.`;
+  $("itemFitList").innerHTML=matches.length?matches.map(match=>{
+    const S=state.storages.find(s=>s.id===match.storageId),blocked=(S?.obstacles||[]).length,dividers=(S?.dividers||[]).length;
+    const constraints=[blocked?`${blocked} blocked zone${blocked===1?"":"s"}`:"",dividers?`${dividers} divider${dividers===1?"":"s"}`:""].filter(Boolean).join(" · ");
+    return `<div class="fitmatch">
+      <div><div class="fitmatchtitle">${esc(S?storageBreadcrumb(S):match.storageName)}</div>
+      <div class="fitmatchmeta">Usable ${fmt(match.W)} × ${fmt(match.D)} × ${fmt(match.H)} ${esc(state.unit)} · fits as ${fmt(match.w)} × ${fmt(match.d)} × ${fmt(match.h)}${constraints?` · ${esc(constraints)}`:""}</div></div>
+      <button class="btn soft" type="button" data-open-fit-storage="${match.storageId}">Open space</button>
+    </div>`;
+  }).join(""):'<div class="empty">Try reducing wall clearance / fit tolerance, allowing the item to rotate or tip, or add a larger storage space.</div>';
+  $("itemFitList").querySelectorAll("[data-open-fit-storage]").forEach(btn=>btn.addEventListener("click",()=>openCompatibleStorage(btn.dataset.openFitStorage)));
+  itemFitModalOpen=true;
+  $("itemFitModal").classList.add("open");
+  $("itemFitModal").setAttribute("aria-hidden","false");
+  document.body.classList.add("modal-open");
+}
 
 function openDetailModal(){
   if(!layouts.length)return;
@@ -829,6 +881,7 @@ function renderDividerEditor(){
 
 function loadBoxEditor(){
   const b=state.boxes.find(x=>x.id===editingBox);
+  $("findItemFits").disabled=!b;
   $("boxName").value=b?.name||"";$("bw").value=b?.w??"";$("bd").value=b?.d??"";$("bh").value=b?.h??"";
   $("boxPrice").value=b?.price||"";$("boxCurrency").value=b?.currency||"MAD";$("boxOwnedQty").value=b?.ownedQty??0;$("boxSku").value=b?.sku||"";$("boxUrl").value=b?.url||"";$("boxImage").value=b?.image||"";
   $("boxUprightOnly").checked=b?.uprightOnly!==false;
@@ -2350,6 +2403,31 @@ function gapSuggestions(gap,H,layout){
   return results.sort((a,b)=>b.area-a.area||b.count-a.count).slice(0,4);
 }
 
+
+function itemFitInStorage(item,S,settings={}){
+  if(!item||!S)return null;
+  const c=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
+  const W=Math.max(0,(Number(S.w)||0)-2*c),D=Math.max(0,(Number(S.d)||0)-2*c),H=Math.max(0,(Number(S.h)||0)-2*c);
+  const gap=Math.max(0,Number(settings.fitTolerance)||0);
+  if(W<=0||D<=0||H<=0)return null;
+  const obstacles=usableObstaclesFor(S,c),forceUpright=settings.uprightOnly!==false;
+  for(const o of orientations(item,forceUpright)){
+    for(const [x,y] of candidatePointsFor([],obstacles,o[0],o[1],gap)){
+      const p={typeId:item.id,name:item.name,x:round6(x),y:round6(y),z:0,w:o[0],d:o[1],h:o[2]};
+      if(!validPlacement(p,[],item,W,D,H,obstacles,gap))continue;
+      const freeAfter=Math.max(0,usableVolume(W,D,H,obstacles)-o[0]*o[1]*o[2]);
+      return {x:p.x,y:p.y,w:p.w,d:p.d,h:p.h,W,D,H,clearance:c,fitTolerance:gap,freeAfter};
+    }
+  }
+  return null;
+}
+function compatibleStoragesForItem(item,storages,settings={}){
+  return (storages||[]).map(S=>{
+    const fit=itemFitInStorage(item,S,settings);
+    return fit?{storageId:S.id,storageName:S.name||"Storage",...fit}:null;
+  }).filter(Boolean).sort((a,b)=>a.freeAfter-b.freeAfter||a.storageName.localeCompare(b.storageName));
+}
+
 function countSignature(layout){
   const c={};for(const p of layout)c[p.typeId]=(c[p.typeId]||0)+1;
   return Object.keys(c).sort().map(k=>`${k}:${c[k]}`).join("|");
@@ -3357,12 +3435,16 @@ $("exportHomeShoppingBtn").addEventListener("click",()=>{
   const btn=$("exportHomeShoppingBtn"),old=btn.textContent;btn.textContent="Exported ✓";
   setTimeout(()=>{btn.textContent=old},1200);
 });
+$("findItemFits").addEventListener("click",openItemFitModal);
+$("closeItemFitModal").addEventListener("click",closeItemFitModal);
+$("itemFitBackdrop").addEventListener("click",closeItemFitModal);
 $("comparePlansBtn").addEventListener("click",openCompareModal);
 $("closeCompareModal").addEventListener("click",closeCompareModal);
 $("compareBackdrop").addEventListener("click",closeCompareModal);
 $("closeDetailModal").addEventListener("click",closeDetailModal);
 $("detailBackdrop").addEventListener("click",closeDetailModal);
 document.addEventListener("keydown",e=>{
+  if(e.key==="Escape" && itemFitModalOpen){ closeItemFitModal(); return; }
   if(e.key==="Escape" && compareModalOpen){ closeCompareModal(); return; }
   if(e.key==="Escape" && detailModalOpen){ closeDetailModal(); return; }
   if(!detailModalOpen||compareModalOpen) return;
@@ -3676,6 +3758,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     recoveryEntryMeta,
     defaultConstraintMeasure,
     mirrorStorageConstraintsData,
+    itemFitInStorage,
+    compatibleStoragesForItem,
     constraintTemplateZones,
     dividerRectsForStorage,
     physicalObstaclesForStorage,
