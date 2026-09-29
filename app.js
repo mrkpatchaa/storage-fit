@@ -418,7 +418,9 @@ function ownedPackingFromCapacity(unallocatedOwned,result){
 }
 
 function stackedExtraItemPlacementInPlan(item,plan,liveStorage,itemLookup=boxById){
-  if(!item||!plan||!liveStorage||!plan.stacking||!item.canBeStacked)return null;
+  if(!item||!plan||!liveStorage||!item.canBeStacked)return null;
+  const stackingEnabled=plan.stacking ?? layoutUsesStacking(plan.layout||[]);
+  if(!stackingEnabled)return null;
   const settings=plan.settings||{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true};
   const clearance=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
   const gap=Math.max(0,Number(settings.fitTolerance)||0);
