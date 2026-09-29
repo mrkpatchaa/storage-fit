@@ -348,6 +348,66 @@ function openCompatibleStorage(storageId){
   $("storageSelect")?.scrollIntoView({behavior:"smooth",block:"center"});
 }
 
+function maxAdditionalFloorCopiesInPlan(item,plan,liveStorage,options={}){
+  if(!item||!plan||!liveStorage)return {count:0,layout:[],exact:true,truncated:false,capped:false,nodes:0};
+  const settings=plan.settings||{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true};
+  const clearance=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
+  const gap=Math.max(0,Number(settings.fitTolerance)||0);
+  const W=(Number(liveStorage.w)||0)-2*clearance,D=(Number(liveStorage.d)||0)-2*clearance,H=(Number(liveStorage.h)||0)-2*clearance;
+  const nodeLimit=Math.max(100,Math.floor(Number(options.nodeLimit)||CAPACITY_SEARCH_LIMIT));
+  const copyLimit=Math.max(1,Math.floor(Number(options.copyLimit)||CAPACITY_COPY_LIMIT));
+  if(W<=0||D<=0||H<=0)return {count:0,layout:[],exact:true,truncated:false,capped:false,nodes:0,W,D,H};
+  const fixedLayout=plan.layout||[],physical=usableObstaclesFor(liveStorage,clearance);
+  const fixedFloor=fixedLayout.filter(p=>(Number(p.z)||0)<=1e-9).map(p=>({...p,kind:"occupied"}));
+  const searchObstacles=[...physical,...fixedFloor];
+  const oris=orientations(item,settings.uprightOnly!==false).filter(o=>o[0]+2*gap<=W+1e-9&&o[1]+2*gap<=D+1e-9&&o[2]<=H+1e-9);
+  if(!oris.length)return {count:0,layout:[],exact:true,truncated:false,capped:false,nodes:0,W,D,H};
+  const minArea=Math.min(...oris.map(o=>o[0]*o[1])),freeArea=freeFloorArea(W,D,searchObstacles);
+  const areaUpper=Math.max(0,Math.floor((freeArea+1e-9)/Math.max(1e-9,minArea))),target=Math.min(copyLimit,areaUpper);
+  let best=[],nodes=0,truncated=false,capped=false;
+  const visited=new Set();
+
+  const validAdded=(p,added)=>floorPlacementValid(p,[...fixedLayout,...added],W,D,H,physical,gap);
+  for(const o of oris){
+    const added=[];
+    while(added.length<target){
+      let next=null;
+      for(const [x,y] of candidatePointsFor(added,searchObstacles,o[0],o[1],gap)){
+        const p={typeId:item.id,name:item.name,x:round6(x),y:round6(y),z:0,w:o[0],d:o[1],h:o[2]};
+        if(validAdded(p,added)){next=p;break}
+      }
+      if(!next)break;
+      added.push(next);
+    }
+    if(added.length>best.length)best=added.map(p=>({...p}));
+  }
+
+  function recurse(added){
+    nodes++;
+    if(nodes>nodeLimit){truncated=true;return}
+    if(added.length>best.length)best=added.map(p=>({...p}));
+    if(added.length>=target){
+      if(areaUpper>copyLimit)capped=true;
+      return;
+    }
+    const remainingArea=Math.max(0,freeArea-occupiedArea(added));
+    if(added.length+Math.floor((remainingArea+1e-9)/Math.max(1e-9,minArea))<=best.length)return;
+    const sig=canonicalLayout(added);
+    if(visited.has(sig))return;
+    visited.add(sig);
+    for(const o of oris){
+      for(const [x,y] of candidatePointsFor(added,searchObstacles,o[0],o[1],gap)){
+        const p={typeId:item.id,name:item.name,x:round6(x),y:round6(y),z:0,w:o[0],d:o[1],h:o[2]};
+        if(!validAdded(p,added))continue;
+        recurse([...added,p]);
+        if(truncated||capped)return;
+      }
+    }
+  }
+  recurse([]);
+  return {count:best.length,layout:best,exact:!truncated&&!capped,truncated,capped,nodes,W,D,H};
+}
+
 function extraItemPlacementInPlan(item,plan,liveStorage){
   if(!item||!plan||!liveStorage)return null;
   const settings=plan.settings||{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true};
@@ -389,22 +449,33 @@ function itemPlanRoomRows(item,savedPlans,storages,chosenPlanIds={},installedPla
     a.planName.localeCompare(b.planName)
   );
 }
-function openSavedPlanWithExtraItem(planId,itemId,placement){
-  const plan=state.savedPlans.find(p=>p.id===planId),item=boxById(itemId);
-  if(!plan||!item||!placement)return false;
+function openSavedPlanWithExtraItems(planId,itemId,placements){
+  const plan=state.savedPlans.find(p=>p.id===planId),item=boxById(itemId),source=Array.isArray(placements)?placements:[];
+  if(!plan||!item||!source.length)return false;
   openSavedPlan(planId);
   const layout=selectedManualLayout(),sz=currentUsableSize();if(!layout||!sz)return false;
-  const p={typeId:item.id,name:item.name,x:Number(placement.x)||0,y:Number(placement.y)||0,z:0,w:Number(placement.w)||item.w,d:Number(placement.d)||item.d,h:Number(placement.h)||item.h,label:""};
-  const trial=[...layout,p];
-  if(!editItemValid(trial,trial.length-1,sz.W,sz.D))return false;
+  const additions=source.map(placement=>({
+    typeId:item.id,name:item.name,x:Number(placement.x)||0,y:Number(placement.y)||0,z:0,
+    w:Number(placement.w)||item.w,d:Number(placement.d)||item.d,h:Number(placement.h)||item.h,label:""
+  }));
+  const trial=cloneLayoutSnapshot(layout);
+  for(const p of additions){
+    trial.push(p);
+    if(!editItemValid(trial,trial.length-1,sz.W,sz.D))return false;
+  }
   editMode=true;
   editOriginalLayout=cloneLayoutSnapshot(layout);
   resetEditHistory(editOriginalLayout);
-  layout.push(p);selectedEditItem=layout.length-1;selectedGap=-1;topDrag=null;detailView="top";
-  recordEditHistory("Add organizer");
-  setEditStatus(item.name+" added to free floor space. Adjust it if needed, then save to create a new plan.");
+  layout.push(...additions);selectedEditItem=layout.length-additions.length;selectedGap=-1;topDrag=null;detailView="top";
+  recordEditHistory(additions.length===1?"Add organizer":"Add organizer packing");
+  setEditStatus(additions.length===1
+    ? item.name+" added to free floor space. Adjust it if needed, then save to create a new plan."
+    : additions.length+" copies of "+item.name+" added to the remaining floor space. Adjust them if needed, then save to create a new plan.");
   refreshCurrentDetail();openDetailModal();
   return true;
+}
+function openSavedPlanWithExtraItem(planId,itemId,placement){
+  return openSavedPlanWithExtraItems(planId,itemId,placement?[placement]:[]);
 }
 function openItemPlanRoomModal(){
   save();
@@ -420,9 +491,29 @@ function openItemPlanRoomModal(){
   $("itemFitList").innerHTML=rows.length?rows.map(row=>{
     const p=row.placement;
     const badges=[row.installed?'<span class="usagebadge installed">Installed</span>':"",row.chosen?'<span class="usagebadge chosen">Chosen</span>':""].filter(Boolean).join("");
-    return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(row.planName)+" "+badges+'</div><div class="fitmatchmeta">'+esc(row.storagePath)+" · suggested at X "+fmt(p.x)+", Y "+fmt(p.y)+" · "+fmt(p.w)+" × "+fmt(p.d)+" × "+fmt(p.h)+" "+esc(state.unit)+'</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-add-plan-copy="'+row.planId+'">Add copy</button><button class="btn soft" type="button" data-open-room-plan="'+row.planId+'">Open plan</button></div></div>';
+    return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(row.planName)+" "+badges+'</div><div class="fitmatchmeta">'+esc(row.storagePath)+" · suggested at X "+fmt(p.x)+", Y "+fmt(p.y)+" · "+fmt(p.w)+" × "+fmt(p.d)+" × "+fmt(p.h)+" "+esc(state.unit)+'</div><div class="fitcapacity" data-plan-extra-capacity="'+row.planId+'">Additional capacity not calculated yet.</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-plan-capacity-btn="'+row.planId+'">Calculate extras</button><button class="btn soft" type="button" data-add-plan-packing="'+row.planId+'" disabled>Add packing</button><button class="btn soft" type="button" data-add-plan-copy="'+row.planId+'">Add copy</button><button class="btn soft" type="button" data-open-room-plan="'+row.planId+'">Open plan</button></div></div>';
   }).join(""):'<div class="empty">Try another organizer, or edit a saved plan to free some floor space.</div>';
-  const byPlan=new Map(rows.map(row=>[row.planId,row]));
+  const byPlan=new Map(rows.map(row=>[row.planId,row])),capacityResults=new Map();
+  $("itemFitList").querySelectorAll("[data-plan-capacity-btn]").forEach(btn=>btn.addEventListener("click",()=>{
+    const row=byPlan.get(btn.dataset.planCapacityBtn),plan=state.savedPlans.find(p=>p.id===btn.dataset.planCapacityBtn),S=plan&&state.storages.find(s=>s.id===plan.storageId);
+    const out=$("itemFitList").querySelector('[data-plan-extra-capacity="'+btn.dataset.planCapacityBtn+'"]');
+    if(!row||!plan||!S||!out)return;
+    btn.disabled=true;btn.textContent="Calculating…";
+    const result=maxAdditionalFloorCopiesInPlan(item,plan,S);
+    capacityResults.set(plan.id,result);
+    const noun=result.count===1?"copy":"copies";
+    out.textContent=result.exact
+      ? result.count+" additional "+noun+" maximum on the floor"
+      : "At least "+result.count+" additional "+noun+" fit on the floor · search capped for responsiveness";
+    const addBtn=$("itemFitList").querySelector('[data-add-plan-packing="'+plan.id+'"]');
+    if(addBtn)addBtn.disabled=!result.layout.length;
+    btn.textContent=result.exact?"Recalculate":"Try again";btn.disabled=false;
+  }));
+  $("itemFitList").querySelectorAll("[data-add-plan-packing]").forEach(btn=>btn.addEventListener("click",()=>{
+    const row=byPlan.get(btn.dataset.addPlanPacking),result=capacityResults.get(btn.dataset.addPlanPacking);
+    if(!row||!result||!result.layout.length)return;
+    const itemId=item.id;closeItemFitModal();openSavedPlanWithExtraItems(row.planId,itemId,result.layout);
+  }));
   $("itemFitList").querySelectorAll("[data-add-plan-copy]").forEach(btn=>btn.addEventListener("click",()=>{
     const row=byPlan.get(btn.dataset.addPlanCopy);if(!row)return;
     const itemId=item.id;closeItemFitModal();openSavedPlanWithExtraItem(row.planId,itemId,row.placement);
@@ -4038,7 +4129,9 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     openCapacityPacking,
     compatibleStoragesForItem,
     extraItemPlacementInPlan,
+    maxAdditionalFloorCopiesInPlan,
     itemPlanRoomRows,
+    openSavedPlanWithExtraItems,
     openSavedPlanWithExtraItem,
     itemPlanUsageRows,
     usageEditTarget,
