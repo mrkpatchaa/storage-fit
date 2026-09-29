@@ -98,6 +98,22 @@
       var orphanFamily=api.planFamilyInfo("child-a",familyPlans.filter(function(p){return p.id!=="root-plan";}));
       result(orphanFamily.parent.removed===true&&orphanFamily.parent.name==="Root"&&orphanFamily.visibleCount===2,"plan family preserves a removed parent placeholder");
       result(api.planFamilyInfo("missing",familyPlans)===null,"plan family rejects unknown plan ids");
+      var choiceState={
+        savedPlans:[
+          {id:"chosen-old",storageId:"s1"},
+          {id:"revision-new",storageId:"s1"},
+          {id:"other-storage",storageId:"s2"}
+        ],
+        chosenPlanIds:{s1:"chosen-old"},
+        installedPlanIds:{s1:"chosen-old"}
+      };
+      var revisionImpact=api.planChoiceImpact("revision-new",choiceState);
+      result(revisionImpact.previousChosenId==="chosen-old"&&revisionImpact.previousInstalledId==="chosen-old"&&revisionImpact.clearsInstalled===true&&revisionImpact.alreadyChosen===false,"revision promotion reports when switching clears an installed marker");
+      var chosenImpact=api.planChoiceImpact("chosen-old",choiceState);
+      result(chosenImpact.alreadyChosen===true&&chosenImpact.clearsInstalled===false,"already chosen family member does not require re-installation");
+      var freshImpact=api.planChoiceImpact("other-storage",choiceState);
+      result(freshImpact.previousChosenId===""&&freshImpact.previousInstalledId===""&&freshImpact.clearsInstalled===false,"choosing a plan for an untouched storage has no installation impact");
+      result(api.planChoiceImpact("missing",choiceState)===null,"plan choice impact rejects unknown plan ids");
       var shoppingState={shoppingBought:{b1:3.9,b2:-2,b3:"4"}};
       api.normalizeShoppingBought(shoppingState);
       result(shoppingState.shoppingBought.b1===3&&shoppingState.shoppingBought.b3===4&&!shoppingState.shoppingBought.b2,"shopping progress normalizes to non-negative whole quantities");

@@ -2100,6 +2100,19 @@ function chosenPlanForStorage(storageId){
 function isPlanChosen(plan){
   return !!plan && state.chosenPlanIds?.[plan.storageId]===plan.id;
 }
+function planChoiceImpact(planId,targetState=state){
+  const plan=(targetState.savedPlans||[]).find(p=>p.id===planId);if(!plan)return null;
+  const previousChosenId=targetState.chosenPlanIds?.[plan.storageId]||"";
+  const previousInstalledId=targetState.installedPlanIds?.[plan.storageId]||"";
+  return {
+    planId:plan.id,
+    storageId:plan.storageId,
+    alreadyChosen:previousChosenId===plan.id,
+    previousChosenId,
+    previousInstalledId,
+    clearsInstalled:!!previousInstalledId&&previousInstalledId!==plan.id
+  };
+}
 function toggleChosenPlan(planId){
   const plan=state.savedPlans.find(p=>p.id===planId);if(!plan)return false;
   state.chosenPlanIds=state.chosenPlanIds||{};
@@ -2432,7 +2445,7 @@ function planFamilyRow(plan,role,currentId){
   if(plan?.removed){
     return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(plan.name||"Previous saved plan")+' <span class="usagebadge">Parent removed</span></div><div class="fitmatchmeta">The immediate parent is no longer saved. This name comes from the child plan\'s lineage snapshot.</div></div></div>';
   }
-  const m=planMetrics(plan),health=planHealth(plan),chosen=isPlanChosen(plan);
+  const m=planMetrics(plan),health=planHealth(plan),chosen=isPlanChosen(plan),impact=planChoiceImpact(plan.id);
   const badges=[
     role==="parent"?'<span class="usagebadge">Parent</span>':"",
     role==="current"?'<span class="usagebadge chosen">Current</span>':"",
@@ -2440,7 +2453,8 @@ function planFamilyRow(plan,role,currentId){
     chosen?'<span class="usagebadge chosen">Chosen</span>':"",
     health.status!=="current"?'<span class="usagebadge">'+esc(health.status==="review"?"Review":"Invalid")+'</span>':""
   ].filter(Boolean).join("");
-  return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(plan.name||"Saved plan")+' '+badges+'</div><div class="fitmatchmeta">'+esc(m.storagePath)+' · '+m.itemCount+' item'+(m.itemCount===1?'':'s')+' · '+m.utilizationPct.toFixed(1)+'% '+esc(m.utilizationKind)+'</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-family-open="'+plan.id+'">'+(plan.id===currentId?'Open current':'Open')+'</button></div></div>';
+  const chooseLabel=chosen?"Chosen ✓":impact?.clearsInstalled?"Choose · re-install":role==="revision"?"Choose revision":role==="parent"?"Choose parent":"Choose";
+  return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(plan.name||"Saved plan")+' '+badges+'</div><div class="fitmatchmeta">'+esc(m.storagePath)+' · '+m.itemCount+' item'+(m.itemCount===1?'':'s')+' · '+m.utilizationPct.toFixed(1)+'% '+esc(m.utilizationKind)+(impact?.clearsInstalled?' · switching will clear Installed':"")+'</div></div><div class="fitmatchactions"><button class="btn '+(chosen?"primary":"soft")+'" type="button" data-family-choose="'+plan.id+'" '+(chosen||health.status!=="current"?"disabled":"")+'>'+chooseLabel+'</button><button class="btn soft" type="button" data-family-open="'+plan.id+'">'+(plan.id===currentId?'Open current':'Open')+'</button></div></div>';
 }
 function openPlanFamilyModal(planId){
   const family=planFamilyInfo(planId,state.savedPlans);if(!family)return;
@@ -2453,6 +2467,13 @@ function openPlanFamilyModal(planId){
   rows.push(planFamilyRow(family.current,"current",family.current.id));
   for(const child of family.children)rows.push(planFamilyRow(child,"revision",family.current.id));
   $("planFamilyList").innerHTML=rows.join("");
+  $("planFamilyList").querySelectorAll("[data-family-choose]").forEach(btn=>btn.addEventListener("click",()=>{
+    const planId=btn.dataset.familyChoose,impact=planChoiceImpact(planId);
+    if(!impact||impact.alreadyChosen)return;
+    if(impact.clearsInstalled&&!confirm("This storage is marked Installed with a different plan. Choosing this revision will mark it as pending installation again. Continue?"))return;
+    if(!toggleChosenPlan(planId))return;
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderSavedPlans();renderInstallDashboard();renderHomeProcurement();openPlanFamilyModal(planId);
+  }));
   $("planFamilyList").querySelectorAll("[data-family-open]").forEach(btn=>btn.addEventListener("click",()=>{
     closePlanFamilyModal();openSavedPlan(btn.dataset.familyOpen);
   }));
@@ -4319,6 +4340,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     planLineageMetadata,
     planLineageInfo,
     planFamilyInfo,
+    planChoiceImpact,
     itemStockStatus,
     aggregateRequiredCounts,
     orientations,
