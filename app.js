@@ -980,7 +980,7 @@ function renderBoxStockSummary(){
   const s=stockStatusForItem(item);
   if(!s.required){
     el.className="stocksummary";
-    el.innerHTML=`<strong>${s.owned} owned</strong><span>No copies are committed to current chosen plans${s.owned?` · ${s.unallocatedOwned} unallocated`:""}.</span>`;
+    el.innerHTML=`<strong>${s.owned} owned</strong><span>No copies are committed to active chosen plans${s.owned?` · ${s.unallocatedOwned} unallocated`:""}.</span>`;
     return;
   }
   el.className="stocksummary "+(s.shortage?"warn":s.unallocatedOwned?"good":"");
