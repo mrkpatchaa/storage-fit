@@ -75,6 +75,17 @@
         {id:"stale",layout:[{typeId:"b1"},{typeId:"b1"},{typeId:"b1"}]}
       ],function(plan){return plan.id!=="stale";});
       result(filteredStock.required===2&&filteredStock.unallocatedOwned===2&&filteredStock.planCount===1,"item stock status can exclude stale chosen plans");
+      var basePlan={id:"base-plan",name:"Original plan",storageId:"s1",savedAt:"2026-09-29T10:00:00.000Z"};
+      var sourceSnapshot=api.savedPlanSourceSnapshot(basePlan);
+      result(sourceSnapshot.planId==="base-plan"&&sourceSnapshot.name==="Original plan"&&sourceSnapshot.storageId==="s1","saved-plan source snapshot captures parent identity");
+      var lineageMeta=api.planLineageMetadata(sourceSnapshot);
+      result(lineageMeta.derivedFromPlanId==="base-plan"&&lineageMeta.derivedFromName==="Original plan","revision lineage metadata preserves parent id and fallback name");
+      var childPlan={id:"child-plan",name:"Revision",storageId:"s1",...lineageMeta};
+      var liveLineage=api.planLineageInfo(childPlan,[{...basePlan,name:"Renamed original"}]);
+      result(liveLineage.sourceExists===true&&liveLineage.name==="Renamed original"&&liveLineage.label==="Based on Renamed original","lineage display follows a live parent rename");
+      var removedLineage=api.planLineageInfo(childPlan,[]);
+      result(removedLineage.sourceExists===false&&removedLineage.name==="Original plan"&&removedLineage.label.indexOf("source removed")>0,"lineage display survives parent deletion using the saved name snapshot");
+      result(api.planLineageInfo({id:"root"},[])===null,"root saved plans have no lineage label");
       var shoppingState={shoppingBought:{b1:3.9,b2:-2,b3:"4"}};
       api.normalizeShoppingBought(shoppingState);
       result(shoppingState.shoppingBought.b1===3&&shoppingState.shoppingBought.b3===4&&!shoppingState.shoppingBought.b2,"shopping progress normalizes to non-negative whole quantities");
