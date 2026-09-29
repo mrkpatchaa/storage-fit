@@ -257,6 +257,16 @@
         {id:"tight",name:"Tight",w:12,d:21,h:6,obstacles:[],dividers:[]}
       ],reverseFitSettings);
       result(reverseMatches.length===2&&reverseMatches[0].storageId==="tight","compatible-space lookup ranks tighter valid spaces first");
+      var usageRows=api.itemPlanUsageRows("sq",[
+        {id:"saved",name:"Saved only",storageId:"s1",storagePath:"Bedroom → Wardrobe → Left",layout:[{typeId:"sq"},{typeId:"other"}]},
+        {id:"chosen",name:"Chosen",storageId:"s2",storagePath:"Bedroom → Wardrobe → Right",layout:[{typeId:"sq"},{typeId:"sq"}]},
+        {id:"installed",name:"Installed",storageId:"s3",storagePath:"Office → Desk → Drawer",layout:[{typeId:"sq"},{typeId:"sq"},{typeId:"sq"}]},
+        {id:"unused",name:"Unused",storageId:"s4",storagePath:"Kitchen",layout:[{typeId:"other"}]}
+      ],{s2:"chosen",s3:"installed"},{s3:"installed"});
+      result(usageRows.length===3&&usageRows[0].planId==="installed"&&usageRows[1].planId==="chosen","item usage ranks installed then chosen plans first");
+      result(usageRows[0].count===3&&usageRows[1].count===2&&usageRows[2].count===1,"item usage counts copies per saved plan");
+      result(usageRows[0].installed===true&&usageRows[0].chosen===true&&usageRows[1].installed===false&&usageRows[1].chosen===true,"item usage preserves installed and chosen status");
+      result(!usageRows.some(function(row){return row.planId==="unused"}),"item usage excludes plans that do not contain the organizer");
       var fourCapacity=api.maxFloorCopiesInStorage(squareFitItem,{id:"cap4",name:"Four",w:20,d:20,h:6,obstacles:[],dividers:[]},reverseFitSettings,{nodeLimit:5000,copyLimit:20});
       result(fourCapacity.count===4&&fourCapacity.exact===true,"capacity finder computes an exact four-item floor maximum");
       var mixedCapacity=api.maxFloorCopiesInStorage({id:"mix",name:"Mixed rectangle",w:6,d:4,h:2,uprightOnly:true,floorRotationLocked:false},{id:"capmix",name:"Mixed orientation",w:10,d:10,h:3,obstacles:[],dividers:[]},reverseFitSettings,{nodeLimit:10000,copyLimit:20});
