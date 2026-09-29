@@ -648,7 +648,7 @@ function openSavedPlanWithExtraItems(planId,itemId,placements){
   const stackedAdded=additions.filter(p=>(Number(p.z)||0)>1e-9).length;
   setEditStatus(additions.length===1
     ? item.name+(stackedAdded?" added to a valid stack position.":" added to free floor space.")+" Adjust it if needed, then save to create a new plan."
-    : additions.length+" copies of "+item.name+" added to the remaining floor space. Adjust them if needed, then save to create a new plan.");
+    : additions.length+" copies of "+item.name+" added"+(stackedAdded?" · "+stackedAdded+" stacked":"")+" in one packing. Adjust them if needed, then save to create a new plan.");
   refreshCurrentDetail();openDetailModal();
   return true;
 }
@@ -666,7 +666,7 @@ function openItemPlanRoomModal(){
   const stockNote=unallocatedOwned?unallocatedOwned+" owned cop"+(unallocatedOwned===1?"y is":"ies are")+" currently unallocated.":"No owned copies are currently unallocated.";
   const stackedRows=rows.filter(row=>row.placement.placementKind==="stacked").length;
   $("itemFitSummary").textContent=rows.length
-    ? rows.length+" current saved plan"+(rows.length===1?" has":"s have")+" room for one more copy"+(stackedRows?" · "+stackedRows+" via stacking":"")+". "+stockNote+" Add copy opens the suggested floor/stack placement; Calculate extras remains floor-only."
+    ? rows.length+" current saved plan"+(rows.length===1?" has":"s have")+" room for one more copy"+(stackedRows?" · "+stackedRows+" via stacking":"")+". "+stockNote+" Add copy opens the suggested placement; Calculate extras searches additional floor and legal stack positions."
     : "No current saved plan has valid floor space or a legal stack position for one more copy. "+stockNote+" "+(skipped?skipped+" stale or invalid plan"+(skipped===1?" was":"s were")+" skipped.":"");
   $("itemFitList").innerHTML=rows.length?rows.map(row=>{
     const p=row.placement;
@@ -674,7 +674,7 @@ function openItemPlanRoomModal(){
     const placementText=p.placementKind==="stacked"
       ?"stack level "+p.stackLevel+" · X "+fmt(p.x)+", Y "+fmt(p.y)+", Z "+fmt(p.z)
       :"floor · X "+fmt(p.x)+", Y "+fmt(p.y);
-    return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(row.planName)+" "+badges+'</div><div class="fitmatchmeta">'+esc(row.storagePath)+" · suggested "+placementText+" · "+fmt(p.w)+" × "+fmt(p.d)+" × "+fmt(p.h)+" "+esc(state.unit)+'</div><div class="fitcapacity" data-plan-extra-capacity="'+row.planId+'">Additional floor capacity not calculated yet.</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-plan-capacity-btn="'+row.planId+'">Calculate floor extras</button><button class="btn soft" type="button" data-add-owned-packing="'+row.planId+'" disabled>'+(unallocatedOwned?"Add owned":"No unallocated stock")+'</button><button class="btn soft" type="button" data-add-plan-packing="'+row.planId+'" disabled>Add floor packing</button><button class="btn soft" type="button" data-add-plan-copy="'+row.planId+'">Add copy</button><button class="btn soft" type="button" data-open-room-plan="'+row.planId+'">Open plan</button></div></div>';
+    return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(row.planName)+" "+badges+'</div><div class="fitmatchmeta">'+esc(row.storagePath)+" · suggested "+placementText+" · "+fmt(p.w)+" × "+fmt(p.d)+" × "+fmt(p.h)+" "+esc(state.unit)+'</div><div class="fitcapacity" data-plan-extra-capacity="'+row.planId+'">Additional capacity not calculated yet.</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-plan-capacity-btn="'+row.planId+'">Calculate extras</button><button class="btn soft" type="button" data-add-owned-packing="'+row.planId+'" disabled>'+(unallocatedOwned?"Add owned":"No unallocated stock")+'</button><button class="btn soft" type="button" data-add-plan-packing="'+row.planId+'" disabled>Add packing</button><button class="btn soft" type="button" data-add-plan-copy="'+row.planId+'">Add copy</button><button class="btn soft" type="button" data-open-room-plan="'+row.planId+'">Open plan</button></div></div>';
   }).join(""):'<div class="empty">Try another organizer, or edit a saved plan to free floor space or create a legal stack position.</div>';
   const byPlan=new Map(rows.map(row=>[row.planId,row])),capacityResults=new Map();
   $("itemFitList").querySelectorAll("[data-plan-capacity-btn]").forEach(btn=>btn.addEventListener("click",()=>{
@@ -682,19 +682,22 @@ function openItemPlanRoomModal(){
     const out=$("itemFitList").querySelector('[data-plan-extra-capacity="'+btn.dataset.planCapacityBtn+'"]');
     if(!row||!plan||!S||!out)return;
     btn.disabled=true;btn.textContent="Calculating…";
-    const result=maxAdditionalFloorCopiesInPlan(item,plan,S);
+    const result=maxAdditionalCopiesInPlan(item,plan,S);
     capacityResults.set(plan.id,result);
     const noun=result.count===1?"copy":"copies";
+    const mix=result.stackedCount
+      ? " · "+result.floorCount+" floor + "+result.stackedCount+" stacked"
+      : " · "+result.floorCount+" floor";
     out.textContent=result.exact
-      ? result.count+" additional "+noun+" maximum on the floor"
-      : "At least "+result.count+" additional "+noun+" fit on the floor · search capped for responsiveness";
+      ? result.count+" additional "+noun+" maximum"+mix
+      : "At least "+result.count+" additional "+noun+" fit"+mix+" · search capped for responsiveness";
     const owned=ownedPackingFromCapacity(unallocatedOwned,result);
     if(owned.count)out.textContent+=" · "+owned.count+" can use unallocated owned stock";
     const ownedBtn=$("itemFitList").querySelector('[data-add-owned-packing="'+plan.id+'"]');
     if(ownedBtn){ownedBtn.disabled=!owned.count;ownedBtn.textContent=owned.count?"Add "+owned.count+" owned":(unallocatedOwned?"No room for owned":"No unallocated stock")}
     const addBtn=$("itemFitList").querySelector('[data-add-plan-packing="'+plan.id+'"]');
     if(addBtn)addBtn.disabled=!result.layout.length;
-    btn.textContent=result.exact?"Recalculate":"Try again";btn.disabled=false;
+    btn.textContent="Recalculate";btn.disabled=false;
   }));
   $("itemFitList").querySelectorAll("[data-add-owned-packing]").forEach(btn=>btn.addEventListener("click",()=>{
     const row=byPlan.get(btn.dataset.addOwnedPacking),result=capacityResults.get(btn.dataset.addOwnedPacking);
@@ -4655,6 +4658,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     extraItemPlacementInPlan,
     extraItemAddition,
     maxAdditionalFloorCopiesInPlan,
+    maxAdditionalCopiesInPlan,
     ownedPackingFromCapacity,
     itemPlanRoomRows,
     openSavedPlanWithExtraItems,
