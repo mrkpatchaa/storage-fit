@@ -417,7 +417,49 @@ function ownedPackingFromCapacity(unallocatedOwned,result){
   return {available,capacity:source.length,count,layout:source.slice(0,count).map(p=>({...p}))};
 }
 
-function extraItemPlacementInPlan(item,plan,liveStorage){
+function stackedExtraItemPlacementInPlan(item,plan,liveStorage,itemLookup=boxById){
+  if(!item||!plan||!liveStorage||!plan.stacking||!item.canBeStacked)return null;
+  const settings=plan.settings||{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true};
+  const clearance=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
+  const gap=Math.max(0,Number(settings.fitTolerance)||0);
+  const W=(Number(liveStorage.w)||0)-2*clearance,D=(Number(liveStorage.d)||0)-2*clearance,H=(Number(liveStorage.h)||0)-2*clearance;
+  if(W<=0||D<=0||H<=0)return null;
+  const layout=plan.layout||[],obstacles=usableObstaclesFor(liveStorage,clearance);
+  const oris=orientations(item,settings.uprightOnly!==false);
+  for(const base of layout){
+    const baseRule=itemLookup(base.typeId);
+    if(!baseRule?.canSupportStack)continue;
+    const z=round6((Number(base.z)||0)+Number(base.h||0));
+    for(const o of oris){
+      if(z+o[2]>H+1e-9||o[0]>base.w+1e-9||o[1]>base.d+1e-9)continue;
+      const xs=new Set([round6(base.x),round6(base.x+base.w-o[0])]);
+      const ys=new Set([round6(base.y),round6(base.y+base.d-o[1])]);
+      for(const q of layout){
+        if(Math.abs((Number(q.z)||0)-z)>1e-9)continue;
+        if(q.x>=base.x-1e-9&&q.y>=base.y-1e-9&&q.x+q.w<=base.x+base.w+1e-9&&q.y+q.d<=base.y+base.d+1e-9){
+          xs.add(round6(q.x+q.w+gap));ys.add(round6(q.y+q.d+gap));
+          xs.add(round6(q.x-o[0]-gap));ys.add(round6(q.y-o[1]-gap));
+        }
+      }
+      for(const y of ys)for(const x of xs){
+        const p={typeId:item.id,name:item.name,x:round6(x),y:round6(y),z,w:o[0],d:o[1],h:o[2]};
+        if(!footprintContains(base,p))continue;
+        if(p.x<gap-1e-9||p.y<gap-1e-9||p.x+p.w+gap>W+1e-9||p.y+p.d+gap>D+1e-9)continue;
+        if(obstacles.some(o=>overlap3D(p,o,gap)))continue;
+        if(layout.some(q=>overlap3D(p,q,gap)))continue;
+        if(!supportingBaseForLookup(p,layout,itemLookup))continue;
+        const level=placementStackLevelLookup(p,layout,itemLookup);
+        if(item.maxStackLevel&&level>item.maxStackLevel)continue;
+        return {
+          ...p,W,D,H,clearance,fitTolerance:gap,placementKind:"stacked",stackLevel:level,
+          remainingFloor:Math.max(0,freeFloorArea(W,D,obstacles)-occupiedArea(layout))
+        };
+      }
+    }
+  }
+  return null;
+}
+function extraItemPlacementInPlan(item,plan,liveStorage,itemLookup=boxById){
   if(!item||!plan||!liveStorage)return null;
   const settings=plan.settings||{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true};
   const clearance=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
@@ -431,10 +473,13 @@ function extraItemPlacementInPlan(item,plan,liveStorage){
       const x=point[0],y=point[1];
       const p={typeId:item.id,name:item.name,x:round6(x),y:round6(y),z:0,w:o[0],d:o[1],h:o[2]};
       if(!floorPlacementValid(p,layout,W,D,H,obstacles,gap))continue;
-      return {...p,W,D,H,clearance,fitTolerance:gap,remainingFloor:Math.max(0,freeFloorArea(W,D,obstacles)-occupiedArea(layout)-o[0]*o[1])};
+      return {
+        ...p,W,D,H,clearance,fitTolerance:gap,placementKind:"floor",stackLevel:1,
+        remainingFloor:Math.max(0,freeFloorArea(W,D,obstacles)-occupiedArea(layout)-o[0]*o[1])
+      };
     }
   }
-  return null;
+  return stackedExtraItemPlacementInPlan(item,plan,liveStorage,itemLookup);
 }
 function itemPlanRoomRows(item,savedPlans,storages,chosenPlanIds={},installedPlanIds={},isPlanUsable=()=>true){
   const storageMap=new Map((storages||[]).map(s=>[s.id,s]));
@@ -464,7 +509,7 @@ function openSavedPlanWithExtraItems(planId,itemId,placements){
   openSavedPlan(planId);
   const layout=selectedManualLayout(),sz=currentUsableSize();if(!layout||!sz)return false;
   const additions=source.map(placement=>({
-    typeId:item.id,name:item.name,x:Number(placement.x)||0,y:Number(placement.y)||0,z:0,
+    typeId:item.id,name:item.name,x:Number(placement.x)||0,y:Number(placement.y)||0,z:Number(placement.z)||0,
     w:Number(placement.w)||item.w,d:Number(placement.d)||item.d,h:Number(placement.h)||item.h,label:""
   }));
   const trial=cloneLayoutSnapshot(layout);
@@ -477,8 +522,9 @@ function openSavedPlanWithExtraItems(planId,itemId,placements){
   resetEditHistory(editOriginalLayout);
   layout.push(...additions);selectedEditItem=layout.length-additions.length;selectedGap=-1;topDrag=null;detailView="top";
   recordEditHistory(additions.length===1?"Add organizer":"Add organizer packing");
+  const stackedAdded=additions.filter(p=>(Number(p.z)||0)>1e-9).length;
   setEditStatus(additions.length===1
-    ? item.name+" added to free floor space. Adjust it if needed, then save to create a new plan."
+    ? item.name+(stackedAdded?" added to a valid stack position.":" added to free floor space.")+" Adjust it if needed, then save to create a new plan."
     : additions.length+" copies of "+item.name+" added to the remaining floor space. Adjust them if needed, then save to create a new plan.");
   refreshCurrentDetail();openDetailModal();
   return true;
