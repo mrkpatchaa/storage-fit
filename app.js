@@ -408,6 +408,13 @@ function maxAdditionalFloorCopiesInPlan(item,plan,liveStorage,options={}){
   return {count:best.length,layout:best,exact:!truncated&&!capped,truncated,capped,nodes,W,D,H};
 }
 
+function ownedPackingFromCapacity(unallocatedOwned,result){
+  const available=Math.max(0,Math.floor(Number(unallocatedOwned)||0));
+  const source=Array.isArray(result?.layout)?result.layout:[];
+  const count=Math.min(available,source.length);
+  return {available,capacity:source.length,count,layout:source.slice(0,count).map(p=>({...p}))};
+}
+
 function extraItemPlacementInPlan(item,plan,liveStorage){
   if(!item||!plan||!liveStorage)return null;
   const settings=plan.settings||{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true};
@@ -484,14 +491,15 @@ function openItemPlanRoomModal(){
   const rows=itemPlanRoomRows(item,currentPlans,state.storages,state.chosenPlanIds,state.installedPlanIds);
   $("itemFitTitle").textContent="Which saved plans have room for "+item.name+"?";
   $("itemFitSubtitle").textContent=fmt(item.w)+" × "+fmt(item.d)+" × "+fmt(item.h)+" "+state.unit+" · one additional floor copy";
-  const skipped=state.savedPlans.length-currentPlans.length;
+  const skipped=state.savedPlans.length-currentPlans.length,stock=stockStatusForItem(item),unallocatedOwned=stock.unallocatedOwned;
+  const stockNote=unallocatedOwned?unallocatedOwned+" owned cop"+(unallocatedOwned===1?"y is":"ies are")+" currently unallocated.":"No owned copies are currently unallocated.";
   $("itemFitSummary").textContent=rows.length
-    ? rows.length+" current saved plan"+(rows.length===1?" has":"s have")+" room for one more copy on the floor. Add copy opens an editable copy of that plan; the original saved plan stays unchanged."
-    : "No current saved plan has valid floor space for one more copy. "+(skipped?skipped+" stale or invalid plan"+(skipped===1?" was":"s were")+" skipped.":"");
+    ? rows.length+" current saved plan"+(rows.length===1?" has":"s have")+" room for one more copy on the floor. "+stockNote+" Add copy / Add owned open editable plan copies; inventory itself is not changed."
+    : "No current saved plan has valid floor space for one more copy. "+stockNote+" "+(skipped?skipped+" stale or invalid plan"+(skipped===1?" was":"s were")+" skipped.":"");
   $("itemFitList").innerHTML=rows.length?rows.map(row=>{
     const p=row.placement;
     const badges=[row.installed?'<span class="usagebadge installed">Installed</span>':"",row.chosen?'<span class="usagebadge chosen">Chosen</span>':""].filter(Boolean).join("");
-    return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(row.planName)+" "+badges+'</div><div class="fitmatchmeta">'+esc(row.storagePath)+" · suggested at X "+fmt(p.x)+", Y "+fmt(p.y)+" · "+fmt(p.w)+" × "+fmt(p.d)+" × "+fmt(p.h)+" "+esc(state.unit)+'</div><div class="fitcapacity" data-plan-extra-capacity="'+row.planId+'">Additional capacity not calculated yet.</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-plan-capacity-btn="'+row.planId+'">Calculate extras</button><button class="btn soft" type="button" data-add-plan-packing="'+row.planId+'" disabled>Add packing</button><button class="btn soft" type="button" data-add-plan-copy="'+row.planId+'">Add copy</button><button class="btn soft" type="button" data-open-room-plan="'+row.planId+'">Open plan</button></div></div>';
+    return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(row.planName)+" "+badges+'</div><div class="fitmatchmeta">'+esc(row.storagePath)+" · suggested at X "+fmt(p.x)+", Y "+fmt(p.y)+" · "+fmt(p.w)+" × "+fmt(p.d)+" × "+fmt(p.h)+" "+esc(state.unit)+'</div><div class="fitcapacity" data-plan-extra-capacity="'+row.planId+'">Additional capacity not calculated yet.</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-plan-capacity-btn="'+row.planId+'">Calculate extras</button><button class="btn soft" type="button" data-add-owned-packing="'+row.planId+'" disabled>'+(unallocatedOwned?"Add owned":"No unallocated stock")+'</button><button class="btn soft" type="button" data-add-plan-packing="'+row.planId+'" disabled>Add packing</button><button class="btn soft" type="button" data-add-plan-copy="'+row.planId+'">Add copy</button><button class="btn soft" type="button" data-open-room-plan="'+row.planId+'">Open plan</button></div></div>';
   }).join(""):'<div class="empty">Try another organizer, or edit a saved plan to free some floor space.</div>';
   const byPlan=new Map(rows.map(row=>[row.planId,row])),capacityResults=new Map();
   $("itemFitList").querySelectorAll("[data-plan-capacity-btn]").forEach(btn=>btn.addEventListener("click",()=>{
@@ -505,9 +513,19 @@ function openItemPlanRoomModal(){
     out.textContent=result.exact
       ? result.count+" additional "+noun+" maximum on the floor"
       : "At least "+result.count+" additional "+noun+" fit on the floor · search capped for responsiveness";
+    const owned=ownedPackingFromCapacity(unallocatedOwned,result);
+    if(owned.count)out.textContent+=" · "+owned.count+" can use unallocated owned stock";
+    const ownedBtn=$("itemFitList").querySelector('[data-add-owned-packing="'+plan.id+'"]');
+    if(ownedBtn){ownedBtn.disabled=!owned.count;ownedBtn.textContent=owned.count?"Add "+owned.count+" owned":(unallocatedOwned?"No room for owned":"No unallocated stock")}
     const addBtn=$("itemFitList").querySelector('[data-add-plan-packing="'+plan.id+'"]');
     if(addBtn)addBtn.disabled=!result.layout.length;
     btn.textContent=result.exact?"Recalculate":"Try again";btn.disabled=false;
+  }));
+  $("itemFitList").querySelectorAll("[data-add-owned-packing]").forEach(btn=>btn.addEventListener("click",()=>{
+    const row=byPlan.get(btn.dataset.addOwnedPacking),result=capacityResults.get(btn.dataset.addOwnedPacking);
+    const owned=ownedPackingFromCapacity(unallocatedOwned,result);
+    if(!row||!owned.count)return;
+    const itemId=item.id;closeItemFitModal();openSavedPlanWithExtraItems(row.planId,itemId,owned.layout);
   }));
   $("itemFitList").querySelectorAll("[data-add-plan-packing]").forEach(btn=>btn.addEventListener("click",()=>{
     const row=byPlan.get(btn.dataset.addPlanPacking),result=capacityResults.get(btn.dataset.addPlanPacking);
@@ -4180,6 +4198,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     compatibleStoragesForItem,
     extraItemPlacementInPlan,
     maxAdditionalFloorCopiesInPlan,
+    ownedPackingFromCapacity,
     itemPlanRoomRows,
     openSavedPlanWithExtraItems,
     openSavedPlanWithExtraItem,

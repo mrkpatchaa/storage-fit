@@ -328,6 +328,17 @@
         {nodeLimit:5000,copyLimit:3}
       );
       result(cappedExtra.count===3&&cappedExtra.capped===true&&cappedExtra.exact===false,"saved-plan extra capacity reports a lower bound when the copy cap is reached");
+      var ownedCapacity={layout:[
+        {typeId:"room",x:10,y:0,z:0,w:10,d:10,h:5},
+        {typeId:"room",x:20,y:0,z:0,w:10,d:10,h:5},
+        {typeId:"room",x:10,y:10,z:0,w:10,d:10,h:5}
+      ]};
+      var ownedPacking=api.ownedPackingFromCapacity(2,ownedCapacity);
+      result(ownedPacking.available===2&&ownedPacking.capacity===3&&ownedPacking.count===2&&ownedPacking.layout.length===2,"owned packing caps suggested additions at unallocated stock");
+      ownedPacking.layout[0].x=999;
+      result(ownedCapacity.layout[0].x===10,"owned packing clones placements instead of mutating the capacity result");
+      var noOwnedPacking=api.ownedPackingFromCapacity(0,{layout:[{typeId:"room"}]});
+      result(noOwnedPacking.count===0&&noOwnedPacking.layout.length===0,"owned packing is empty when no owned stock is unallocated");
       var fourCapacity=api.maxFloorCopiesInStorage(squareFitItem,{id:"cap4",name:"Four",w:20,d:20,h:6,obstacles:[],dividers:[]},reverseFitSettings,{nodeLimit:5000,copyLimit:20});
       result(fourCapacity.count===4&&fourCapacity.exact===true,"capacity finder computes an exact four-item floor maximum");
       var mixedCapacity=api.maxFloorCopiesInStorage({id:"mix",name:"Mixed rectangle",w:6,d:4,h:2,uprightOnly:true,floorRotationLocked:false},{id:"capmix",name:"Mixed orientation",w:10,d:10,h:3,obstacles:[],dividers:[]},reverseFitSettings,{nodeLimit:10000,copyLimit:20});
