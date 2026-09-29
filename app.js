@@ -2231,17 +2231,32 @@ function chosenPlanForStorage(storageId){
 function isPlanChosen(plan){
   return !!plan && state.chosenPlanIds?.[plan.storageId]===plan.id;
 }
+function physicalPlanEquivalent(a,b){
+  if(!a||!b||a.storageId!==b.storageId)return false;
+  const delta=placementDeltaSummary(a.layout||[],b.layout||[]);
+  return delta.added===0&&delta.removed===0&&delta.moved===0&&delta.reoriented===0;
+}
+function carryInstalledPlanForward(targetState,impact){
+  if(!impact?.preservesInstalled)return false;
+  targetState.installedPlanIds=targetState.installedPlanIds&&typeof targetState.installedPlanIds==="object"?targetState.installedPlanIds:{};
+  targetState.installedPlanIds[impact.storageId]=impact.planId;
+  return true;
+}
 function planChoiceImpact(planId,targetState=state){
-  const plan=(targetState.savedPlans||[]).find(p=>p.id===planId);if(!plan)return null;
+  const plans=targetState.savedPlans||[],plan=plans.find(p=>p.id===planId);if(!plan)return null;
   const previousChosenId=targetState.chosenPlanIds?.[plan.storageId]||"";
   const previousInstalledId=targetState.installedPlanIds?.[plan.storageId]||"";
+  const installedPlan=previousInstalledId?plans.find(p=>p.id===previousInstalledId&&p.storageId===plan.storageId):null;
+  const switchingInstalled=!!previousInstalledId&&previousInstalledId!==plan.id;
+  const preservesInstalled=switchingInstalled&&physicalPlanEquivalent(installedPlan,plan);
   return {
     planId:plan.id,
     storageId:plan.storageId,
     alreadyChosen:previousChosenId===plan.id,
     previousChosenId,
     previousInstalledId,
-    clearsInstalled:!!previousInstalledId&&previousInstalledId!==plan.id
+    preservesInstalled,
+    clearsInstalled:switchingInstalled&&!preservesInstalled
   };
 }
 function toggleChosenPlan(planId){
@@ -2258,7 +2273,9 @@ function toggleChosenPlan(planId){
       :"This plan is no longer valid with the current storage/items. Open it and rebuild or edit it first.");
     return false;
   }
+  const impact=planChoiceImpact(planId);
   state.chosenPlanIds[plan.storageId]=plan.id;
+  carryInstalledPlanForward(state,impact);
   normalizeInstallState(state);return true;
 }
 function chosenPlans(){
@@ -2585,8 +2602,9 @@ function planFamilyRow(plan,role,currentId,basePlan=null){
     chosen?'<span class="usagebadge chosen">Chosen</span>':"",
     health.status!=="current"?'<span class="usagebadge">'+esc(health.status==="review"?"Review":"Invalid")+'</span>':""
   ].filter(Boolean).join("");
-  const chooseLabel=chosen?"Chosen ✓":impact?.clearsInstalled?"Choose · re-install":role==="revision"?"Choose revision":role==="parent"?"Choose parent":"Choose";
-  return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(plan.name||"Saved plan")+' '+badges+'</div><div class="fitmatchmeta">'+esc(m.storagePath)+' · '+m.itemCount+' item'+(m.itemCount===1?'':'s')+' · '+m.utilizationPct.toFixed(1)+'% '+esc(m.utilizationKind)+(impact?.clearsInstalled?' · switching will clear Installed':"")+'</div>'+(deltaText?'<div class="revisiondelta"><strong>Δ vs parent</strong> · '+esc(deltaText)+'</div>':"")+'<div data-family-review-slot="'+plan.id+'"></div></div><div class="fitmatchactions">'+(basePlan?'<button class="btn soft" type="button" data-family-review="'+plan.id+'">Review changes</button>':"")+'<button class="btn '+(chosen?"primary":"soft")+'" type="button" data-family-choose="'+plan.id+'" '+(chosen||health.status!=="current"?"disabled":"")+'>'+chooseLabel+'</button><button class="btn soft" type="button" data-family-open="'+plan.id+'">'+(plan.id===currentId?'Open current':'Open')+'</button></div></div>';
+  const chooseLabel=chosen?"Chosen ✓":impact?.clearsInstalled?"Choose · re-install":impact?.preservesInstalled?"Choose · keep installed":role==="revision"?"Choose revision":role==="parent"?"Choose parent":"Choose";
+  const installNote=impact?.clearsInstalled?" · switching will clear Installed":impact?.preservesInstalled?" · physical layout unchanged · Installed stays":"";
+  return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(plan.name||"Saved plan")+' '+badges+'</div><div class="fitmatchmeta">'+esc(m.storagePath)+' · '+m.itemCount+' item'+(m.itemCount===1?'':'s')+' · '+m.utilizationPct.toFixed(1)+'% '+esc(m.utilizationKind)+installNote+'</div>'+(deltaText?'<div class="revisiondelta"><strong>Δ vs parent</strong> · '+esc(deltaText)+'</div>':"")+'<div data-family-review-slot="'+plan.id+'"></div></div><div class="fitmatchactions">'+(basePlan?'<button class="btn soft" type="button" data-family-review="'+plan.id+'">Review changes</button>':"")+'<button class="btn '+(chosen?"primary":"soft")+'" type="button" data-family-choose="'+plan.id+'" '+(chosen||health.status!=="current"?"disabled":"")+'>'+chooseLabel+'</button><button class="btn soft" type="button" data-family-open="'+plan.id+'">'+(plan.id===currentId?'Open current':'Open')+'</button></div></div>';
 }
 function openPlanFamilyModal(planId){
   const family=planFamilyInfo(planId,state.savedPlans);if(!family)return;
@@ -4489,6 +4507,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     savedPlanTopPreview,
     revisionDeltaInfo,
     revisionDeltaText,
+    physicalPlanEquivalent,
+    carryInstalledPlanForward,
     planChoiceImpact,
     itemStockStatus,
     aggregateRequiredCounts,
