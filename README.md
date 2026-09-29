@@ -892,6 +892,8 @@ Compatible spaces are ranked with the tightest valid geometry first. Each result
 
 Each compatible result can also **Calculate capacity**. Storage Fit searches for the maximum number of identical copies that can sit on the storage floor while respecting the same wall clearance, fit tolerance, blocked zones, dividers and allowed orientations. Capacity is calculated on demand so opening the whole-home finder stays fast. The search is bounded for browser responsiveness; normal cases report an exact maximum, while unusually large/dense cases are labeled as **at least N** rather than pretending an incomplete search is exact.
 
+After capacity is calculated, **Open packing** turns the returned arrangement into a normal Storage Fit layout. It opens directly in the existing layout detail workspace, so the packing can be inspected in Top / Front / Side / 3D, manually edited, labeled, printed, exported, shared, or saved as a plan. Exact-capacity results are identified as an exact floor maximum; bounded searches are identified as the best packing found before the search cap.
+
 **Open space** jumps directly to that compartment so planning can continue without hunting through the hierarchy.
 
 The lookup intentionally answers a structural question: whether the organizer fits the storage geometry when empty. It does not treat unused area inside an existing saved layout as available space. Leftover-space suggestions remain the right tool for filling gaps inside a particular layout.
