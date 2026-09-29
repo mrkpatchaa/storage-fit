@@ -345,6 +345,13 @@
       result(alignCenterY.y===20&&alignCenterY.x===23,"depth center alignment changes only Y");
       result(alignCenterY.label==="Socks"&&alignCenterY.z===0,"alignment preserves labels and elevation");
       result(api.alignmentPlacementCandidate(alignSource,"diagonal",100,50,0)===null,"unknown alignment is rejected safely");
+      var capacityOpened=api.openCapacityPacking("s1",{count:2,exact:true,W:67,D:26,H:13,layout:[
+        {typeId:"b3",name:"Small box 20 × 13 × 10",x:0,y:0,z:0,w:20,d:13,h:10},
+        {typeId:"b3",name:"Small box 20 × 13 × 10",x:20,y:0,z:0,w:20,d:13,h:10}
+      ]});
+      result(capacityOpened===true,"capacity packing can be opened as a real planner layout");
+      result(w.document.getElementById("detailModal").classList.contains("open")&&w.document.getElementById("detailTitle").textContent==="Capacity packing","capacity packing opens directly in the layout detail modal");
+      result(w.document.getElementById("detailSubtitle").textContent.indexOf("Exact floor maximum: 2.")===0,"capacity layout detail preserves exact-capacity provenance");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{
