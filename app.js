@@ -2096,6 +2096,7 @@ function renderCompareModal(){
   }));
 }
 function openSavedPlan(planId){
+  capacityLayoutContext=null;
   const plan=state.savedPlans.find(p=>p.id===planId);if(!plan)return;
   if(state.storages.some(s=>s.id===plan.storageId))state.selectedStorage=plan.storageId;
   state.optimizeGoal=plan.goal||state.optimizeGoal;
