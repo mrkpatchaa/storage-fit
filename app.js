@@ -319,7 +319,8 @@ function fitLookupSettings(){
     clearanceEnabled:!!state.clearanceEnabled,
     clearance:Math.max(0,Number(state.clearance)||0),
     fitTolerance:Math.max(0,Number(state.fitTolerance)||0),
-    uprightOnly:state.uprightOnly!==false
+    uprightOnly:state.uprightOnly!==false,
+    enableStacking:!!state.enableStacking
   };
 }
 function closeItemFitModal(){
@@ -332,12 +333,14 @@ function openCapacityPacking(storageId,result){
   const S=state.storages.find(s=>s.id===storageId);
   if(!S||!result||!Array.isArray(result.layout)||!result.layout.length)return false;
   state.selectedStorage=S.id;editingStorage=S.id;syncHierarchyToStorage(S.id);
+  if(typeof result.stackingEnabled==="boolean")state.enableStacking=result.stackingEnabled;
+  else if(layoutUsesStacking(result.layout))state.enableStacking=true;
   localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
   closeItemFitModal();renderAll();
   layouts=[result.layout.map(p=>({...p}))];selectedLayout=0;selectedGap=-1;currentGaps=[];galleryWasCapped=false;
   editMode=false;selectedEditItem=-1;editOriginalLayout=null;editHistory={entries:[],index:-1};topDrag=null;
   detailView="top";
-  capacityLayoutContext={exact:!!result.exact,count:result.count,storageId:S.id};
+  capacityLayoutContext={exact:!!result.exact,count:result.count,storageId:S.id,mode:result.mode||"floor",floorCount:Number.isFinite(result.floorCount)?result.floorCount:result.count,stackedCount:Number.isFinite(result.stackedCount)?result.stackedCount:0};
   const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0,W=S.w-2*c,D=S.d-2*c,H=S.h-2*c;
   renderDetail(W,D,H);openDetailModal();
   return true;
@@ -802,7 +805,8 @@ function openItemFitModal(){
   const settingBits=[
     settings.clearanceEnabled?`${fmt(settings.clearance)} ${state.unit} wall clearance`:"no wall clearance",
     settings.fitTolerance>0?`${fmt(settings.fitTolerance)} ${state.unit} fit tolerance`:"no fit tolerance",
-    settings.uprightOnly?"all items forced upright":"item orientation rules"
+    settings.uprightOnly?"all items forced upright":"item orientation rules",
+    settings.enableStacking?"stacking enabled":"stacking off"
   ];
   $("itemFitTitle").textContent=`Where can ${item.name} fit?`;
   $("itemFitSubtitle").textContent=`${fmt(item.w)} × ${fmt(item.d)} × ${fmt(item.h)} ${state.unit} · ${settingBits.join(" · ")}`;
@@ -824,11 +828,14 @@ function openItemFitModal(){
     const storageId=btn.dataset.fitCapacityBtn,S=state.storages.find(s=>s.id===storageId),out=$("itemFitList").querySelector(`[data-fit-capacity="${storageId}"]`);
     if(!S||!out)return;
     btn.disabled=true;btn.textContent="Calculating…";
-    const result=maxFloorCopiesInStorage(item,S,settings);
+    const result=maxCopiesInStorage(item,S,settings);
     capacityResults.set(storageId,result);
+    const mix=result.stackedCount
+      ? `${result.floorCount} floor + ${result.stackedCount} stacked`
+      : `${result.floorCount} floor`;
     out.textContent=result.exact
-      ? `${result.count} maximum on the floor · open the packing to inspect, edit or save it`
-      : `At least ${result.count} fit on the floor · open the best packing found before the search cap`;
+      ? `${result.count} maximum · ${mix} · open the packing to inspect, edit or save it`
+      : `At least ${result.count} fit · ${mix} · open the best packing found before the search cap`;
     const openBtn=$("itemFitList").querySelector(`[data-open-capacity-layout="${storageId}"]`);
     if(openBtn)openBtn.disabled=!result.layout.length;
     btn.textContent=result.exact?"Recalculate":"Try again";btn.disabled=false;
@@ -3281,6 +3288,18 @@ function maxFloorCopiesInStorage(item,S,settings={},options={}){
   return {count:best.length,layout:best,exact:!truncated&&!capped,truncated,capped,nodes,W,D,H};
 }
 
+function maxCopiesInStorage(item,S,settings={},options={}){
+  const stackingEnabled=!!settings.enableStacking&&!!item?.canBeStacked&&!!item?.canSupportStack;
+  if(!stackingEnabled){
+    const floor=maxFloorCopiesInStorage(item,S,settings,options);
+    return {...floor,mode:"floor",floorCount:floor.count,stackedCount:0,stackingEnabled:!!settings.enableStacking};
+  }
+  const plan={id:"capacity:"+String(S?.id||""),storageId:S?.id||"",stacking:true,settings:{clearanceEnabled:!!settings.clearanceEnabled,clearance:Math.max(0,Number(settings.clearance)||0),fitTolerance:Math.max(0,Number(settings.fitTolerance)||0),uprightOnly:settings.uprightOnly!==false},layout:[]};
+  const lookup=typeof options.itemLookup==="function"?options.itemLookup:(id=>id===item.id?item:null);
+  const result=maxAdditionalCopiesInPlan(item,plan,S,{...options,itemLookup:lookup});
+  return {...result,mode:"3d",stackingEnabled:true};
+}
+
 function itemFitInStorage(item,S,settings={}){
   if(!item||!S)return null;
   const c=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
@@ -3654,7 +3673,11 @@ function renderDetail(W,D,H){
   updateModalNav();updateSavePlanButton();
   const stackedCount=layout.filter(p=>(p.z||0)>1e-9).length;
   const capacityNote=capacityLayoutContext
-    ? (capacityLayoutContext.exact?`Exact floor maximum: ${capacityLayoutContext.count}. `:`Best packing found before search cap: ${capacityLayoutContext.count}. `)
+    ? (capacityLayoutContext.mode==="3d"
+      ? (capacityLayoutContext.exact
+        ? `Exact 3D maximum: ${capacityLayoutContext.count} (${capacityLayoutContext.floorCount} floor${capacityLayoutContext.stackedCount?` + ${capacityLayoutContext.stackedCount} stacked`:""}). `
+        : `Best 3D packing found before search cap: ${capacityLayoutContext.count} (${capacityLayoutContext.floorCount} floor${capacityLayoutContext.stackedCount?` + ${capacityLayoutContext.stackedCount} stacked`:""}). `)
+      : (capacityLayoutContext.exact?`Exact floor maximum: ${capacityLayoutContext.count}. `:`Best packing found before search cap: ${capacityLayoutContext.count}. `))
     : "";
   $("detailSubtitle").textContent=`${capacityNote}${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)} utilization · ${layout.length} item${layout.length===1?"":"s"}${stackedCount?` · ${stackedCount} stacked`:""}.`;
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.view===detailView));
@@ -4652,6 +4675,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     mirrorStorageConstraintsData,
     itemFitInStorage,
     maxFloorCopiesInStorage,
+    maxCopiesInStorage,
     openCapacityPacking,
     compatibleStoragesForItem,
     stackedExtraItemPlacementInPlan,
