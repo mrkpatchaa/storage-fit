@@ -32,6 +32,7 @@ let compareModalOpen = false;
 let itemFitModalOpen = false;
 let comparePlanIds = new Set();
 let pendingImport = null;
+let capacityLayoutContext = null;
 
 state.itemLimits = state.itemLimits || {};
 state.fitTolerance = Math.max(0, Number(state.fitTolerance)||0);
@@ -325,6 +326,20 @@ function closeItemFitModal(){
   $("itemFitModal").setAttribute("aria-hidden","true");
   document.body.classList.remove("modal-open");
 }
+function openCapacityPacking(storageId,result){
+  const S=state.storages.find(s=>s.id===storageId);
+  if(!S||!result||!Array.isArray(result.layout)||!result.layout.length)return false;
+  state.selectedStorage=S.id;editingStorage=S.id;syncHierarchyToStorage(S.id);
+  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
+  closeItemFitModal();renderAll();
+  layouts=[result.layout.map(p=>({...p}))];selectedLayout=0;selectedGap=-1;currentGaps=[];galleryWasCapped=false;
+  editMode=false;selectedEditItem=-1;editOriginalLayout=null;editHistory={entries:[],index:-1};topDrag=null;
+  detailView="top";
+  capacityLayoutContext={exact:!!result.exact,count:result.count,storageId:S.id};
+  const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0,W=S.w-2*c,D=S.d-2*c,H=S.h-2*c;
+  renderDetail(W,D,H);openDetailModal();
+  return true;
+}
 function openCompatibleStorage(storageId){
   const S=state.storages.find(s=>s.id===storageId);if(!S)return;
   state.selectedStorage=S.id;editingStorage=S.id;syncHierarchyToStorage(S.id);
@@ -346,6 +361,7 @@ function openItemFitModal(){
   $("itemFitSummary").textContent=matches.length
     ? `${matches.length} of ${state.storages.length} storage space${state.storages.length===1?"":"s"} can fit one copy. Tightest compatible spaces are shown first. This checks storage geometry only, not occupancy inside a saved layout.`
     : `No storage space can fit one copy with the current geometry and fit settings. This checks storage geometry only, not occupancy inside a saved layout.`;
+  const capacityResults=new Map();
   $("itemFitList").innerHTML=matches.length?matches.map(match=>{
     const S=state.storages.find(s=>s.id===match.storageId),blocked=(S?.obstacles||[]).length,dividers=(S?.dividers||[]).length;
     const constraints=[blocked?`${blocked} blocked zone${blocked===1?"":"s"}`:"",dividers?`${dividers} divider${dividers===1?"":"s"}`:""].filter(Boolean).join(" · ");
@@ -353,7 +369,7 @@ function openItemFitModal(){
       <div><div class="fitmatchtitle">${esc(S?storageBreadcrumb(S):match.storageName)}</div>
       <div class="fitmatchmeta">Usable ${fmt(match.W)} × ${fmt(match.D)} × ${fmt(match.H)} ${esc(state.unit)} · fits as ${fmt(match.w)} × ${fmt(match.d)} × ${fmt(match.h)}${constraints?` · ${esc(constraints)}`:""}</div>
       <div class="fitcapacity" data-fit-capacity="${match.storageId}">Capacity not calculated yet.</div></div>
-      <div class="fitmatchactions"><button class="btn soft" type="button" data-fit-capacity-btn="${match.storageId}">Calculate capacity</button><button class="btn soft" type="button" data-open-fit-storage="${match.storageId}">Open space</button></div>
+      <div class="fitmatchactions"><button class="btn soft" type="button" data-fit-capacity-btn="${match.storageId}">Calculate capacity</button><button class="btn soft" type="button" data-open-capacity-layout="${match.storageId}" disabled>Open packing</button><button class="btn soft" type="button" data-open-fit-storage="${match.storageId}">Open space</button></div>
     </div>`;
   }).join(""):'<div class="empty">Try reducing wall clearance / fit tolerance, allowing the item to rotate or tip, or add a larger storage space.</div>';
   $("itemFitList").querySelectorAll("[data-fit-capacity-btn]").forEach(btn=>btn.addEventListener("click",()=>{
@@ -361,10 +377,17 @@ function openItemFitModal(){
     if(!S||!out)return;
     btn.disabled=true;btn.textContent="Calculating…";
     const result=maxFloorCopiesInStorage(item,S,settings);
+    capacityResults.set(storageId,result);
     out.textContent=result.exact
-      ? `${result.count} maximum on the floor`
-      : `At least ${result.count} fit on the floor · search capped for responsiveness`;
+      ? `${result.count} maximum on the floor · open the packing to inspect, edit or save it`
+      : `At least ${result.count} fit on the floor · open the best packing found before the search cap`;
+    const openBtn=$("itemFitList").querySelector(`[data-open-capacity-layout="${storageId}"]`);
+    if(openBtn)openBtn.disabled=!result.layout.length;
     btn.textContent=result.exact?"Recalculate":"Try again";btn.disabled=false;
+  }));
+  $("itemFitList").querySelectorAll("[data-open-capacity-layout]").forEach(btn=>btn.addEventListener("click",()=>{
+    const result=capacityResults.get(btn.dataset.openCapacityLayout);
+    if(result)openCapacityPacking(btn.dataset.openCapacityLayout,result);
   }));
   $("itemFitList").querySelectorAll("[data-open-fit-storage]").forEach(btn=>btn.addEventListener("click",()=>openCompatibleStorage(btn.dataset.openFitStorage)));
   itemFitModalOpen=true;
@@ -2173,6 +2196,7 @@ function updateSavePlanButton(){
 }
 
 function resetResults(){
+  capacityLayoutContext=null;
   layouts=[];selectedLayout=0;currentGaps=[];selectedGap=-1;galleryWasCapped=false;closeDetailModal();closeCompareModal();
   $("resultLabel").textContent="—";$("layoutCount").textContent="—";$("bestFill").textContent="—";$("searchState").textContent="Ready";
   $("message").className="message";$("message").textContent="Select the item types you want to use, then find arrangements.";
@@ -2567,6 +2591,7 @@ function canPlaceAny(placed,types,W,D){
 }
 
 function findLayouts(){
+  capacityLayoutContext=null;
   save();
   const S=storage(), selected=selectedBoxes();
   if(!S){showMessage("Add or select a storage space first.","bad");return}
@@ -2852,10 +2877,13 @@ function svgIso(layout,W,D,H,width=760,height=430){
 
 function renderDetail(W,D,H){
   const layout=layouts[selectedLayout];if(!layout)return;
-  $("detailTitle").textContent=`Layout ${selectedLayout+1}`;
+  $("detailTitle").textContent=capacityLayoutContext?"Capacity packing":`Layout ${selectedLayout+1}`;
   updateModalNav();updateSavePlanButton();
   const stackedCount=layout.filter(p=>(p.z||0)>1e-9).length;
-  $("detailSubtitle").textContent=`${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)} utilization · ${layout.length} item${layout.length===1?"":"s"}${stackedCount?` · ${stackedCount} stacked`:""}.`;
+  const capacityNote=capacityLayoutContext
+    ? (capacityLayoutContext.exact?`Exact floor maximum: ${capacityLayoutContext.count}. `:`Best packing found before search cap: ${capacityLayoutContext.count}. `)
+    : "";
+  $("detailSubtitle").textContent=`${capacityNote}${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)} utilization · ${layout.length} item${layout.length===1?"":"s"}${stackedCount?` · ${stackedCount} stacked`:""}.`;
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.view===detailView));
   $("reset3d").disabled=detailView!=="iso";
   const printableLabels=printablePlacementLabels(layout);
@@ -3841,6 +3869,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     mirrorStorageConstraintsData,
     itemFitInStorage,
     maxFloorCopiesInStorage,
+    openCapacityPacking,
     compatibleStoragesForItem,
     constraintTemplateZones,
     dividerRectsForStorage,
