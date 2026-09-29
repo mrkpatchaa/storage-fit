@@ -319,7 +319,8 @@ function fitLookupSettings(){
     clearanceEnabled:!!state.clearanceEnabled,
     clearance:Math.max(0,Number(state.clearance)||0),
     fitTolerance:Math.max(0,Number(state.fitTolerance)||0),
-    uprightOnly:state.uprightOnly!==false
+    uprightOnly:state.uprightOnly!==false,
+    enableStacking:!!state.enableStacking
   };
 }
 function closeItemFitModal(){
@@ -332,12 +333,14 @@ function openCapacityPacking(storageId,result){
   const S=state.storages.find(s=>s.id===storageId);
   if(!S||!result||!Array.isArray(result.layout)||!result.layout.length)return false;
   state.selectedStorage=S.id;editingStorage=S.id;syncHierarchyToStorage(S.id);
+  if(typeof result.stackingEnabled==="boolean")state.enableStacking=result.stackingEnabled;
+  else if(layoutUsesStacking(result.layout))state.enableStacking=true;
   localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
   closeItemFitModal();renderAll();
   layouts=[result.layout.map(p=>({...p}))];selectedLayout=0;selectedGap=-1;currentGaps=[];galleryWasCapped=false;
   editMode=false;selectedEditItem=-1;editOriginalLayout=null;editHistory={entries:[],index:-1};topDrag=null;
   detailView="top";
-  capacityLayoutContext={exact:!!result.exact,count:result.count,storageId:S.id};
+  capacityLayoutContext={exact:!!result.exact,count:result.count,storageId:S.id,mode:result.mode||"floor",floorCount:Number.isFinite(result.floorCount)?result.floorCount:result.count,stackedCount:Number.isFinite(result.stackedCount)?result.stackedCount:0};
   const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0,W=S.w-2*c,D=S.d-2*c,H=S.h-2*c;
   renderDetail(W,D,H);openDetailModal();
   return true;
@@ -3281,6 +3284,18 @@ function maxFloorCopiesInStorage(item,S,settings={},options={}){
   return {count:best.length,layout:best,exact:!truncated&&!capped,truncated,capped,nodes,W,D,H};
 }
 
+function maxCopiesInStorage(item,S,settings={},options={}){
+  const stackingEnabled=!!settings.enableStacking&&!!item?.canBeStacked&&!!item?.canSupportStack;
+  if(!stackingEnabled){
+    const floor=maxFloorCopiesInStorage(item,S,settings,options);
+    return {...floor,mode:"floor",floorCount:floor.count,stackedCount:0,stackingEnabled:false};
+  }
+  const plan={id:"capacity:"+String(S?.id||""),storageId:S?.id||"",stacking:true,settings:{clearanceEnabled:!!settings.clearanceEnabled,clearance:Math.max(0,Number(settings.clearance)||0),fitTolerance:Math.max(0,Number(settings.fitTolerance)||0),uprightOnly:settings.uprightOnly!==false},layout:[]};
+  const lookup=typeof options.itemLookup==="function"?options.itemLookup:(id=>id===item.id?item:null);
+  const result=maxAdditionalCopiesInPlan(item,plan,S,{...options,itemLookup:lookup});
+  return {...result,mode:"3d",stackingEnabled:true};
+}
+
 function itemFitInStorage(item,S,settings={}){
   if(!item||!S)return null;
   const c=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
@@ -4652,6 +4667,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     mirrorStorageConstraintsData,
     itemFitInStorage,
     maxFloorCopiesInStorage,
+    maxCopiesInStorage,
     openCapacityPacking,
     compatibleStoragesForItem,
     stackedExtraItemPlacementInPlan,
