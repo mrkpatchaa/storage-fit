@@ -501,6 +501,24 @@
       result(toleranceCapacity.count===1&&toleranceCapacity.exact===true,"capacity finder applies wall and between-item fit tolerance");
       var cappedCapacity=api.maxFloorCopiesInStorage({id:"tiny",name:"Tiny",w:1,d:1,h:1,uprightOnly:true,floorRotationLocked:false},{id:"huge",name:"Huge",w:100,d:100,h:2,obstacles:[],dividers:[]},reverseFitSettings,{nodeLimit:5000,copyLimit:3});
       result(cappedCapacity.count===3&&cappedCapacity.capped===true&&cappedCapacity.exact===false,"capacity finder reports a lower bound when the copy safety cap is reached");
+      var emptyStackItem={id:"empty-stack",name:"Empty stack",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false,canBeStacked:true,canSupportStack:true,maxStackLevel:3};
+      var emptyStackSettings={clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true,enableStacking:true};
+      var emptyStackCapacity=api.maxCopiesInStorage(
+        emptyStackItem,{id:"empty-stack-space",name:"Tall cube",w:10,d:10,h:15,obstacles:[],dividers:[]},
+        emptyStackSettings,{nodeLimit:10000,copyLimit:20}
+      );
+      result(emptyStackCapacity.mode==="3d"&&emptyStackCapacity.count===3&&emptyStackCapacity.exact===true&&emptyStackCapacity.floorCount===1&&emptyStackCapacity.stackedCount===2,"whole-home capacity uses an exact floor plus stack packing when stacking is enabled");
+      result(emptyStackCapacity.layout.map(function(p){return p.z;}).join(",")==="0,5,10","whole-home stacked capacity keeps support-safe insertion order");
+      var emptyFloorCapacity=api.maxCopiesInStorage(
+        emptyStackItem,{id:"empty-floor-space",name:"Tall cube",w:10,d:10,h:15,obstacles:[],dividers:[]},
+        {...emptyStackSettings,enableStacking:false},{nodeLimit:10000,copyLimit:20}
+      );
+      result(emptyFloorCapacity.mode==="floor"&&emptyFloorCapacity.count===1&&emptyFloorCapacity.stackedCount===0&&emptyFloorCapacity.stackingEnabled===false,"whole-home capacity stays floor-only when stacking is disabled");
+      var nonSupportingCapacity=api.maxCopiesInStorage(
+        {...emptyStackItem,canSupportStack:false},{id:"non-support",name:"Tall cube",w:10,d:10,h:15,obstacles:[],dividers:[]},
+        emptyStackSettings,{nodeLimit:10000,copyLimit:20}
+      );
+      result(nonSupportingCapacity.mode==="floor"&&nonSupportingCapacity.count===1&&nonSupportingCapacity.stackingEnabled===true,"non-supporting organizers use the floor solver without changing the user's stacking setting");
       var mirroredStorage={w:100,d:50,h:20,obstacles:[
         {id:"o1",name:"Left rail",x:5,y:4,w:10,d:8,h:7}
       ],dividers:[
