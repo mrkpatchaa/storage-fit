@@ -91,6 +91,7 @@ Saved plans are more than bookmarks:
 - Saving an edited saved plan creates a new revision and records its immediate parent. Saved-plan cards and the compare view show **Based on …** so near-duplicate versions remain traceable. If the parent is later renamed, the live name is shown; if it is deleted, the child keeps the original parent-name snapshot and marks the source as removed.
 - Plans with lineage expose a **Family** action. It groups the immediate parent, current plan, and direct child revisions in one modal, keeps removed parents visible as placeholders, and lets you open any live family member directly.
 - The family view can also promote any Current family member directly to **Chosen**. If another family member is already marked Installed, Storage Fit warns before switching and clears the old Installed marker so the revised physical plan returns to the installation queue.
+- Revisions also show a compact **Δ vs parent** summary: organizers added/removed, moved, reoriented or relabeled, plus utilization-point change and additional units to buy. When both plans have a comparable single-currency purchase total, the cost delta is shown too. Duplicate organizers are deterministically best-matched by type and geometry; the app does not pretend individual physical copies have persistent identities.
 - Saved-plan geometry is converted when you switch between cm, mm, and inches, so plan comparisons remain dimensionally consistent.
 
 
