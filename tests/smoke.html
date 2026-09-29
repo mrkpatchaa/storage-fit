@@ -59,6 +59,22 @@
       result(stock.ownedUsed===2&&stock.buyQty===3&&stock.subtotal===90,"owned inventory reduces purchase quantity");
       var covered=api.purchaseBreakdown(3,5,30);
       result(covered.ownedUsed===3&&covered.buyQty===0&&covered.subtotal===0,"owned inventory can fully cover a layout");
+      var stockCommit=api.itemStockStatus("b1",5,[
+        {id:"p1",layout:[{typeId:"b1"},{typeId:"b1"}]},
+        {id:"p2",layout:[{typeId:"b1"}]},
+        {id:"p3",layout:[{typeId:"b2"}]}
+      ]);
+      result(stockCommit.required===3&&stockCommit.committedOwned===3&&stockCommit.unallocatedOwned===2&&stockCommit.shortage===0&&stockCommit.planCount===2,"item stock status reports committed and unallocated owned copies");
+      var stockShort=api.itemStockStatus("b1",2,[
+        {id:"p1",layout:[{typeId:"b1"},{typeId:"b1"},{typeId:"b1"}]},
+        {id:"p2",layout:[{typeId:"b1"},{typeId:"b1"}]}
+      ]);
+      result(stockShort.required===5&&stockShort.committedOwned===2&&stockShort.unallocatedOwned===0&&stockShort.shortage===3,"item stock status reports chosen-plan shortage");
+      var filteredStock=api.itemStockStatus("b1",4,[
+        {id:"current",layout:[{typeId:"b1"},{typeId:"b1"}]},
+        {id:"stale",layout:[{typeId:"b1"},{typeId:"b1"},{typeId:"b1"}]}
+      ],function(plan){return plan.id!=="stale";});
+      result(filteredStock.required===2&&filteredStock.unallocatedOwned===2&&filteredStock.planCount===1,"item stock status can exclude stale chosen plans");
       var shoppingState={shoppingBought:{b1:3.9,b2:-2,b3:"4"}};
       api.normalizeShoppingBought(shoppingState);
       result(shoppingState.shoppingBought.b1===3&&shoppingState.shoppingBought.b3===4&&!shoppingState.shoppingBought.b2,"shopping progress normalizes to non-negative whole quantities");

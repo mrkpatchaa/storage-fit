@@ -141,6 +141,8 @@ The **Cheapest to implement** optimization goal ranks layouts conservatively:
 
 A saved plan's purchase estimate uses the current item inventory, so if you later buy more organizers the plan can immediately show fewer remaining purchases.
 
+The item catalog also shows a live stock commitment status against actionable chosen plans. For each organizer, Storage Fit distinguishes **owned**, **committed**, **unallocated**, and **short** quantities. Installed plans always count as committed; non-installed chosen plans count only while their saved plan is current, matching the whole-home procurement rules. Stale chosen plans are excluded until they are reviewed and revalidated.
+
 ## Whole-home procurement
 
 Each storage space can have one **chosen plan**. Choosing a different plan for the same storage replaces that storage's winner without affecting choices elsewhere.

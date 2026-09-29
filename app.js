@@ -941,6 +941,54 @@ function renderStorageList(){
     renderHierarchy();renderStorageSelect();loadStorageEditor();renderObstacleEditor();renderDividerEditor();renderStorageList();resetResults();
   }));
 }
+function itemStockStatus(itemId,ownedQty,plans,isPlanIncluded=()=>true){
+  const owned=Math.max(0,Math.floor(Number(ownedQty)||0));
+  let required=0,planCount=0;
+  for(const plan of plans||[]){
+    if(!isPlanIncluded(plan))continue;
+    const qty=(plan.layout||[]).filter(p=>p.typeId===itemId).length;
+    if(!qty)continue;
+    required+=qty;planCount++;
+  }
+  const committedOwned=Math.min(owned,required);
+  return {
+    owned,required,planCount,committedOwned,
+    unallocatedOwned:Math.max(0,owned-required),
+    shortage:Math.max(0,required-owned)
+  };
+}
+function activeChosenPlansForStock(){
+  return chosenPlans().filter(plan=>
+    state.installedPlanIds?.[plan.storageId]===plan.id || planHealth(plan).status==="current"
+  );
+}
+function stockStatusForItem(item){
+  if(!item)return itemStockStatus("",0,[]);
+  return itemStockStatus(item.id,item.ownedQty,activeChosenPlansForStock());
+}
+function stockStatusInline(item){
+  const s=stockStatusForItem(item);
+  if(s.shortage>0)return ` · ${s.shortage} short`;
+  if(s.unallocatedOwned>0)return ` · ${s.unallocatedOwned} unallocated`;
+  if(s.required>0&&s.owned>0)return " · all owned committed";
+  return "";
+}
+function renderBoxStockSummary(){
+  const el=$("boxStockSummary");if(!el)return;
+  const item=state.boxes.find(b=>b.id===editingBox);
+  if(!item){el.innerHTML='<span class="small">Select an item to see owned-stock commitments.</span>';return}
+  const s=stockStatusForItem(item);
+  if(!s.required){
+    el.className="stocksummary";
+    el.innerHTML=`<strong>${s.owned} owned</strong><span>No copies are committed to active chosen plans${s.owned?` · ${s.unallocatedOwned} unallocated`:""}.</span>`;
+    return;
+  }
+  el.className="stocksummary "+(s.shortage?"warn":s.unallocatedOwned?"good":"");
+  el.innerHTML=s.shortage
+    ? `<strong>${s.owned} owned · ${s.required} required</strong><span>${s.shortage} more needed across ${s.planCount} chosen storage${s.planCount===1?"":"s"}.</span>`
+    : `<strong>${s.owned} owned · ${s.committedOwned} committed</strong><span>${s.unallocatedOwned} unallocated across ${s.planCount} chosen storage${s.planCount===1?"":"s"}.</span>`;
+}
+
 function renderBoxList(){
   const el=$("boxList"),query=String($("itemSearch")?.value||"").trim().toLowerCase();
   if(!state.boxes.length){el.innerHTML='<div class="empty">No items yet.</div>';if($("itemSearchCount"))$("itemSearchCount").textContent="";return}
@@ -951,7 +999,7 @@ function renderBoxList(){
   if($("itemSearchCount"))$("itemSearchCount").textContent=query?`${filtered.length} of ${state.boxes.length}`:`${state.boxes.length} item${state.boxes.length===1?"":"s"}`;
   if(!filtered.length){el.innerHTML='<div class="empty">No items match this search.</div>';return}
   el.innerHTML=filtered.map(b=>`<div class="listitem ${b.id===editingBox?"active":""}" data-b="${b.id}">
-    <div class="itemmain">${safeUrl(b.image)?`<img class="itemthumb" src="${esc(safeUrl(b.image))}" alt="">`:""}<div><div class="listname">${esc(b.name)}${b.retailer?`<span class="retailerbadge">${esc(b.retailer)}</span>`:""}</div><div class="dims">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}${b.price>0?` · ${esc(money(b.price,b.currency))}`:""}${b.sku?` · ${esc(b.sku)}`:""}${b.ownedQty?` · own ${b.ownedQty}`:""}${esc(itemRuleText(b))}</div></div></div>
+    <div class="itemmain">${safeUrl(b.image)?`<img class="itemthumb" src="${esc(safeUrl(b.image))}" alt="">`:""}<div><div class="listname">${esc(b.name)}${b.retailer?`<span class="retailerbadge">${esc(b.retailer)}</span>`:""}</div><div class="dims">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}${b.price>0?` · ${esc(money(b.price,b.currency))}`:""}${b.sku?` · ${esc(b.sku)}`:""}${b.ownedQty?` · own ${b.ownedQty}`:""}${esc(stockStatusInline(b))}${esc(itemRuleText(b))}</div></div></div>
     ${state.selectedTypes?.[b.id]?'<span class="badge">allowed</span>':""}</div>`).join("");
   el.querySelectorAll("[data-b]").forEach(n=>n.addEventListener("click",()=>{editingBox=n.dataset.b;loadBoxEditor();renderBoxList()}));
 }
@@ -969,7 +1017,7 @@ function renderItemPicker(){
     const limited=Number.isFinite(limit) && limit>0;
     return `<div class="pickrow">
       <input aria-label="Allow ${esc(b.name)}" type="checkbox" data-type="${b.id}" ${selected?"checked":""}>
-      <span><span class="listname">${esc(b.name)}</span><span class="dims" style="display:block">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}${b.ownedQty?` · own ${b.ownedQty}`:""}${esc(itemRuleText(b))}</span></span>
+      <span><span class="listname">${esc(b.name)}</span><span class="dims" style="display:block">${fmt(b.w)} × ${fmt(b.d)} × ${fmt(b.h)} ${esc(state.unit)}${b.ownedQty?` · own ${b.ownedQty}`:""}${esc(stockStatusInline(b))}${esc(itemRuleText(b))}</span></span>
       <span class="limitcontrol">
         <select data-limit-mode="${b.id}" aria-label="Quantity mode for ${esc(b.name)}">
           <option value="unlimited" ${limited?"":"selected"}>Unlimited</option>
@@ -1181,6 +1229,7 @@ function loadBoxEditor(){
   $("boxCanSupportStack").checked=!!b?.canSupportStack;
   $("boxMaxStackLevel").value=b?.maxStackLevel??"";
   syncStackRuleControls();
+  renderBoxStockSummary();
 }
 function syncStackRuleControls(){
   const enabled=$("boxCanBeStacked").checked;
@@ -2207,6 +2256,7 @@ function setShoppingBought(itemId,value){
   localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderHomeProcurement();
 }
 function renderHomeProcurement(){
+  renderBoxStockSummary();renderBoxList();renderItemPicker();
   const sec=$("homeProcurementSection");if(!sec)return;
   const summary=projectProcurement();
   if(!summary.plans.length){
@@ -4146,6 +4196,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     nextCopyName,
     ensureHomeHierarchy,
     purchaseBreakdown,
+    itemStockStatus,
     aggregateRequiredCounts,
     orientations,
     placementStackLevel,
