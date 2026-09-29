@@ -427,6 +427,42 @@
       result(floorAndStackPlacement&&floorAndStackPlacement.placementKind==="floor"&&floorAndStackPlacement.x===10&&floorAndStackPlacement.z===0,"saved-plan room finder prefers floor space before stacking");
       var stackedAddition=api.extraItemAddition(stackItem,stackedPlacement);
       result(stackedAddition&&stackedAddition.z===5&&stackedAddition.x===0&&stackedAddition.y===0,"add-copy handoff preserves the suggested stacked Z coordinate");
+      var towerItem={id:"tower-bin",name:"Tower bin",w:10,d:10,h:4,uprightOnly:true,floorRotationLocked:false,canBeStacked:true,canSupportStack:true,maxStackLevel:3};
+      var towerPlan={id:"tower-plan",storageId:"tower-space",stacking:true,settings:{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true},layout:[
+        {typeId:"tower-base",x:0,y:0,z:0,w:10,d:10,h:5}
+      ]};
+      var towerLookup=function(id){return id==="tower-base"?{id:id,canSupportStack:true}:towerItem;};
+      var towerCapacity=api.maxAdditionalCopiesInPlan(
+        towerItem,towerPlan,{id:"tower-space",w:10,d:10,h:13,obstacles:[],dividers:[]},
+        {nodeLimit:10000,copyLimit:20,itemLookup:towerLookup}
+      );
+      result(towerCapacity.count===2&&towerCapacity.exact===true&&towerCapacity.floorCount===0&&towerCapacity.stackedCount===2,"3D extra capacity finds an exact two-copy vertical stack");
+      result(towerCapacity.layout.map(function(p){return p.z;}).join(",")==="5,9","3D extra capacity keeps stacked additions in support-safe order");
+      var mixedItem={id:"mixed-bin",name:"Mixed bin",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false,canBeStacked:true,canSupportStack:true,maxStackLevel:2};
+      var mixedPlan={id:"mixed-plan",storageId:"mixed-space",stacking:true,settings:{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true},layout:[
+        {typeId:"mixed-base",x:0,y:0,z:0,w:10,d:10,h:5}
+      ]};
+      var mixedLookup=function(id){return id==="mixed-base"?{id:id,canSupportStack:true}:mixedItem;};
+      var mixedCapacity=api.maxAdditionalCopiesInPlan(
+        mixedItem,mixedPlan,{id:"mixed-space",w:20,d:10,h:10,obstacles:[],dividers:[]},
+        {nodeLimit:10000,copyLimit:20,itemLookup:mixedLookup}
+      );
+      result(mixedCapacity.count===3&&mixedCapacity.exact===true&&mixedCapacity.floorCount===1&&mixedCapacity.stackedCount===2,"3D extra capacity combines floor and stack positions to reach the exact maximum");
+      var levelLimitedCapacity=api.maxAdditionalCopiesInPlan(
+        {...towerItem,maxStackLevel:2},towerPlan,{id:"tower-space",w:10,d:10,h:21,obstacles:[],dividers:[]},
+        {nodeLimit:10000,copyLimit:20,itemLookup:function(id){return id==="tower-base"?{id:id,canSupportStack:true}:{...towerItem,maxStackLevel:2};}}
+      );
+      result(levelLimitedCapacity.count===1&&levelLimitedCapacity.exact===true&&levelLimitedCapacity.stackedCount===1,"3D extra capacity exhausts exactly at the organizer maximum stack level");
+      var cappedTower=api.maxAdditionalCopiesInPlan(
+        {...towerItem,maxStackLevel:0},towerPlan,{id:"tower-space",w:10,d:10,h:25,obstacles:[],dividers:[]},
+        {nodeLimit:10000,copyLimit:2,itemLookup:towerLookup}
+      );
+      result(cappedTower.count===2&&cappedTower.capped===true&&cappedTower.exact===false,"3D extra capacity reports a lower bound when the copy cap truncates a taller legal stack");
+      var noStackCapacity=api.maxAdditionalCopiesInPlan(
+        towerItem,{...towerPlan,stacking:false,layout:[]},{id:"floor-only",w:20,d:10,h:5,obstacles:[],dividers:[]},
+        {nodeLimit:10000,copyLimit:20,itemLookup:towerLookup}
+      );
+      result(noStackCapacity.mode==="floor"&&noStackCapacity.count===2&&noStackCapacity.stackedCount===0,"extra capacity falls back to the established floor search when stacking is disabled");
       var extraCapacity=api.maxAdditionalFloorCopiesInPlan(
         roomItem,
         {id:"cap-plan",storageId:"cap-storage",settings:{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true},layout:[
