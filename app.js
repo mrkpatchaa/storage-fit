@@ -30,6 +30,7 @@ let galleryWasCapped = false;
 let detailModalOpen = false;
 let compareModalOpen = false;
 let itemFitModalOpen = false;
+let planFamilyModalOpen = false;
 let comparePlanIds = new Set();
 let pendingImport = null;
 let capacityLayoutContext = null;
@@ -1891,6 +1892,18 @@ function planLineageInfo(plan,plans=[]){
     label:"Based on "+name+(id&&!source?" · source removed":"")
   };
 }
+function planFamilyInfo(planId,plans=[]){
+  const all=plans||[],current=all.find(p=>p.id===planId);
+  if(!current)return null;
+  const lineage=planLineageInfo(current,all);
+  const parent=lineage?.planId
+    ? (all.find(p=>p.id===lineage.planId)||{id:lineage.planId,name:lineage.name,removed:true,storageId:current.storageId})
+    : null;
+  const children=all.filter(p=>p.derivedFromPlanId===current.id)
+    .slice()
+    .sort((a,b)=>String(a.savedAt||"").localeCompare(String(b.savedAt||""))||String(a.name||"").localeCompare(String(b.name||"")));
+  return {current,parent,children,visibleCount:1+(parent?1:0)+children.length};
+}
 function createSavedPlanForStorage(target,layout,{name=null,note="",derivedFrom=null}={}){
   const signature=planSignature(target.id,layout);
   const existing=state.savedPlans.find(p=>p.signature===signature);
@@ -2409,6 +2422,45 @@ function openCompareModal(){
   $("compareModal").setAttribute("aria-hidden","false");
   document.body.classList.add("modal-open");
 }
+function closePlanFamilyModal(){
+  planFamilyModalOpen=false;
+  $("planFamilyModal").classList.remove("open");
+  $("planFamilyModal").setAttribute("aria-hidden","true");
+  if(!detailModalOpen&&!compareModalOpen&&!itemFitModalOpen)document.body.classList.remove("modal-open");
+}
+function planFamilyRow(plan,role,currentId){
+  if(plan?.removed){
+    return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(plan.name||"Previous saved plan")+' <span class="usagebadge">Parent removed</span></div><div class="fitmatchmeta">The immediate parent is no longer saved. This name comes from the child plan\'s lineage snapshot.</div></div></div>';
+  }
+  const m=planMetrics(plan),health=planHealth(plan),chosen=isPlanChosen(plan);
+  const badges=[
+    role==="parent"?'<span class="usagebadge">Parent</span>':"",
+    role==="current"?'<span class="usagebadge chosen">Current</span>':"",
+    role==="revision"?'<span class="usagebadge">Revision</span>':"",
+    chosen?'<span class="usagebadge chosen">Chosen</span>':"",
+    health.status!=="current"?'<span class="usagebadge">'+esc(health.status==="review"?"Review":"Invalid")+'</span>':""
+  ].filter(Boolean).join("");
+  return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(plan.name||"Saved plan")+' '+badges+'</div><div class="fitmatchmeta">'+esc(m.storagePath)+' · '+m.itemCount+' item'+(m.itemCount===1?'':'s')+' · '+m.utilizationPct.toFixed(1)+'% '+esc(m.utilizationKind)+'</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-family-open="'+plan.id+'">'+(plan.id===currentId?'Open current':'Open')+'</button></div></div>';
+}
+function openPlanFamilyModal(planId){
+  const family=planFamilyInfo(planId,state.savedPlans);if(!family)return;
+  $("planFamilyTitle").textContent="Plan family · "+(family.current.name||"Saved plan");
+  $("planFamilySubtitle").textContent="Immediate parent and direct revisions";
+  const parentText=family.parent?(family.parent.removed?"1 removed parent":"1 parent"):"root plan";
+  $("planFamilySummary").textContent=parentText+" · "+family.children.length+" direct revision"+(family.children.length===1?"":"s")+" · "+family.visibleCount+" visible family member"+(family.visibleCount===1?"":"s")+".";
+  const rows=[];
+  if(family.parent)rows.push(planFamilyRow(family.parent,"parent",family.current.id));
+  rows.push(planFamilyRow(family.current,"current",family.current.id));
+  for(const child of family.children)rows.push(planFamilyRow(child,"revision",family.current.id));
+  $("planFamilyList").innerHTML=rows.join("");
+  $("planFamilyList").querySelectorAll("[data-family-open]").forEach(btn=>btn.addEventListener("click",()=>{
+    closePlanFamilyModal();openSavedPlan(btn.dataset.familyOpen);
+  }));
+  planFamilyModalOpen=true;
+  $("planFamilyModal").classList.add("open");
+  $("planFamilyModal").setAttribute("aria-hidden","false");
+  document.body.classList.add("modal-open");
+}
 function closeCompareModal(){
   compareModalOpen=false;
   $("compareModal").classList.remove("open");
@@ -2482,7 +2534,7 @@ function renderSavedPlans(){
   el.innerHTML=state.savedPlans.map(p=>{
     const m=planMetrics(p),counts=layoutCounts(p.layout||[]),contents=labeledPlacements(p.layout||[]);
     const summary=Object.entries(counts).map(([id,n])=>`${esc(boxById(id)?.name||"Item")} ×${n}`).join(" · ");
-    const chosen=isPlanChosen(p),selected=comparePlanIds.has(p.id),health=planHealth(p),lineage=planLineageInfo(p,state.savedPlans);
+    const chosen=isPlanChosen(p),selected=comparePlanIds.has(p.id),health=planHealth(p),lineage=planLineageInfo(p,state.savedPlans),family=planFamilyInfo(p.id,state.savedPlans);
     return `<div class="savedcard ${chosen?"chosen":""} ${health.status!=="current"?health.status:""}">
       <div class="savedhead">
         <div>
@@ -2500,6 +2552,7 @@ function renderSavedPlans(){
       ${p.note?`<div class="savednote">${esc(p.note)}</div>`:""}
       <div class="savedactions">
         <button class="btn soft" type="button" data-open-plan="${p.id}">Open</button>
+        ${family&&family.visibleCount>1?`<button class="btn soft" type="button" data-plan-family="${p.id}">Family (${family.visibleCount})</button>`:""}
         <button class="btn soft" type="button" data-rename-plan="${p.id}">Rename</button>
         <button class="btn soft" type="button" data-note-plan="${p.id}">${p.note?"Edit note":"Add note"}</button>
         ${health.canRevalidate?`<button class="btn soft" type="button" data-revalidate-plan="${p.id}">Revalidate</button>`:""}
@@ -2518,6 +2571,7 @@ function renderSavedPlans(){
     updateCompareButton();
   }));
   el.querySelectorAll("[data-open-plan]").forEach(btn=>btn.addEventListener("click",()=>openSavedPlan(btn.dataset.openPlan)));
+  el.querySelectorAll("[data-plan-family]").forEach(btn=>btn.addEventListener("click",()=>openPlanFamilyModal(btn.dataset.planFamily)));
   el.querySelectorAll("[data-rename-plan]").forEach(btn=>btn.addEventListener("click",()=>{
     const plan=state.savedPlans.find(p=>p.id===btn.dataset.renamePlan);if(!plan)return;
     const name=prompt("Plan name",plan.name);if(name===null)return;
@@ -2557,7 +2611,7 @@ function updateSavePlanButton(){
 function resetResults(){
   capacityLayoutContext=null;
   savedPlanSourceContext=null;
-  layouts=[];selectedLayout=0;currentGaps=[];selectedGap=-1;galleryWasCapped=false;closeDetailModal();closeCompareModal();
+  layouts=[];selectedLayout=0;currentGaps=[];selectedGap=-1;galleryWasCapped=false;closeDetailModal();closeCompareModal();closePlanFamilyModal();
   $("resultLabel").textContent="—";$("layoutCount").textContent="—";$("bestFill").textContent="—";$("searchState").textContent="Ready";
   $("message").className="message";$("message").textContent="Select the item types you want to use, then find arrangements.";
   $("gallerySection").style.display="none";$("detailSection").style.display="";
@@ -3916,12 +3970,15 @@ $("showItemUsage").addEventListener("click",openItemUsageModal);
 $("closeItemFitModal").addEventListener("click",closeItemFitModal);
 $("itemFitBackdrop").addEventListener("click",closeItemFitModal);
 $("comparePlansBtn").addEventListener("click",openCompareModal);
+$("closePlanFamilyModal").addEventListener("click",closePlanFamilyModal);
+$("planFamilyBackdrop").addEventListener("click",closePlanFamilyModal);
 $("closeCompareModal").addEventListener("click",closeCompareModal);
 $("compareBackdrop").addEventListener("click",closeCompareModal);
 $("closeDetailModal").addEventListener("click",closeDetailModal);
 $("detailBackdrop").addEventListener("click",closeDetailModal);
 document.addEventListener("keydown",e=>{
   if(e.key==="Escape" && itemFitModalOpen){ closeItemFitModal(); return; }
+  if(e.key==="Escape" && planFamilyModalOpen){ closePlanFamilyModal(); return; }
   if(e.key==="Escape" && compareModalOpen){ closeCompareModal(); return; }
   if(e.key==="Escape" && detailModalOpen){ closeDetailModal(); return; }
   if(!detailModalOpen||compareModalOpen) return;
@@ -4261,6 +4318,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     savedPlanSourceSnapshot,
     planLineageMetadata,
     planLineageInfo,
+    planFamilyInfo,
     itemStockStatus,
     aggregateRequiredCounts,
     orientations,
