@@ -340,7 +340,7 @@ function openCapacityPacking(storageId,result){
   layouts=[result.layout.map(p=>({...p}))];selectedLayout=0;selectedGap=-1;currentGaps=[];galleryWasCapped=false;
   editMode=false;selectedEditItem=-1;editOriginalLayout=null;editHistory={entries:[],index:-1};topDrag=null;
   detailView="top";
-  capacityLayoutContext={exact:!!result.exact,count:result.count,storageId:S.id,mode:result.mode||"floor",floorCount:Number.isFinite(result.floorCount)?result.floorCount:result.count,stackedCount:Number.isFinite(result.stackedCount)?result.stackedCount:0};
+  capacityLayoutContext={exact:!!result.exact,count:result.count,storageId:S.id,mode:result.mode||"floor",floorCount:Number.isFinite(result.floorCount)?result.floorCount:result.count,stackedCount:Number.isFinite(result.stackedCount)?result.stackedCount:0,stackSummary:result.stackSummary||null};
   const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0,W=S.w-2*c,D=S.d-2*c,H=S.h-2*c;
   renderDetail(W,D,H);openDetailModal();
   return true;
@@ -731,6 +731,8 @@ function openItemPlanRoomModal(){
     out.textContent=result.exact
       ? result.count+" additional "+noun+" maximum"+mix
       : "At least "+result.count+" additional "+noun+" fit"+mix+" · search capped for responsiveness";
+    const structure=packingStackSummaryText(result.stackSummary);
+    if(structure)out.textContent+=" · "+structure;
     const owned=ownedPackingFromCapacity(unallocatedOwned,result);
     if(owned.count)out.textContent+=" · "+owned.count+" can use unallocated owned stock";
     const ownedBtn=$("itemFitList").querySelector('[data-add-owned-packing="'+plan.id+'"]');
@@ -871,8 +873,11 @@ function openItemFitModal(){
       ? `${result.floorCount} floor + ${result.stackedCount} stacked`
       : `${result.floorCount} floor`;
     out.textContent=result.exact
-      ? `${result.count} maximum · ${mix} · open the packing to inspect, edit or save it`
-      : `At least ${result.count} fit · ${mix} · open the best packing found before the search cap`;
+      ? `${result.count} maximum · ${mix}`
+      : `At least ${result.count} fit · ${mix} · search capped`;
+    const structure=packingStackSummaryText(result.stackSummary);
+    if(structure)out.textContent+=` · ${structure}`;
+    out.textContent+=result.exact?" · open the packing to inspect, edit or save it":" · open the best packing found before the search cap";
     const openBtn=$("itemFitList").querySelector(`[data-open-capacity-layout="${storageId}"]`);
     if(openBtn)openBtn.disabled=!result.layout.length;
     btn.textContent=result.exact?"Recalculate":"Try again";btn.disabled=false;
@@ -3716,7 +3721,8 @@ function renderDetail(W,D,H){
         : `Best 3D packing found before search cap: ${capacityLayoutContext.count} (${capacityLayoutContext.floorCount} floor${capacityLayoutContext.stackedCount?` + ${capacityLayoutContext.stackedCount} stacked`:""}). `)
       : (capacityLayoutContext.exact?`Exact floor maximum: ${capacityLayoutContext.count}. `:`Best packing found before search cap: ${capacityLayoutContext.count}. `))
     : "";
-  $("detailSubtitle").textContent=`${capacityNote}${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)} utilization · ${layout.length} item${layout.length===1?"":"s"}${stackedCount?` · ${stackedCount} stacked`:""}.`;
+  const capacityStructure=capacityLayoutContext?packingStackSummaryText(capacityLayoutContext.stackSummary):"";
+  $("detailSubtitle").textContent=`${capacityNote}${capacityStructure?capacityStructure+" · ":""}${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)} utilization · ${layout.length} item${layout.length===1?"":"s"}${stackedCount?` · ${stackedCount} stacked`:""}.`;
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.view===detailView));
   $("reset3d").disabled=detailView!=="iso";
   const printableLabels=printablePlacementLabels(layout);
