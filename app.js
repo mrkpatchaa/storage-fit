@@ -417,7 +417,51 @@ function ownedPackingFromCapacity(unallocatedOwned,result){
   return {available,capacity:source.length,count,layout:source.slice(0,count).map(p=>({...p}))};
 }
 
-function extraItemPlacementInPlan(item,plan,liveStorage){
+function stackedExtraItemPlacementInPlan(item,plan,liveStorage,itemLookup=boxById){
+  if(!item||!plan||!liveStorage||!item.canBeStacked)return null;
+  const stackingEnabled=plan.stacking ?? layoutUsesStacking(plan.layout||[]);
+  if(!stackingEnabled)return null;
+  const settings=plan.settings||{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true};
+  const clearance=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
+  const gap=Math.max(0,Number(settings.fitTolerance)||0);
+  const W=(Number(liveStorage.w)||0)-2*clearance,D=(Number(liveStorage.d)||0)-2*clearance,H=(Number(liveStorage.h)||0)-2*clearance;
+  if(W<=0||D<=0||H<=0)return null;
+  const layout=plan.layout||[],obstacles=usableObstaclesFor(liveStorage,clearance);
+  const oris=orientations(item,settings.uprightOnly!==false);
+  for(const base of layout){
+    const baseRule=itemLookup(base.typeId);
+    if(!baseRule?.canSupportStack)continue;
+    const z=round6((Number(base.z)||0)+Number(base.h||0));
+    for(const o of oris){
+      if(z+o[2]>H+1e-9||o[0]>base.w+1e-9||o[1]>base.d+1e-9)continue;
+      const xs=new Set([round6(base.x),round6(base.x+base.w-o[0])]);
+      const ys=new Set([round6(base.y),round6(base.y+base.d-o[1])]);
+      for(const q of layout){
+        if(Math.abs((Number(q.z)||0)-z)>1e-9)continue;
+        if(q.x>=base.x-1e-9&&q.y>=base.y-1e-9&&q.x+q.w<=base.x+base.w+1e-9&&q.y+q.d<=base.y+base.d+1e-9){
+          xs.add(round6(q.x+q.w+gap));ys.add(round6(q.y+q.d+gap));
+          xs.add(round6(q.x-o[0]-gap));ys.add(round6(q.y-o[1]-gap));
+        }
+      }
+      for(const y of ys)for(const x of xs){
+        const p={typeId:item.id,name:item.name,x:round6(x),y:round6(y),z,w:o[0],d:o[1],h:o[2]};
+        if(!footprintContains(base,p))continue;
+        if(p.x<gap-1e-9||p.y<gap-1e-9||p.x+p.w+gap>W+1e-9||p.y+p.d+gap>D+1e-9)continue;
+        if(obstacles.some(o=>overlap3D(p,o,gap)))continue;
+        if(layout.some(q=>overlap3D(p,q,gap)))continue;
+        if(!supportingBaseForLookup(p,layout,itemLookup))continue;
+        const level=placementStackLevelLookup(p,layout,itemLookup);
+        if(item.maxStackLevel&&level>item.maxStackLevel)continue;
+        return {
+          ...p,W,D,H,clearance,fitTolerance:gap,placementKind:"stacked",stackLevel:level,
+          remainingFloor:Math.max(0,freeFloorArea(W,D,obstacles)-occupiedArea(layout))
+        };
+      }
+    }
+  }
+  return null;
+}
+function extraItemPlacementInPlan(item,plan,liveStorage,itemLookup=boxById){
   if(!item||!plan||!liveStorage)return null;
   const settings=plan.settings||{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true};
   const clearance=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
@@ -431,10 +475,13 @@ function extraItemPlacementInPlan(item,plan,liveStorage){
       const x=point[0],y=point[1];
       const p={typeId:item.id,name:item.name,x:round6(x),y:round6(y),z:0,w:o[0],d:o[1],h:o[2]};
       if(!floorPlacementValid(p,layout,W,D,H,obstacles,gap))continue;
-      return {...p,W,D,H,clearance,fitTolerance:gap,remainingFloor:Math.max(0,freeFloorArea(W,D,obstacles)-occupiedArea(layout)-o[0]*o[1])};
+      return {
+        ...p,W,D,H,clearance,fitTolerance:gap,placementKind:"floor",stackLevel:1,
+        remainingFloor:Math.max(0,freeFloorArea(W,D,obstacles)-occupiedArea(layout)-o[0]*o[1])
+      };
     }
   }
-  return null;
+  return stackedExtraItemPlacementInPlan(item,plan,liveStorage,itemLookup);
 }
 function itemPlanRoomRows(item,savedPlans,storages,chosenPlanIds={},installedPlanIds={},isPlanUsable=()=>true){
   const storageMap=new Map((storages||[]).map(s=>[s.id,s]));
@@ -458,15 +505,19 @@ function itemPlanRoomRows(item,savedPlans,storages,chosenPlanIds={},installedPla
     a.planName.localeCompare(b.planName)
   );
 }
+function extraItemAddition(item,placement){
+  if(!item||!placement)return null;
+  return {
+    typeId:item.id,name:item.name,x:Number(placement.x)||0,y:Number(placement.y)||0,z:Number(placement.z)||0,
+    w:Number(placement.w)||item.w,d:Number(placement.d)||item.d,h:Number(placement.h)||item.h,label:""
+  };
+}
 function openSavedPlanWithExtraItems(planId,itemId,placements){
   const plan=state.savedPlans.find(p=>p.id===planId),item=boxById(itemId),source=Array.isArray(placements)?placements:[];
   if(!plan||!item||!source.length)return false;
   openSavedPlan(planId);
   const layout=selectedManualLayout(),sz=currentUsableSize();if(!layout||!sz)return false;
-  const additions=source.map(placement=>({
-    typeId:item.id,name:item.name,x:Number(placement.x)||0,y:Number(placement.y)||0,z:0,
-    w:Number(placement.w)||item.w,d:Number(placement.d)||item.d,h:Number(placement.h)||item.h,label:""
-  }));
+  const additions=source.map(placement=>extraItemAddition(item,placement)).filter(Boolean);
   const trial=cloneLayoutSnapshot(layout);
   for(const p of additions){
     trial.push(p);
@@ -477,8 +528,9 @@ function openSavedPlanWithExtraItems(planId,itemId,placements){
   resetEditHistory(editOriginalLayout);
   layout.push(...additions);selectedEditItem=layout.length-additions.length;selectedGap=-1;topDrag=null;detailView="top";
   recordEditHistory(additions.length===1?"Add organizer":"Add organizer packing");
+  const stackedAdded=additions.filter(p=>(Number(p.z)||0)>1e-9).length;
   setEditStatus(additions.length===1
-    ? item.name+" added to free floor space. Adjust it if needed, then save to create a new plan."
+    ? item.name+(stackedAdded?" added to a valid stack position.":" added to free floor space.")+" Adjust it if needed, then save to create a new plan."
     : additions.length+" copies of "+item.name+" added to the remaining floor space. Adjust them if needed, then save to create a new plan.");
   refreshCurrentDetail();openDetailModal();
   return true;
@@ -492,17 +544,21 @@ function openItemPlanRoomModal(){
   const currentPlans=state.savedPlans.filter(plan=>planHealth(plan).status==="current");
   const rows=itemPlanRoomRows(item,currentPlans,state.storages,state.chosenPlanIds,state.installedPlanIds);
   $("itemFitTitle").textContent="Which saved plans have room for "+item.name+"?";
-  $("itemFitSubtitle").textContent=fmt(item.w)+" × "+fmt(item.d)+" × "+fmt(item.h)+" "+state.unit+" · one additional floor copy";
+  $("itemFitSubtitle").textContent=fmt(item.w)+" × "+fmt(item.d)+" × "+fmt(item.h)+" "+state.unit+" · one additional floor or stacked copy";
   const skipped=state.savedPlans.length-currentPlans.length,stock=stockStatusForItem(item),unallocatedOwned=stock.unallocatedOwned;
   const stockNote=unallocatedOwned?unallocatedOwned+" owned cop"+(unallocatedOwned===1?"y is":"ies are")+" currently unallocated.":"No owned copies are currently unallocated.";
+  const stackedRows=rows.filter(row=>row.placement.placementKind==="stacked").length;
   $("itemFitSummary").textContent=rows.length
-    ? rows.length+" current saved plan"+(rows.length===1?" has":"s have")+" room for one more copy on the floor. "+stockNote+" Add copy / Add owned open editable plan copies; inventory itself is not changed."
-    : "No current saved plan has valid floor space for one more copy. "+stockNote+" "+(skipped?skipped+" stale or invalid plan"+(skipped===1?" was":"s were")+" skipped.":"");
+    ? rows.length+" current saved plan"+(rows.length===1?" has":"s have")+" room for one more copy"+(stackedRows?" · "+stackedRows+" via stacking":"")+". "+stockNote+" Add copy opens the suggested floor/stack placement; Calculate extras remains floor-only."
+    : "No current saved plan has valid floor space or a legal stack position for one more copy. "+stockNote+" "+(skipped?skipped+" stale or invalid plan"+(skipped===1?" was":"s were")+" skipped.":"");
   $("itemFitList").innerHTML=rows.length?rows.map(row=>{
     const p=row.placement;
     const badges=[row.installed?'<span class="usagebadge installed">Installed</span>':"",row.chosen?'<span class="usagebadge chosen">Chosen</span>':""].filter(Boolean).join("");
-    return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(row.planName)+" "+badges+'</div><div class="fitmatchmeta">'+esc(row.storagePath)+" · suggested at X "+fmt(p.x)+", Y "+fmt(p.y)+" · "+fmt(p.w)+" × "+fmt(p.d)+" × "+fmt(p.h)+" "+esc(state.unit)+'</div><div class="fitcapacity" data-plan-extra-capacity="'+row.planId+'">Additional capacity not calculated yet.</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-plan-capacity-btn="'+row.planId+'">Calculate extras</button><button class="btn soft" type="button" data-add-owned-packing="'+row.planId+'" disabled>'+(unallocatedOwned?"Add owned":"No unallocated stock")+'</button><button class="btn soft" type="button" data-add-plan-packing="'+row.planId+'" disabled>Add packing</button><button class="btn soft" type="button" data-add-plan-copy="'+row.planId+'">Add copy</button><button class="btn soft" type="button" data-open-room-plan="'+row.planId+'">Open plan</button></div></div>';
-  }).join(""):'<div class="empty">Try another organizer, or edit a saved plan to free some floor space.</div>';
+    const placementText=p.placementKind==="stacked"
+      ?"stack level "+p.stackLevel+" · X "+fmt(p.x)+", Y "+fmt(p.y)+", Z "+fmt(p.z)
+      :"floor · X "+fmt(p.x)+", Y "+fmt(p.y);
+    return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(row.planName)+" "+badges+'</div><div class="fitmatchmeta">'+esc(row.storagePath)+" · suggested "+placementText+" · "+fmt(p.w)+" × "+fmt(p.d)+" × "+fmt(p.h)+" "+esc(state.unit)+'</div><div class="fitcapacity" data-plan-extra-capacity="'+row.planId+'">Additional floor capacity not calculated yet.</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-plan-capacity-btn="'+row.planId+'">Calculate floor extras</button><button class="btn soft" type="button" data-add-owned-packing="'+row.planId+'" disabled>'+(unallocatedOwned?"Add owned":"No unallocated stock")+'</button><button class="btn soft" type="button" data-add-plan-packing="'+row.planId+'" disabled>Add floor packing</button><button class="btn soft" type="button" data-add-plan-copy="'+row.planId+'">Add copy</button><button class="btn soft" type="button" data-open-room-plan="'+row.planId+'">Open plan</button></div></div>';
+  }).join(""):'<div class="empty">Try another organizer, or edit a saved plan to free floor space or create a legal stack position.</div>';
   const byPlan=new Map(rows.map(row=>[row.planId,row])),capacityResults=new Map();
   $("itemFitList").querySelectorAll("[data-plan-capacity-btn]").forEach(btn=>btn.addEventListener("click",()=>{
     const row=byPlan.get(btn.dataset.planCapacityBtn),plan=state.savedPlans.find(p=>p.id===btn.dataset.planCapacityBtn),S=plan&&state.storages.find(s=>s.id===plan.storageId);
@@ -4478,7 +4534,9 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     maxFloorCopiesInStorage,
     openCapacityPacking,
     compatibleStoragesForItem,
+    stackedExtraItemPlacementInPlan,
     extraItemPlacementInPlan,
+    extraItemAddition,
     maxAdditionalFloorCopiesInPlan,
     ownedPackingFromCapacity,
     itemPlanRoomRows,
