@@ -3885,7 +3885,7 @@ $("deleteStorage").addEventListener("click",()=>{
 $("deleteBox").addEventListener("click",()=>{
   if(!editingBox)return;
   const usedBySaved=state.savedPlans.some(p=>(p.layout||[]).some(q=>q.typeId===editingBox));
-  if(usedBySaved){alert("This item is used by a saved plan. Remove or replace it in saved plans before deleting it.");return}
+  if(usedBySaved){alert("This item is used by a saved plan. Use “Used in plans” to open the affected plans, then remove or replace it before deleting.");return}
   const deletingItem=state.boxes.find(b=>b.id===editingBox);
   createRecoveryCheckpoint(`Before deleting item “${deletingItem?.name||"Item"}”`);
   state.boxes=state.boxes.filter(x=>x.id!==editingBox);delete state.selectedTypes[editingBox];delete state.itemLimits[editingBox];delete state.shoppingBought[editingBox];
