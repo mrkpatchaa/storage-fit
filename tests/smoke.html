@@ -604,6 +604,12 @@
       result(capacityOpened===true,"capacity packing can be opened as a real planner layout");
       result(w.document.getElementById("detailModal").classList.contains("open")&&w.document.getElementById("detailTitle").textContent==="Capacity packing","capacity packing opens directly in the layout detail modal");
       result(w.document.getElementById("detailSubtitle").textContent.indexOf("Exact floor maximum: 2.")===0,"capacity layout detail preserves exact-capacity provenance");
+      var stackedCapacityOpened=api.openCapacityPacking("s1",{count:2,exact:true,mode:"3d",floorCount:1,stackedCount:1,stackingEnabled:true,W:67,D:26,H:13,layout:[
+        {typeId:"b3",name:"Small box 20 × 13 × 10",x:0,y:0,z:0,w:20,d:13,h:6},
+        {typeId:"b3",name:"Small box 20 × 13 × 10",x:0,y:0,z:6,w:20,d:13,h:6}
+      ]});
+      result(stackedCapacityOpened===true,"stacked capacity packing can be opened as a real planner layout");
+      result(w.document.getElementById("detailSubtitle").textContent.indexOf("Exact 3D maximum: 2 (1 floor + 1 stacked).")===0,"stacked capacity layout detail preserves 3D-capacity provenance");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{
