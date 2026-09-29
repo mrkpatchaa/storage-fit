@@ -275,6 +275,26 @@
       ],"sq");
       result(usageTarget.index===3&&usageTarget.count===3,"usage edit targets a floor copy nearest the front-left first");
       result(api.usageEditTarget([{typeId:"other"}],"sq")===null,"usage edit target is null when the organizer is absent");
+      var roomItem={id:"room",name:"Extra bin",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false};
+      var roomStorage={id:"rs",name:"Wide drawer",w:30,d:10,h:6,obstacles:[],dividers:[]};
+      var roomPlan={id:"rp",name:"Existing plan",storageId:"rs",storagePath:"Bedroom → Wardrobe → Drawer",settings:{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true},layout:[
+        {typeId:"other",x:0,y:0,z:0,w:10,d:10,h:5}
+      ]};
+      var extraPlacement=api.extraItemPlacementInPlan(roomItem,roomPlan,roomStorage);
+      result(extraPlacement&&extraPlacement.x===10&&extraPlacement.y===0,"saved-plan room finder places an extra copy beside occupied floor space");
+      var fullPlan={id:"full",storageId:"rs",settings:roomPlan.settings,layout:[
+        {typeId:"a",x:0,y:0,z:0,w:10,d:10,h:5},
+        {typeId:"b",x:10,y:0,z:0,w:10,d:10,h:5},
+        {typeId:"c",x:20,y:0,z:0,w:10,d:10,h:5}
+      ]};
+      result(api.extraItemPlacementInPlan(roomItem,fullPlan,roomStorage)===null,"saved-plan room finder rejects a fully occupied floor");
+      var blockedRoomStorage={id:"rb",name:"Blocked drawer",w:30,d:10,h:6,obstacles:[{id:"rail",x:10,y:0,w:10,d:10,h:6}],dividers:[]};
+      var blockedPlacement=api.extraItemPlacementInPlan(roomItem,{id:"bp",storageId:"rb",settings:roomPlan.settings,layout:[{typeId:"a",x:0,y:0,z:0,w:10,d:10,h:5}]},blockedRoomStorage);
+      result(blockedPlacement&&blockedPlacement.x===20,"saved-plan room finder respects blocked zones");
+      var tolerancePlan={id:"tol",storageId:"rt",settings:{clearanceEnabled:false,clearance:0,fitTolerance:1,uprightOnly:true},layout:[{typeId:"a",x:1,y:1,z:0,w:10,d:10,h:5}]};
+      result(api.extraItemPlacementInPlan(roomItem,tolerancePlan,{id:"rt",w:22,d:12,h:6,obstacles:[],dividers:[]})===null,"saved-plan room finder respects saved fit tolerance");
+      var roomRows=api.itemPlanRoomRows(roomItem,[roomPlan,{...roomPlan,id:"stale",name:"Stale"}],[roomStorage],{rs:"rp"},{},function(plan){return plan.id!=="stale";});
+      result(roomRows.length===1&&roomRows[0].planId==="rp"&&roomRows[0].chosen===true,"saved-plan room rows can filter stale plans and preserve chosen status");
       var fourCapacity=api.maxFloorCopiesInStorage(squareFitItem,{id:"cap4",name:"Four",w:20,d:20,h:6,obstacles:[],dividers:[]},reverseFitSettings,{nodeLimit:5000,copyLimit:20});
       result(fourCapacity.count===4&&fourCapacity.exact===true,"capacity finder computes an exact four-item floor maximum");
       var mixedCapacity=api.maxFloorCopiesInStorage({id:"mix",name:"Mixed rectangle",w:6,d:4,h:2,uprightOnly:true,floorRotationLocked:false},{id:"capmix",name:"Mixed orientation",w:10,d:10,h:3,obstacles:[],dividers:[]},reverseFitSettings,{nodeLimit:10000,copyLimit:20});
