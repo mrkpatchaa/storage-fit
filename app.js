@@ -1904,9 +1904,9 @@ function planFamilyInfo(planId,plans=[]){
     .sort((a,b)=>String(a.savedAt||"").localeCompare(String(b.savedAt||""))||String(a.name||"").localeCompare(String(b.name||"")));
   return {current,parent,children,visibleCount:1+(parent?1:0)+children.length};
 }
-function placementDeltaSummary(before=[],after=[]){
-  const a=(before||[]).map((p,index)=>({p,index,matched:false}));
-  const b=(after||[]).map((p,index)=>({p,index,matched:false}));
+function placementDeltaDetails(before=[],after=[]){
+  const a=(before||[]).map((p,index)=>({p,index,matched:false,status:"removed",partnerIndex:null,moved:false,reoriented:false,relabeled:false}));
+  const b=(after||[]).map((p,index)=>({p,index,matched:false,status:"added",partnerIndex:null,moved:false,reoriented:false,relabeled:false}));
   const eps=1e-6;
   const num=v=>Number(v)||0;
   const label=p=>String(p?.label||"").trim();
@@ -1921,15 +1921,15 @@ function placementDeltaSummary(before=[],after=[]){
     if(!queues.has(key))queues.set(key,[]);
     queues.get(key).push(row);
   }
-  let unchanged=0;
   for(const row of a){
     const q=queues.get(exactKey(row.p));
     const match=q?.find(x=>!x.matched);
     if(!match)continue;
-    row.matched=true;match.matched=true;unchanged++;
+    row.matched=true;match.matched=true;
+    row.status="unchanged";match.status="unchanged";
+    row.partnerIndex=match.index;match.partnerIndex=row.index;
   }
 
-  let moved=0,reoriented=0,relabeled=0,changed=0;
   const types=new Set([
     ...a.filter(x=>!x.matched).map(x=>x.p?.typeId||""),
     ...b.filter(x=>!x.matched).map(x=>x.p?.typeId||"")
@@ -1948,20 +1948,61 @@ function placementDeltaSummary(before=[],after=[]){
     for(const pair of candidates){
       if(pair.left.matched||pair.right.matched)continue;
       pair.left.matched=true;pair.right.matched=true;
-      const positionChanged=!sameNum(pair.left.p.x,pair.right.p.x)||!sameNum(pair.left.p.y,pair.right.p.y)||!sameNum(pair.left.p.z,pair.right.p.z);
-      const dimensionsChanged=!sameNum(pair.left.p.w,pair.right.p.w)||!sameNum(pair.left.p.d,pair.right.p.d)||!sameNum(pair.left.p.h,pair.right.p.h);
-      const labelChanged=label(pair.left.p)!==label(pair.right.p);
-      if(positionChanged)moved++;
-      if(dimensionsChanged)reoriented++;
-      if(labelChanged)relabeled++;
-      if(positionChanged||dimensionsChanged||labelChanged)changed++;
+      const moved=!sameNum(pair.left.p.x,pair.right.p.x)||!sameNum(pair.left.p.y,pair.right.p.y)||!sameNum(pair.left.p.z,pair.right.p.z);
+      const reoriented=!sameNum(pair.left.p.w,pair.right.p.w)||!sameNum(pair.left.p.d,pair.right.p.d)||!sameNum(pair.left.p.h,pair.right.p.h);
+      const relabeled=label(pair.left.p)!==label(pair.right.p);
+      pair.left.status=pair.right.status=(moved||reoriented||relabeled)?"modified":"unchanged";
+      pair.left.partnerIndex=pair.right.index;pair.right.partnerIndex=pair.left.index;
+      pair.left.moved=pair.right.moved=moved;
+      pair.left.reoriented=pair.right.reoriented=reoriented;
+      pair.left.relabeled=pair.right.relabeled=relabeled;
     }
   }
-  const removed=a.filter(x=>!x.matched).length,added=b.filter(x=>!x.matched).length;
+  return {before:a,after:b};
+}
+function placementDeltaSummary(before=[],after=[]){
+  const details=placementDeltaDetails(before,after);
+  const a=details.before,b=details.after;
+  const unchanged=a.filter(x=>x.status==="unchanged").length;
+  const changed=a.filter(x=>x.status==="modified").length;
+  const removed=a.filter(x=>x.status==="removed").length;
+  const added=b.filter(x=>x.status==="added").length;
+  const moved=a.filter(x=>x.status==="modified"&&x.moved).length;
+  const reoriented=a.filter(x=>x.status==="modified"&&x.reoriented).length;
+  const relabeled=a.filter(x=>x.status==="modified"&&x.relabeled).length;
   return {
     beforeCount:a.length,afterCount:b.length,unchanged,changed,added,removed,moved,reoriented,relabeled,
     quantityDelta:b.length-a.length
   };
+}
+function planPreviewSnapshot(plan){
+  if(!plan)return null;
+  const live=state.storages.find(s=>s.id===plan.storageId);
+  const s=plan.storageSnapshot||live;
+  if(!s)return null;
+  const settings=plan.settings||{clearanceEnabled:false,clearance:0,unit:state.unit};
+  const clearance=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
+  const W=Math.max(0,(Number(s.w)||0)-2*clearance),D=Math.max(0,(Number(s.d)||0)-2*clearance);
+  if(W<=0||D<=0)return null;
+  return {storage:s,settings,clearance,W,D,obstacles:usableObstaclesFor(s,clearance),unit:settings.unit||state.unit};
+}
+function savedPlanTopPreview(plan,annotations=[],width=360,height=220){
+  const snap=planPreviewSnapshot(plan);if(!snap)return '<div class="revisionpreviewempty">Preview unavailable</div>';
+  const g=topGeometry(snap.W,snap.D,width,height);
+  const annotationMap=new Map((annotations||[]).map(a=>[a.index,a]));
+  const obstacleRects=snap.obstacles.map((o,index)=>{
+    const divider=o.kind==="divider",stroke=divider?"#416b8e":"#b23c3c";
+    return '<rect x="'+(g.ox+o.x*g.scale)+'" y="'+(g.oy+o.y*g.scale)+'" width="'+(o.w*g.scale)+'" height="'+(o.d*g.scale)+'" fill="'+stroke+'" fill-opacity="'+(divider?".20":".10")+'" stroke="'+stroke+'" stroke-width="1.3" '+(divider?'':'stroke-dasharray="5 4"')+'/>';
+  }).join("");
+  const rects=(plan.layout||[]).map((p,index)=>{
+    const a=annotationMap.get(index),status=a?.status||"unchanged";
+    const stroke=status==="removed"?"#b23c3c":status==="added"?"#166c45":status==="modified"?"#a66000":colorFor(p.typeId);
+    const dash=status==="removed"?' stroke-dasharray="6 4"':"";
+    const fillOpacity=status==="unchanged"?".18":".30";
+    const title=placementLabel(p)||p.name||boxById(p.typeId)?.name||p.typeId||("Item "+(index+1));
+    return '<g><rect x="'+(g.ox+(Number(p.x)||0)*g.scale)+'" y="'+(g.oy+(Number(p.y)||0)*g.scale)+'" width="'+((Number(p.w)||0)*g.scale)+'" height="'+((Number(p.d)||0)*g.scale)+'" rx="3" fill="'+stroke+'" fill-opacity="'+fillOpacity+'" stroke="'+stroke+'" stroke-width="'+(status==="unchanged"?"1.4":"2.5")+'"'+dash+'/><title>'+esc(title)+'</title></g>';
+  }).join("");
+  return '<svg class="revisionpreviewsvg" viewBox="0 0 '+width+' '+height+'" role="img" aria-label="Saved plan top view"><rect x="'+g.ox+'" y="'+g.oy+'" width="'+(snap.W*g.scale)+'" height="'+(snap.D*g.scale)+'" fill="#fff" stroke="#222" stroke-width="2"/>'+obstacleRects+rects+'</svg>';
 }
 function revisionDeltaInfo(basePlan,revisionPlan){
   if(!basePlan||basePlan.removed||!revisionPlan)return null;
@@ -2545,7 +2586,7 @@ function planFamilyRow(plan,role,currentId,basePlan=null){
     health.status!=="current"?'<span class="usagebadge">'+esc(health.status==="review"?"Review":"Invalid")+'</span>':""
   ].filter(Boolean).join("");
   const chooseLabel=chosen?"Chosen ✓":impact?.clearsInstalled?"Choose · re-install":role==="revision"?"Choose revision":role==="parent"?"Choose parent":"Choose";
-  return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(plan.name||"Saved plan")+' '+badges+'</div><div class="fitmatchmeta">'+esc(m.storagePath)+' · '+m.itemCount+' item'+(m.itemCount===1?'':'s')+' · '+m.utilizationPct.toFixed(1)+'% '+esc(m.utilizationKind)+(impact?.clearsInstalled?' · switching will clear Installed':"")+'</div>'+(deltaText?'<div class="revisiondelta"><strong>Δ vs parent</strong> · '+esc(deltaText)+'</div>':"")+'</div><div class="fitmatchactions"><button class="btn '+(chosen?"primary":"soft")+'" type="button" data-family-choose="'+plan.id+'" '+(chosen||health.status!=="current"?"disabled":"")+'>'+chooseLabel+'</button><button class="btn soft" type="button" data-family-open="'+plan.id+'">'+(plan.id===currentId?'Open current':'Open')+'</button></div></div>';
+  return '<div class="fitmatch"><div><div class="fitmatchtitle">'+esc(plan.name||"Saved plan")+' '+badges+'</div><div class="fitmatchmeta">'+esc(m.storagePath)+' · '+m.itemCount+' item'+(m.itemCount===1?'':'s')+' · '+m.utilizationPct.toFixed(1)+'% '+esc(m.utilizationKind)+(impact?.clearsInstalled?' · switching will clear Installed':"")+'</div>'+(deltaText?'<div class="revisiondelta"><strong>Δ vs parent</strong> · '+esc(deltaText)+'</div>':"")+'<div data-family-review-slot="'+plan.id+'"></div></div><div class="fitmatchactions">'+(basePlan?'<button class="btn soft" type="button" data-family-review="'+plan.id+'">Review changes</button>':"")+'<button class="btn '+(chosen?"primary":"soft")+'" type="button" data-family-choose="'+plan.id+'" '+(chosen||health.status!=="current"?"disabled":"")+'>'+chooseLabel+'</button><button class="btn soft" type="button" data-family-open="'+plan.id+'">'+(plan.id===currentId?'Open current':'Open')+'</button></div></div>';
 }
 function openPlanFamilyModal(planId){
   const family=planFamilyInfo(planId,state.savedPlans);if(!family)return;
@@ -2558,6 +2599,17 @@ function openPlanFamilyModal(planId){
   rows.push(planFamilyRow(family.current,"current",family.current.id,family.parent&&!family.parent.removed?family.parent:null));
   for(const child of family.children)rows.push(planFamilyRow(child,"revision",family.current.id,family.current));
   $("planFamilyList").innerHTML=rows.join("");
+  $("planFamilyList").querySelectorAll("[data-family-review]").forEach(btn=>btn.addEventListener("click",()=>{
+    const revision=state.savedPlans.find(p=>p.id===btn.dataset.familyReview);
+    const parent=revision&&state.savedPlans.find(p=>p.id===revision.derivedFromPlanId);
+    const slot=$("planFamilyList").querySelector('[data-family-review-slot="'+btn.dataset.familyReview+'"]');
+    if(!revision||!parent||!slot)return;
+    if(slot.dataset.open==="true"){slot.innerHTML="";slot.dataset.open="false";btn.textContent="Review changes";return}
+    const details=placementDeltaDetails(parent.layout||[],revision.layout||[]);
+    const delta=revisionDeltaInfo(parent,revision);
+    slot.innerHTML='<div class="revisionreview"><div class="revisionreviewsummary">'+esc(revisionDeltaText(delta))+'</div><div class="revisionpreviewgrid"><div class="revisionpreviewcard"><div class="revisionpreviewtitle">'+esc(parent.name||"Parent")+' <span>parent</span></div>'+savedPlanTopPreview(parent,details.before)+'</div><div class="revisionpreviewcard"><div class="revisionpreviewtitle">'+esc(revision.name||"Revision")+' <span>revision</span></div>'+savedPlanTopPreview(revision,details.after)+'</div></div><div class="revisionlegend"><span class="removed">Removed</span><span class="modified">Modified</span><span class="added">Added</span><span>Unchanged</span></div></div>';
+    slot.dataset.open="true";btn.textContent="Hide changes";
+  }));
   $("planFamilyList").querySelectorAll("[data-family-choose]").forEach(btn=>btn.addEventListener("click",()=>{
     const planId=btn.dataset.familyChoose,impact=planChoiceImpact(planId);
     if(!impact||impact.alreadyChosen)return;
@@ -4431,7 +4483,10 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     planLineageMetadata,
     planLineageInfo,
     planFamilyInfo,
+    placementDeltaDetails,
     placementDeltaSummary,
+    planPreviewSnapshot,
+    savedPlanTopPreview,
     revisionDeltaInfo,
     revisionDeltaText,
     planChoiceImpact,

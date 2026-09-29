@@ -133,6 +133,20 @@
       result(deltaText.indexOf("+1 added")>=0&&deltaText.indexOf("-1 removed")>=0&&deltaText.indexOf("1 moved")>=0&&deltaText.indexOf("+3.3 pp utilization")>=0&&deltaText.indexOf("-1 units to buy")>=0,"revision delta text summarizes physical utilization and purchase changes");
       var noChangeDelta=api.placementDeltaSummary(deltaBefore,deltaBefore.map(function(p){return {...p};}));
       result(noChangeDelta.unchanged===4&&noChangeDelta.changed===0&&noChangeDelta.added===0&&noChangeDelta.removed===0,"revision delta recognizes an identical layout");
+      var deltaDetails=api.placementDeltaDetails(deltaBefore,deltaAfter);
+      result(deltaDetails.before[0].status==="unchanged"&&deltaDetails.before[1].status==="modified"&&deltaDetails.before[2].status==="modified"&&deltaDetails.before[3].status==="removed","revision visual details classify parent placements for highlighting");
+      result(deltaDetails.after[0].status==="unchanged"&&deltaDetails.after[1].status==="modified"&&deltaDetails.after[2].status==="modified"&&deltaDetails.after[3].status==="added","revision visual details classify revision placements for highlighting");
+      result(deltaDetails.before[1].partnerIndex===1&&deltaDetails.after[1].partnerIndex===1&&deltaDetails.before[1].moved&&deltaDetails.before[1].relabeled,"revision visual details preserve matched-copy change flags");
+      var previewPlan={
+        storageId:"snapshot-storage",
+        storageSnapshot:{id:"snapshot-storage",name:"Saved drawer",w:32,d:22,h:8,obstacles:[],dividers:[]},
+        settings:{clearanceEnabled:true,clearance:1,unit:"cm"},
+        layout:[{typeId:"b1",name:"Box",x:0,y:0,z:0,w:10,d:10,h:5,label:""}]
+      };
+      var previewSnap=api.planPreviewSnapshot(previewPlan);
+      result(previewSnap.W===30&&previewSnap.D===20&&previewSnap.unit==="cm","revision preview geometry uses the saved storage snapshot and saved clearance");
+      var previewSvg=api.savedPlanTopPreview(previewPlan,[{index:0,status:"added"}],240,160);
+      result(previewSvg.indexOf('class="revisionpreviewsvg"')>=0&&previewSvg.indexOf("#166c45")>=0,"revision preview renders machine-tested added-placement highlighting");
       var shoppingState={shoppingBought:{b1:3.9,b2:-2,b3:"4"}};
       api.normalizeShoppingBought(shoppingState);
       result(shoppingState.shoppingBought.b1===3&&shoppingState.shoppingBought.b3===4&&!shoppingState.shoppingBought.b2,"shopping progress normalizes to non-negative whole quantities");
