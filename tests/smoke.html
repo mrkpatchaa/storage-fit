@@ -396,6 +396,30 @@
       result(api.extraItemPlacementInPlan(roomItem,tolerancePlan,{id:"rt",w:22,d:12,h:6,obstacles:[],dividers:[]})===null,"saved-plan room finder respects saved fit tolerance");
       var roomRows=api.itemPlanRoomRows(roomItem,[roomPlan,{...roomPlan,id:"stale",name:"Stale"}],[roomStorage],{rs:"rp"},{},function(plan){return plan.id!=="stale";});
       result(roomRows.length===1&&roomRows[0].planId==="rp"&&roomRows[0].chosen===true,"saved-plan room rows can filter stale plans and preserve chosen status");
+      var stackItem={id:"stack-bin",name:"Stack bin",w:10,d:10,h:4,uprightOnly:true,floorRotationLocked:false,canBeStacked:true,canSupportStack:false,maxStackLevel:2};
+      var stackStorage={id:"stack-space",name:"Stack space",w:10,d:10,h:10,obstacles:[],dividers:[]};
+      var stackPlan={id:"stack-plan",storageId:"stack-space",stacking:true,settings:{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true},layout:[
+        {typeId:"base-bin",x:0,y:0,z:0,w:10,d:10,h:5}
+      ]};
+      var stackLookup=function(id){
+        if(id==="base-bin")return {id:"base-bin",canSupportStack:true};
+        if(id==="stack-bin")return stackItem;
+        return null;
+      };
+      var stackedPlacement=api.extraItemPlacementInPlan(stackItem,stackPlan,stackStorage,stackLookup);
+      result(stackedPlacement&&stackedPlacement.placementKind==="stacked"&&stackedPlacement.x===0&&stackedPlacement.y===0&&stackedPlacement.z===5&&stackedPlacement.stackLevel===2,"saved-plan room finder uses a legal stack when the floor is full");
+      result(api.stackedExtraItemPlacementInPlan({...stackItem,maxStackLevel:1},stackPlan,stackStorage,stackLookup)===null,"saved-plan stack finder respects the new item's maximum stack level");
+      result(api.stackedExtraItemPlacementInPlan(stackItem,{...stackPlan,stacking:false},stackStorage,stackLookup)===null,"saved-plan stack finder respects the saved plan stacking flag");
+      result(api.stackedExtraItemPlacementInPlan(stackItem,stackPlan,stackStorage,function(id){return id==="base-bin"?{id:"base-bin",canSupportStack:false}:stackItem;})===null,"saved-plan stack finder requires a supporting organizer");
+      var levelThreePlan={...stackPlan,layout:[
+        {typeId:"base-bin",x:0,y:0,z:0,w:10,d:10,h:3},
+        {typeId:"middle-bin",x:0,y:0,z:3,w:10,d:10,h:3}
+      ]};
+      var levelThreeLookup=function(id){
+        if(id==="base-bin"||id==="middle-bin")return {id:id,canSupportStack:true};
+        return stackItem;
+      };
+      result(api.stackedExtraItemPlacementInPlan(stackItem,levelThreePlan,stackStorage,levelThreeLookup)===null,"saved-plan stack finder rejects a third level when maxStackLevel is two");
       var extraCapacity=api.maxAdditionalFloorCopiesInPlan(
         roomItem,
         {id:"cap-plan",storageId:"cap-storage",settings:{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true},layout:[
