@@ -347,6 +347,55 @@ function openCompatibleStorage(storageId){
   closeItemFitModal();renderAll();
   $("storageSelect")?.scrollIntoView({behavior:"smooth",block:"center"});
 }
+function itemPlanUsageRows(itemId,savedPlans,chosenPlanIds={},installedPlanIds={}){
+  return (savedPlans||[]).map(plan=>{
+    const count=(plan.layout||[]).filter(p=>p.typeId===itemId).length;
+    if(!count)return null;
+    const storageId=plan.storageId||"";
+    return {
+      planId:plan.id,planName:plan.name||"Saved plan",storageId,
+      storagePath:plan.storagePath||plan.storageName||"Storage",
+      count,
+      chosen:chosenPlanIds?.[storageId]===plan.id,
+      installed:installedPlanIds?.[storageId]===plan.id,
+      savedAt:plan.savedAt||""
+    };
+  }).filter(Boolean).sort((a,b)=>
+    Number(b.installed)-Number(a.installed) ||
+    Number(b.chosen)-Number(a.chosen) ||
+    b.count-a.count ||
+    a.storagePath.localeCompare(b.storagePath) ||
+    a.planName.localeCompare(b.planName)
+  );
+}
+function openItemUsageModal(){
+  save();
+  const item=boxById(editingBox);if(!item)return;
+  const rows=itemPlanUsageRows(item.id,state.savedPlans,state.chosenPlanIds,state.installedPlanIds);
+  const totalCopies=rows.reduce((sum,row)=>sum+row.count,0);
+  const chosenCount=rows.filter(row=>row.chosen).length,installedCount=rows.filter(row=>row.installed).length;
+  $("itemFitTitle").textContent=`Where is ${item.name} used?`;
+  $("itemFitSubtitle").textContent=`${fmt(item.w)} × ${fmt(item.d)} × ${fmt(item.h)} ${state.unit} · saved-plan usage`;
+  $("itemFitSummary").textContent=rows.length
+    ? `${totalCopies} cop${totalCopies===1?"y":"ies"} across ${rows.length} saved plan${rows.length===1?"":"s"}${chosenCount?` · ${chosenCount} chosen`:""}${installedCount?` · ${installedCount} installed`:""}. Open a plan to inspect or replace those placements.`
+    : "This organizer is not used by any saved plan yet.";
+  $("itemFitList").innerHTML=rows.length?rows.map(row=>{
+    const badges=[row.installed?'<span class="usagebadge installed">Installed</span>':"",row.chosen?'<span class="usagebadge chosen">Chosen</span>':""].filter(Boolean).join("");
+    return `<div class="fitmatch">
+      <div><div class="fitmatchtitle">${esc(row.planName)} ${badges}</div>
+      <div class="fitmatchmeta">${esc(row.storagePath)} · ${row.count} cop${row.count===1?"y":"ies"} of this organizer</div></div>
+      <div class="fitmatchactions"><button class="btn soft" type="button" data-open-usage-plan="${row.planId}">Open plan</button></div>
+    </div>`;
+  }).join(""):'<div class="empty">Save a layout containing this organizer and it will appear here.</div>';
+  $("itemFitList").querySelectorAll("[data-open-usage-plan]").forEach(btn=>btn.addEventListener("click",()=>{
+    closeItemFitModal();openSavedPlan(btn.dataset.openUsagePlan);
+  }));
+  itemFitModalOpen=true;
+  $("itemFitModal").classList.add("open");
+  $("itemFitModal").setAttribute("aria-hidden","false");
+  document.body.classList.add("modal-open");
+}
+
 function openItemFitModal(){
   save();
   const item=boxById(editingBox);if(!item)return;
@@ -918,6 +967,7 @@ function renderDividerEditor(){
 function loadBoxEditor(){
   const b=state.boxes.find(x=>x.id===editingBox);
   $("findItemFits").disabled=!b;
+  $("showItemUsage").disabled=!b;
   $("boxName").value=b?.name||"";$("bw").value=b?.w??"";$("bd").value=b?.d??"";$("bh").value=b?.h??"";
   $("boxPrice").value=b?.price||"";$("boxCurrency").value=b?.currency||"MAD";$("boxOwnedQty").value=b?.ownedQty??0;$("boxSku").value=b?.sku||"";$("boxUrl").value=b?.url||"";$("boxImage").value=b?.image||"";
   $("boxUprightOnly").checked=b?.uprightOnly!==false;
@@ -3546,6 +3596,7 @@ $("exportHomeShoppingBtn").addEventListener("click",()=>{
   setTimeout(()=>{btn.textContent=old},1200);
 });
 $("findItemFits").addEventListener("click",openItemFitModal);
+$("showItemUsage").addEventListener("click",openItemUsageModal);
 $("closeItemFitModal").addEventListener("click",closeItemFitModal);
 $("itemFitBackdrop").addEventListener("click",closeItemFitModal);
 $("comparePlansBtn").addEventListener("click",openCompareModal);
@@ -3834,7 +3885,7 @@ $("deleteStorage").addEventListener("click",()=>{
 $("deleteBox").addEventListener("click",()=>{
   if(!editingBox)return;
   const usedBySaved=state.savedPlans.some(p=>(p.layout||[]).some(q=>q.typeId===editingBox));
-  if(usedBySaved){alert("This item is used by a saved plan. Remove or replace it in saved plans before deleting it.");return}
+  if(usedBySaved){alert("This item is used by a saved plan. Use “Used in plans” to open the affected plans, then remove or replace it before deleting.");return}
   const deletingItem=state.boxes.find(b=>b.id===editingBox);
   createRecoveryCheckpoint(`Before deleting item “${deletingItem?.name||"Item"}”`);
   state.boxes=state.boxes.filter(x=>x.id!==editingBox);delete state.selectedTypes[editingBox];delete state.itemLimits[editingBox];delete state.shoppingBought[editingBox];
@@ -3872,6 +3923,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     maxFloorCopiesInStorage,
     openCapacityPacking,
     compatibleStoragesForItem,
+    itemPlanUsageRows,
     constraintTemplateZones,
     dividerRectsForStorage,
     physicalObstaclesForStorage,
