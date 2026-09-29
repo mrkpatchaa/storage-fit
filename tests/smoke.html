@@ -512,6 +512,8 @@
       );
       result(emptyStackCapacity.mode==="3d"&&emptyStackCapacity.count===3&&emptyStackCapacity.exact===true&&emptyStackCapacity.floorCount===1&&emptyStackCapacity.stackedCount===2,"whole-home capacity uses an exact floor plus stack packing when stacking is enabled");
       result(emptyStackCapacity.layout.map(function(p){return p.z;}).join(",")==="0,5,10","whole-home stacked capacity keeps support-safe insertion order");
+      result(emptyStackCapacity.stackSummary.floorCount===1&&emptyStackCapacity.stackSummary.stackedCount===2&&emptyStackCapacity.stackSummary.maxLevel===3&&emptyStackCapacity.stackSummary.stackCount===1,"whole-home capacity exposes stack count and tallest level");
+      result(api.packingStackSummaryText(emptyStackCapacity.stackSummary)==="1 stack · tallest level 3 · L1:1 / L2:1 / L3:1","whole-home capacity exposes a readable layer breakdown");
       var emptyFloorCapacity=api.maxCopiesInStorage(
         emptyStackItem,{id:"empty-floor-space",name:"Tall cube",w:10,d:10,h:15,obstacles:[],dividers:[]},
         {...emptyStackSettings,enableStacking:false},{nodeLimit:10000,copyLimit:20}
