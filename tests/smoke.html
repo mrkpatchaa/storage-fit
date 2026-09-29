@@ -295,6 +295,23 @@
       result(api.extraItemPlacementInPlan(roomItem,tolerancePlan,{id:"rt",w:22,d:12,h:6,obstacles:[],dividers:[]})===null,"saved-plan room finder respects saved fit tolerance");
       var roomRows=api.itemPlanRoomRows(roomItem,[roomPlan,{...roomPlan,id:"stale",name:"Stale"}],[roomStorage],{rs:"rp"},{},function(plan){return plan.id!=="stale";});
       result(roomRows.length===1&&roomRows[0].planId==="rp"&&roomRows[0].chosen===true,"saved-plan room rows can filter stale plans and preserve chosen status");
+      var extraCapacity=api.maxAdditionalFloorCopiesInPlan(
+        roomItem,
+        {id:"cap-plan",storageId:"cap-storage",settings:{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true},layout:[
+          {typeId:"fixed",x:0,y:0,z:0,w:10,d:20,h:5}
+        ]},
+        {id:"cap-storage",w:30,d:20,h:6,obstacles:[],dividers:[]},
+        {nodeLimit:10000,copyLimit:20}
+      );
+      result(extraCapacity.count===4&&extraCapacity.exact===true,"saved-plan extra capacity finds four copies around fixed occupancy");
+      result(extraCapacity.layout.every(function(p){return p.x>=10}),"saved-plan extra capacity never moves or overlaps fixed floor occupancy");
+      var cappedExtra=api.maxAdditionalFloorCopiesInPlan(
+        {id:"tiny-extra",name:"Tiny",w:1,d:1,h:1,uprightOnly:true,floorRotationLocked:false},
+        {id:"tiny-plan",storageId:"tiny-storage",settings:{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true},layout:[]},
+        {id:"tiny-storage",w:100,d:100,h:2,obstacles:[],dividers:[]},
+        {nodeLimit:5000,copyLimit:3}
+      );
+      result(cappedExtra.count===3&&cappedExtra.capped===true&&cappedExtra.exact===false,"saved-plan extra capacity reports a lower bound when the copy cap is reached");
       var fourCapacity=api.maxFloorCopiesInStorage(squareFitItem,{id:"cap4",name:"Four",w:20,d:20,h:6,obstacles:[],dividers:[]},reverseFitSettings,{nodeLimit:5000,copyLimit:20});
       result(fourCapacity.count===4&&fourCapacity.exact===true,"capacity finder computes an exact four-item floor maximum");
       var mixedCapacity=api.maxFloorCopiesInStorage({id:"mix",name:"Mixed rectangle",w:6,d:4,h:2,uprightOnly:true,floorRotationLocked:false},{id:"capmix",name:"Mixed orientation",w:10,d:10,h:3,obstacles:[],dividers:[]},reverseFitSettings,{nodeLimit:10000,copyLimit:20});
