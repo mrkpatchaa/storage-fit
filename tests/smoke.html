@@ -86,6 +86,18 @@
       var removedLineage=api.planLineageInfo(childPlan,[]);
       result(removedLineage.sourceExists===false&&removedLineage.name==="Original plan"&&removedLineage.label.indexOf("source removed")>0,"lineage display survives parent deletion using the saved name snapshot");
       result(api.planLineageInfo({id:"root"},[])===null,"root saved plans have no lineage label");
+      var familyPlans=[
+        {id:"root-plan",name:"Root",storageId:"s1",savedAt:"2026-09-29T09:00:00.000Z"},
+        {id:"child-b",name:"Child B",storageId:"s1",savedAt:"2026-09-29T11:00:00.000Z",derivedFromPlanId:"root-plan",derivedFromName:"Root"},
+        {id:"child-a",name:"Child A",storageId:"s1",savedAt:"2026-09-29T10:00:00.000Z",derivedFromPlanId:"root-plan",derivedFromName:"Root"}
+      ];
+      var rootFamily=api.planFamilyInfo("root-plan",familyPlans);
+      result(rootFamily.parent===null&&rootFamily.visibleCount===3&&rootFamily.children.map(function(p){return p.id;}).join(",")==="child-a,child-b","plan family groups and orders direct revisions");
+      var childFamily=api.planFamilyInfo("child-a",familyPlans);
+      result(childFamily.parent.id==="root-plan"&&childFamily.children.length===0&&childFamily.visibleCount===2,"plan family exposes the immediate parent for a revision");
+      var orphanFamily=api.planFamilyInfo("child-a",familyPlans.filter(function(p){return p.id!=="root-plan";}));
+      result(orphanFamily.parent.removed===true&&orphanFamily.parent.name==="Root"&&orphanFamily.visibleCount===2,"plan family preserves a removed parent placeholder");
+      result(api.planFamilyInfo("missing",familyPlans)===null,"plan family rejects unknown plan ids");
       var shoppingState={shoppingBought:{b1:3.9,b2:-2,b3:"4"}};
       api.normalizeShoppingBought(shoppingState);
       result(shoppingState.shoppingBought.b1===3&&shoppingState.shoppingBought.b3===4&&!shoppingState.shoppingBought.b2,"shopping progress normalizes to non-negative whole quantities");
