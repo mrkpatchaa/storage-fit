@@ -100,20 +100,33 @@
       result(api.planFamilyInfo("missing",familyPlans)===null,"plan family rejects unknown plan ids");
       var choiceState={
         savedPlans:[
-          {id:"chosen-old",storageId:"s1"},
-          {id:"revision-new",storageId:"s1"},
-          {id:"other-storage",storageId:"s2"}
+          {id:"chosen-old",storageId:"s1",layout:[{typeId:"b1",x:0,y:0,z:0,w:10,d:10,h:5,label:"Socks"}]},
+          {id:"revision-new",storageId:"s1",layout:[{typeId:"b1",x:2,y:0,z:0,w:10,d:10,h:5,label:"Socks"}]},
+          {id:"revision-label",storageId:"s1",layout:[{typeId:"b1",x:0,y:0,z:0,w:10,d:10,h:5,label:"Cables"}]},
+          {id:"other-storage",storageId:"s2",layout:[]}
         ],
         chosenPlanIds:{s1:"chosen-old"},
         installedPlanIds:{s1:"chosen-old"}
       };
       var revisionImpact=api.planChoiceImpact("revision-new",choiceState);
-      result(revisionImpact.previousChosenId==="chosen-old"&&revisionImpact.previousInstalledId==="chosen-old"&&revisionImpact.clearsInstalled===true&&revisionImpact.alreadyChosen===false,"revision promotion reports when switching clears an installed marker");
+      result(revisionImpact.previousChosenId==="chosen-old"&&revisionImpact.previousInstalledId==="chosen-old"&&revisionImpact.clearsInstalled===true&&revisionImpact.preservesInstalled===false&&revisionImpact.alreadyChosen===false,"physical revision promotion reports when switching clears an installed marker");
+      var labelImpact=api.planChoiceImpact("revision-label",choiceState);
+      result(labelImpact.clearsInstalled===false&&labelImpact.preservesInstalled===true,"label-only revision promotion preserves the installed marker");
+      var carriedChoice=JSON.parse(JSON.stringify(choiceState));
+      result(api.carryInstalledPlanForward(carriedChoice,labelImpact)===true&&carriedChoice.installedPlanIds.s1==="revision-label","installed marker transfers to a physically equivalent chosen revision");
       var chosenImpact=api.planChoiceImpact("chosen-old",choiceState);
-      result(chosenImpact.alreadyChosen===true&&chosenImpact.clearsInstalled===false,"already chosen family member does not require re-installation");
+      result(chosenImpact.alreadyChosen===true&&chosenImpact.clearsInstalled===false&&chosenImpact.preservesInstalled===false,"already chosen family member does not require re-installation");
       var freshImpact=api.planChoiceImpact("other-storage",choiceState);
-      result(freshImpact.previousChosenId===""&&freshImpact.previousInstalledId===""&&freshImpact.clearsInstalled===false,"choosing a plan for an untouched storage has no installation impact");
+      result(freshImpact.previousChosenId===""&&freshImpact.previousInstalledId===""&&freshImpact.clearsInstalled===false&&freshImpact.preservesInstalled===false,"choosing a plan for an untouched storage has no installation impact");
       result(api.planChoiceImpact("missing",choiceState)===null,"plan choice impact rejects unknown plan ids");
+      result(api.physicalPlanEquivalent(
+        {storageId:"s1",layout:[{typeId:"b1",x:0,y:0,z:0,w:10,d:10,h:5,label:"A"},{typeId:"b1",x:10,y:0,z:0,w:10,d:10,h:5,label:"B"}]},
+        {storageId:"s1",layout:[{typeId:"b1",x:10,y:0,z:0,w:10,d:10,h:5,label:"Renamed"},{typeId:"b1",x:0,y:0,z:0,w:10,d:10,h:5,label:"Other"}]}
+      )===true,"physical equivalence ignores labels and placement array order");
+      result(api.physicalPlanEquivalent(
+        {storageId:"s1",layout:[{typeId:"b1",x:0,y:0,z:0,w:10,d:10,h:5}]},
+        {storageId:"s1",layout:[{typeId:"b1",x:0,y:0,z:0,w:10,d:5,h:10}]}
+      )===false,"physical equivalence treats orientation changes as requiring installation");
       var deltaBefore=[
         {typeId:"b1",x:0,y:0,z:0,w:10,d:10,h:5,label:""},
         {typeId:"b1",x:10,y:0,z:0,w:10,d:10,h:5,label:"Socks"},
