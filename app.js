@@ -371,7 +371,7 @@ function itemPlanUsageRows(itemId,savedPlans,chosenPlanIds={},installedPlanIds={
 function usageEditTarget(layout,itemId){
   const matches=(layout||[]).map((p,index)=>p?.typeId===itemId?{index,p}:null).filter(Boolean);
   if(!matches.length)return null;
-  matches.sort((a,b)=>(Number(a.p.z)||0)-(Number(b.p.z)||0)||a.p.y-b.p.y||a.p.x-b.p.x||a.index-b.index);
+  matches.sort((a,b)=>(Number(a.p.z)||0)-(Number(b.p.z)||0)||(Number(a.p.y)||0)-(Number(b.p.y)||0)||(Number(a.p.x)||0)-(Number(b.p.x)||0)||a.index-b.index);
   return {index:matches[0].index,count:matches.length};
 }
 function openSavedPlanForItem(planId,itemId){
