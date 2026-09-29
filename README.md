@@ -88,6 +88,7 @@ Saved plans are more than bookmarks:
 - Mark one saved plan as the **Chosen** plan.
 - Select two or three plans and compare utilization, item count, stacking, estimated cost, and item mix side-by-side.
 - Opening a saved plan restores the fit settings that were active when it was saved.
+- Saving an edited saved plan creates a new revision and records its immediate parent. Saved-plan cards and the compare view show **Based on …** so near-duplicate versions remain traceable. If the parent is later renamed, the live name is shown; if it is deleted, the child keeps the original parent-name snapshot and marks the source as removed.
 - Saved-plan geometry is converted when you switch between cm, mm, and inches, so plan comparisons remain dimensionally consistent.
 
 
