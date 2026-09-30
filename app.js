@@ -1977,10 +1977,12 @@ function stockUnlockAnalysis(options={}){
   };
 }
 function installUnlockFingerprint(){
+  const install=currentInstallAllocation();
   return JSON.stringify({
     chosen:state.chosenPlanIds||{},installed:state.installedPlanIds||{},order:state.installOrder||[],
     owned:state.boxes.map(item=>[item.id,item.ownedQty||0]),bought:state.shoppingBought||{},
-    plans:chosenPlans().map(plan=>[plan.id,plan.signature||planSignature(plan.storageId,plan.layout||[])])
+    plans:chosenPlans().map(plan=>[plan.id,plan.signature||planSignature(plan.storageId,plan.layout||[])]),
+    install:install.entries.map(entry=>[entry.storageId,entry.status,(entry.missing||[]).map(x=>[x.id,x.qty])])
   });
 }
 function roomInstallPriorityImpact(roomId,options={}){
@@ -3840,7 +3842,7 @@ function renderInstallUnlockAnalysis(){
     const purchase=row.boughtQty>0
       ?`<span class="unlockbadge bought">Already purchased ×${row.boughtQty}</span>`
       :row.remainingQty>0?`<span class="unlockbadge">Still to source ×${row.remainingQty}</span>`:"";
-    const exact=row.exact?"exact":"+ bounded";
+    const exact=row.exact?"exact":"bounded";
     return `<div class="installunlockrow" data-unlock-item="${row.id}"><div><div class="installunlocktitle">+1 ${esc(row.name)} <span class="unlockgain">+${row.gain} Ready</span></div><div class="installunlockmeta">Best Ready count: ${analysis.baselineReady} → ${row.bestReady} · ${exact} search ${purchase}</div></div><button class="btn soft" type="button" data-unlock-shopping="${row.id}">Shopping / receiving</button></div>`;
   }).join("");
   list.querySelectorAll("[data-unlock-shopping]").forEach(btn=>btn.addEventListener("click",()=>focusShoppingItem(btn.dataset.unlockShopping)));
