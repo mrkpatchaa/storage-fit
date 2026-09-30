@@ -915,6 +915,8 @@ Each compatible result can also **Calculate capacity**. With stacking off—or f
 
 After capacity is calculated, **Open packing** turns the returned arrangement into a normal Storage Fit layout. It opens directly in the existing layout detail workspace, preserves any Z coordinates and the stacking setting used for the search, and can then be inspected in Top / Front / Side / 3D, manually edited, labeled, printed, exported, shared, or saved as a plan. The detail subtitle distinguishes **Exact floor maximum** from **Exact 3D maximum**, while bounded searches are identified as the best packing found before the search cap.
 
+When a capacity packing uses stacking, Storage Fit also summarizes its **stack structure before opening it**: number of distinct stacks, tallest physical level, and proposed copies per level (for example `2 stacks · tallest level 3 · L1:2 / L2:2 / L3:1`). Saved-plan extra-capacity summaries include existing organizers as support bases when computing physical levels, while the layer counts themselves describe only the proposed additional copies. The same summary remains visible after **Open packing**.
+
 **Open space** jumps directly to that compartment so planning can continue without hunting through the hierarchy.
 
 The lookup intentionally answers a structural question: whether the organizer fits the storage geometry when empty. It does not treat unused area inside an existing saved layout as available space. Leftover-space suggestions remain the right tool for filling gaps inside a particular layout.

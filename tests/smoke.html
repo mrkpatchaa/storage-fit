@@ -438,6 +438,9 @@
       );
       result(towerCapacity.count===2&&towerCapacity.exact===true&&towerCapacity.floorCount===0&&towerCapacity.stackedCount===2,"3D extra capacity finds an exact two-copy vertical stack");
       result(towerCapacity.layout.map(function(p){return p.z;}).join(",")==="5,9","3D extra capacity keeps stacked additions in support-safe order");
+      result(towerCapacity.stackSummary.floorCount===0&&towerCapacity.stackSummary.stackedCount===2&&towerCapacity.stackSummary.maxLevel===3&&towerCapacity.stackSummary.stackCount===1,"stack summary includes existing saved-plan bases when computing levels");
+      result(towerCapacity.stackSummary.levelCounts.map(function(x){return "L"+x.level+":"+x.count;}).join("/") === "L2:1/L3:1","stack summary reports proposed copies by physical level");
+      result(api.packingStackSummaryText(towerCapacity.stackSummary)==="1 stack · tallest level 3 · L2:1 / L3:1","stack summary text is compact and deterministic");
       var mixedItem={id:"mixed-bin",name:"Mixed bin",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false,canBeStacked:true,canSupportStack:true,maxStackLevel:2};
       var mixedPlan={id:"mixed-plan",storageId:"mixed-space",stacking:true,settings:{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true},layout:[
         {typeId:"mixed-base",x:0,y:0,z:0,w:10,d:10,h:5}
@@ -509,6 +512,8 @@
       );
       result(emptyStackCapacity.mode==="3d"&&emptyStackCapacity.count===3&&emptyStackCapacity.exact===true&&emptyStackCapacity.floorCount===1&&emptyStackCapacity.stackedCount===2,"whole-home capacity uses an exact floor plus stack packing when stacking is enabled");
       result(emptyStackCapacity.layout.map(function(p){return p.z;}).join(",")==="0,5,10","whole-home stacked capacity keeps support-safe insertion order");
+      result(emptyStackCapacity.stackSummary.floorCount===1&&emptyStackCapacity.stackSummary.stackedCount===2&&emptyStackCapacity.stackSummary.maxLevel===3&&emptyStackCapacity.stackSummary.stackCount===1,"whole-home capacity exposes stack count and tallest level");
+      result(api.packingStackSummaryText(emptyStackCapacity.stackSummary)==="1 stack · tallest level 3 · L1:1 / L2:1 / L3:1","whole-home capacity exposes a readable layer breakdown");
       var emptyFloorCapacity=api.maxCopiesInStorage(
         emptyStackItem,{id:"empty-floor-space",name:"Tall cube",w:10,d:10,h:15,obstacles:[],dividers:[]},
         {...emptyStackSettings,enableStacking:false},{nodeLimit:10000,copyLimit:20}
@@ -610,6 +615,12 @@
       ]});
       result(stackedCapacityOpened===true,"stacked capacity packing can be opened as a real planner layout");
       result(w.document.getElementById("detailSubtitle").textContent.indexOf("Exact 3D maximum: 2 (1 floor + 1 stacked).")===0,"stacked capacity layout detail preserves 3D-capacity provenance");
+      api.openCapacityPacking("s1",{count:3,exact:true,mode:"3d",floorCount:1,stackedCount:2,stackingEnabled:true,stackSummary:{floorCount:1,stackedCount:2,maxLevel:3,stackCount:1,levelCounts:[{level:1,count:1},{level:2,count:1},{level:3,count:1}],invalid:0},layout:[
+        {typeId:"b3",name:"Small box",x:0,y:0,z:0,w:20,d:13,h:4},
+        {typeId:"b3",name:"Small box",x:0,y:0,z:4,w:20,d:13,h:4},
+        {typeId:"b3",name:"Small box",x:0,y:0,z:8,w:20,d:13,h:4}
+      ]});
+      result(w.document.getElementById("detailSubtitle").textContent.indexOf("1 stack · tallest level 3 · L1:1 / L2:1 / L3:1")>0,"capacity detail keeps the stack-structure explanation after opening");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{

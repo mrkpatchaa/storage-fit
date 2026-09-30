@@ -340,7 +340,7 @@ function openCapacityPacking(storageId,result){
   layouts=[result.layout.map(p=>({...p}))];selectedLayout=0;selectedGap=-1;currentGaps=[];galleryWasCapped=false;
   editMode=false;selectedEditItem=-1;editOriginalLayout=null;editHistory={entries:[],index:-1};topDrag=null;
   detailView="top";
-  capacityLayoutContext={exact:!!result.exact,count:result.count,storageId:S.id,mode:result.mode||"floor",floorCount:Number.isFinite(result.floorCount)?result.floorCount:result.count,stackedCount:Number.isFinite(result.stackedCount)?result.stackedCount:0};
+  capacityLayoutContext={exact:!!result.exact,count:result.count,storageId:S.id,mode:result.mode||"floor",floorCount:Number.isFinite(result.floorCount)?result.floorCount:result.count,stackedCount:Number.isFinite(result.stackedCount)?result.stackedCount:0,stackSummary:result.stackSummary||null};
   const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0,W=S.w-2*c,D=S.d-2*c,H=S.h-2*c;
   renderDetail(W,D,H);openDetailModal();
   return true;
@@ -413,11 +413,47 @@ function maxAdditionalFloorCopiesInPlan(item,plan,liveStorage,options={}){
   return {count:best.length,layout:best,exact:!truncated&&!capped,truncated,capped,nodes,W,D,H};
 }
 
+function packingStackSummary(additions=[],fixedLayout=[],itemLookup=boxById){
+  const proposed=(additions||[]).map(p=>({...p}));
+  const fixed=(fixedLayout||[]).map(p=>({...p}));
+  const combined=[...fixed,...proposed];
+  const levels=new Map(),roots=new Set();
+  let floorCount=0,stackedCount=0,maxLevel=1,invalid=0;
+  for(const p of proposed){
+    const z=Number(p.z)||0;
+    const level=z<=1e-9?1:placementStackLevelLookup(p,combined,itemLookup);
+    if(!isFinite(level)){invalid++;continue}
+    levels.set(level,(levels.get(level)||0)+1);
+    maxLevel=Math.max(maxLevel,level);
+    if(level===1){floorCount++;continue}
+    stackedCount++;
+    let current=p,base=null,guard=0;
+    while((Number(current.z)||0)>1e-9&&guard++<combined.length+1){
+      base=supportingBaseForLookup(current,combined,itemLookup);
+      if(!base)break;
+      current=base;
+    }
+    if(base||((Number(current.z)||0)<=1e-9)){
+      const idx=combined.indexOf(current);
+      roots.add(idx>=0?"i:"+idx:["g",current.typeId,round6(current.x),round6(current.y),round6(current.z||0),round6(current.w),round6(current.d),round6(current.h)].join("|"));
+    }
+  }
+  const levelCounts=[...levels.entries()].sort((a,b)=>a[0]-b[0]).map(([level,count])=>({level,count}));
+  return {floorCount,stackedCount,maxLevel,stackCount:roots.size,levelCounts,invalid};
+}
+function packingStackSummaryText(summary){
+  if(!summary||!summary.stackedCount)return "";
+  const stacks=summary.stackCount+" stack"+(summary.stackCount===1?"":"s");
+  const tallest="tallest level "+summary.maxLevel;
+  const layers=summary.levelCounts.map(x=>"L"+x.level+":"+x.count).join(" / ");
+  return stacks+" · "+tallest+(layers?" · "+layers:"");
+}
+
 function maxAdditionalCopiesInPlan(item,plan,liveStorage,options={}){
   const stackingEnabled=!!(plan&&(plan.stacking ?? layoutUsesStacking(plan.layout||[])));
   if(!stackingEnabled||!item?.canBeStacked){
     const floor=maxAdditionalFloorCopiesInPlan(item,plan,liveStorage,options);
-    return {...floor,mode:"floor",floorCount:floor.count,stackedCount:0};
+    return {...floor,mode:"floor",floorCount:floor.count,stackedCount:0,stackSummary:packingStackSummary(floor.layout||[],[],id=>id===item?.id?item:null)};
   }
   if(!item||!plan||!liveStorage)return {count:0,layout:[],exact:true,truncated:false,capped:false,nodes:0,mode:"3d",floorCount:0,stackedCount:0};
   const settings=plan.settings||{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true};
@@ -524,9 +560,10 @@ function maxAdditionalCopiesInPlan(item,plan,liveStorage,options={}){
   recurse([]);
   const floorCount=best.filter(p=>(Number(p.z)||0)<=1e-9).length;
   const stackedCount=best.length-floorCount;
+  const stackSummary=packingStackSummary(best,fixedLayout,ruleLookup);
   return {
     count:best.length,layout:best,exact:provenOptimal||(!truncated&&!capped),truncated,capped,nodes,
-    mode:"3d",floorCount,stackedCount,W,D,H,volumeUpper
+    mode:"3d",floorCount,stackedCount,W,D,H,volumeUpper,stackSummary
   };
 }
 
@@ -694,6 +731,8 @@ function openItemPlanRoomModal(){
     out.textContent=result.exact
       ? result.count+" additional "+noun+" maximum"+mix
       : "At least "+result.count+" additional "+noun+" fit"+mix+" · search capped for responsiveness";
+    const structure=packingStackSummaryText(result.stackSummary);
+    if(structure)out.textContent+=" · "+structure;
     const owned=ownedPackingFromCapacity(unallocatedOwned,result);
     if(owned.count)out.textContent+=" · "+owned.count+" can use unallocated owned stock";
     const ownedBtn=$("itemFitList").querySelector('[data-add-owned-packing="'+plan.id+'"]');
@@ -834,8 +873,11 @@ function openItemFitModal(){
       ? `${result.floorCount} floor + ${result.stackedCount} stacked`
       : `${result.floorCount} floor`;
     out.textContent=result.exact
-      ? `${result.count} maximum · ${mix} · open the packing to inspect, edit or save it`
-      : `At least ${result.count} fit · ${mix} · open the best packing found before the search cap`;
+      ? `${result.count} maximum · ${mix}`
+      : `At least ${result.count} fit · ${mix} · search capped`;
+    const structure=packingStackSummaryText(result.stackSummary);
+    if(structure)out.textContent+=` · ${structure}`;
+    out.textContent+=result.exact?" · open the packing to inspect, edit or save it":" · open the best packing found before the search cap";
     const openBtn=$("itemFitList").querySelector(`[data-open-capacity-layout="${storageId}"]`);
     if(openBtn)openBtn.disabled=!result.layout.length;
     btn.textContent=result.exact?"Recalculate":"Try again";btn.disabled=false;
@@ -3292,7 +3334,7 @@ function maxCopiesInStorage(item,S,settings={},options={}){
   const stackingEnabled=!!settings.enableStacking&&!!item?.canBeStacked&&!!item?.canSupportStack;
   if(!stackingEnabled){
     const floor=maxFloorCopiesInStorage(item,S,settings,options);
-    return {...floor,mode:"floor",floorCount:floor.count,stackedCount:0,stackingEnabled:!!settings.enableStacking};
+    return {...floor,mode:"floor",floorCount:floor.count,stackedCount:0,stackingEnabled:!!settings.enableStacking,stackSummary:packingStackSummary(floor.layout||[],[],id=>id===item?.id?item:null)};
   }
   const plan={id:"capacity:"+String(S?.id||""),storageId:S?.id||"",stacking:true,settings:{clearanceEnabled:!!settings.clearanceEnabled,clearance:Math.max(0,Number(settings.clearance)||0),fitTolerance:Math.max(0,Number(settings.fitTolerance)||0),uprightOnly:settings.uprightOnly!==false},layout:[]};
   const lookup=typeof options.itemLookup==="function"?options.itemLookup:(id=>id===item.id?item:null);
@@ -3679,7 +3721,8 @@ function renderDetail(W,D,H){
         : `Best 3D packing found before search cap: ${capacityLayoutContext.count} (${capacityLayoutContext.floorCount} floor${capacityLayoutContext.stackedCount?` + ${capacityLayoutContext.stackedCount} stacked`:""}). `)
       : (capacityLayoutContext.exact?`Exact floor maximum: ${capacityLayoutContext.count}. `:`Best packing found before search cap: ${capacityLayoutContext.count}. `))
     : "";
-  $("detailSubtitle").textContent=`${capacityNote}${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)} utilization · ${layout.length} item${layout.length===1?"":"s"}${stackedCount?` · ${stackedCount} stacked`:""}.`;
+  const capacityStructure=capacityLayoutContext?packingStackSummaryText(capacityLayoutContext.stackSummary):"";
+  $("detailSubtitle").textContent=`${capacityNote}${capacityStructure?capacityStructure+" · ":""}${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)} utilization · ${layout.length} item${layout.length===1?"":"s"}${stackedCount?` · ${stackedCount} stacked`:""}.`;
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.view===detailView));
   $("reset3d").disabled=detailView!=="iso";
   const printableLabels=printablePlacementLabels(layout);
@@ -4683,6 +4726,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     extraItemAddition,
     maxAdditionalFloorCopiesInPlan,
     maxAdditionalCopiesInPlan,
+    packingStackSummary,
+    packingStackSummaryText,
     ownedPackingFromCapacity,
     itemPlanRoomRows,
     openSavedPlanWithExtraItems,
