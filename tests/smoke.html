@@ -752,6 +752,40 @@
         installOrder:["outside-ready","room-waiting"]
       });
       result(abundantImpact.changed&&abundantImpact.gainedReady.length===0&&abundantImpact.lostReady.length===0,"room priority preview reports no readiness impact when stock already covers every active space");
+      var manualMoveImpact=api.installOrderMoveImpact("room-waiting",-1,{
+        rooms:priorityRooms,
+        furniture:priorityFurniture,
+        storages:priorityStorages,
+        install:stockBefore,
+        plans:stockPlans,
+        ownedById:{"shared-box":1},
+        installedPlanIds:{},
+        installOrder:["outside-ready","room-waiting"]
+      });
+      result(manualMoveImpact.changed&&manualMoveImpact.order.join(",")==="room-waiting,outside-ready","manual install move dry-run returns the proposed adjacent order without mutating the current one");
+      result(manualMoveImpact.gainedReady.length===1&&manualMoveImpact.gainedReady[0].storageId==="room-waiting"&&manualMoveImpact.lostReady.length===1&&manualMoveImpact.lostReady[0].storageId==="outside-ready","manual install move preview catches scarce-stock readiness swaps");
+      var harmlessMoveImpact=api.installOrderMoveImpact("room-waiting",-1,{
+        rooms:priorityRooms,
+        furniture:priorityFurniture,
+        storages:priorityStorages,
+        install:abundantBefore,
+        plans:stockPlans,
+        ownedById:{"shared-box":2},
+        installedPlanIds:{},
+        installOrder:["outside-ready","room-waiting"]
+      });
+      result(harmlessMoveImpact.changed&&harmlessMoveImpact.transitions.length===0,"manual install move preview stays silent when reordering cannot change readiness");
+      var boundaryMoveImpact=api.installOrderMoveImpact("outside-ready",-1,{
+        rooms:priorityRooms,
+        furniture:priorityFurniture,
+        storages:priorityStorages,
+        install:stockBefore,
+        plans:stockPlans,
+        ownedById:{"shared-box":1},
+        installedPlanIds:{},
+        installOrder:["outside-ready","room-waiting"]
+      });
+      result(!boundaryMoveImpact.changed&&boundaryMoveImpact.order.join(",")==="outside-ready,room-waiting","manual install move preview rejects out-of-range moves");
 
       var roomProgress=api.projectRoomProgress({
         rooms:actionRooms,
