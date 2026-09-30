@@ -1035,6 +1035,7 @@ function applyAllOwnedDistributionAllocations(itemId){
   const row=currentOwnedDistributionWorkRow(itemId);if(!row||row.stale)return {ok:false,reason:"stale"};
   const batch=ownedDistributionBatchApplySpecs(row.item,row.session);
   if(!batch.valid)return {ok:false,reason:"invalid",errors:batch.errors,allocationCount:batch.allocationCount};
+  if(batch.assignedCopies>row.unallocatedOwned)return {ok:false,reason:"stock",assignedCopies:batch.assignedCopies,unallocatedOwned:row.unallocatedOwned};
   createRecoveryCheckpoint("Before applying distribution for "+(row.item.name||"Item"));
   const planIds=[];
   for(const entry of batch.specs){
