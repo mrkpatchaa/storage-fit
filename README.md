@@ -929,6 +929,27 @@ The lookup intentionally answers a structural question: whether the organizer fi
 
 No state migration is required; the app remains on V28.
 
+## Project next actions
+
+The workspace now starts with a whole-home **Project next actions** coordinator. It reads the existing project state and ranks the work that can move the home forward without creating a second workflow system.
+
+The priority order is:
+
+1. chosen plans that need safety review;
+2. stale owned-stock distribution sessions;
+3. current distribution sessions that are still in progress;
+4. storage spaces with current saved options but no chosen plan;
+5. storage spaces that still need a current plan;
+6. purchased organizers waiting to be physically received;
+7. remaining shopping;
+8. chosen storage spaces that are ready to install.
+
+Each action routes into the existing source-of-truth workflow: the affected saved plan, distribution session, Build a layout, shopping list, or install queue. The coordinator itself does not choose plans, receive stock, buy items, or mark installations automatically.
+
+When every storage space has an installed chosen plan and no higher-priority work remains, the coordinator shows **Project complete**.
+
+No schema migration is required; the app remains on V28.
+
 ## Whole-home distribution work dashboard
 
 Persistent owned-stock distribution sessions are also surfaced in a whole-home **Distribution work** dashboard.
