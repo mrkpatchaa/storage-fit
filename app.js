@@ -3900,9 +3900,25 @@ function renderInstallUnlockAnalysis(){
   const capNote=analysis.candidateCapped?` · first ${analysis.analyzedCandidates} of ${analysis.totalCandidates} scarce organizer types checked`:"";
   summary.textContent=`${analysis.baselineReady} Ready at best with current stock · ${searchNote}${capNote}`;
   if(!analysis.rows.length){
-    list.innerHTML=`<div class="empty">${analysis.baselineExact&&analysis.allExact&&!analysis.candidateCapped
-      ?"No single additional organizer unit increases the maximum Ready count."
-      :"No one-unit improvement was found in the bounded analysis."}</div>`;
+    if(analysis.bundle){
+      const bundleExact=analysis.bundle.exact&&analysis.bundleAllExact&&!analysis.bundleTruncated&&!analysis.bundleCandidateCapped;
+      const parts=analysis.bundle.parts.map(part=>`+${part.qty} ${esc(part.name)}`).join(" · ");
+      const purchase=analysis.bundle.parts.map(part=>{
+        if(part.boughtQty>0)return `<span class="unlockbadge bought">${esc(part.name)} purchased ×${part.boughtQty}</span>`;
+        if(part.remainingQty>0)return `<span class="unlockbadge">${esc(part.name)} to source ×${part.remainingQty}</span>`;
+        return "";
+      }).filter(Boolean).join(" ");
+      const scopeNote=analysis.bundleCandidateCapped
+        ?`first ${analysis.bundleAnalyzedCandidates} of ${analysis.totalCandidates} scarce types`
+        :`all ${analysis.bundleAnalyzedCandidates} scarce types`;
+      list.innerHTML=`<div class="installunlockbundle"><div><div class="installunlocktitle">${bundleExact?"Smallest unlock bundle":"Smallest bundle found"}: ${parts} <span class="unlockgain">+${analysis.bundle.gain} Ready</span></div><div class="installunlockmeta">Best Ready count: ${analysis.baselineReady} → ${analysis.bundle.bestReady} · ${bundleExact?"exact":"bounded"} search · ${scopeNote} · ${analysis.bundleScenarios} bundle scenarios checked ${purchase}</div></div><div class="installunlockbundleactions">${analysis.bundle.parts.map(part=>`<button class="btn soft" type="button" data-unlock-shopping="${part.id}">${esc(part.name)} · Shopping / receiving</button>`).join("")}</div></div>`;
+      list.querySelectorAll("[data-unlock-shopping]").forEach(btn=>btn.addEventListener("click",()=>focusShoppingItem(btn.dataset.unlockShopping)));
+      return;
+    }
+    const bounded=analysis.bundleTruncated||analysis.bundleCandidateCapped||!analysis.bundleAllExact;
+    list.innerHTML=`<div class="empty">${bounded
+      ?`No unlock bundle was found in the bounded search up to +${analysis.bundleUnitLimit} units.`
+      :`No stock addition up to +${analysis.bundleUnitLimit} units increases the maximum Ready count.`}</div>`;
     return;
   }
   list.innerHTML=analysis.rows.slice(0,8).map(row=>{
