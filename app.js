@@ -961,6 +961,29 @@ function ownedDistributionAppliedPlanSpec(item,allocation,options={}){
   if(!validity.valid)return {valid:false,reasons:validity.reasons,storage:S,layout,derivedFrom,settings,goal,stacking};
   return {valid:true,reasons:[],storage:S,layout,derivedFrom,settings,goal,stacking};
 }
+function ownedDistributionBatchApplySpecs(item,session,options={}){
+  const allocations=Array.isArray(session?.allocations)?session.allocations:[];
+  const specs=[],errors=[],seenStorage=new Set();
+  let assignedCopies=0;
+  for(const allocation of allocations){
+    const storageId=String(allocation?.storageId||"");
+    if(!storageId){errors.push({allocationId:allocation?.id||"",storageId:"",reason:"missing storage"});continue}
+    if(seenStorage.has(storageId)){errors.push({allocationId:allocation?.id||"",storageId,reason:"duplicate storage"});continue}
+    seenStorage.add(storageId);
+    const spec=ownedDistributionAppliedPlanSpec(item,allocation,options);
+    if(!spec?.valid){
+      errors.push({allocationId:allocation?.id||"",storageId,reasons:spec?.reasons||[],reason:spec?"invalid layout":"missing source"});
+      continue;
+    }
+    const assigned=Math.max(0,Math.floor(Number(allocation.assigned)||0));
+    assignedCopies+=assigned;
+    specs.push({allocation,spec,assigned});
+  }
+  return {
+    valid:allocations.length>0&&errors.length===0&&specs.length===allocations.length,
+    allocationCount:allocations.length,assignedCopies,specs,errors
+  };
+}
 function ownedDistributionAllocationView(allocation,stale=false){
   const status=["pending","opened","done"].includes(allocation?.status)?allocation.status:"pending";
   const assigned=Math.max(0,Math.floor(Number(allocation?.assigned)||0));
@@ -1007,6 +1030,36 @@ function applyOwnedDistributionAllocation(itemId,allocationId){
   else delete state.ownedDistributionSessions[itemId];
   localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
   return {ok:true,planId:plan.id,storageId:plan.storageId,remaining,sessionClosed:!rebased.session,carriedAllocations:rebased.carriedAllocations||0,resetAllocations:rebased.resetAllocations||0};
+}
+function applyAllOwnedDistributionAllocations(itemId){
+  const row=currentOwnedDistributionWorkRow(itemId);if(!row||row.stale)return {ok:false,reason:"stale"};
+  const batch=ownedDistributionBatchApplySpecs(row.item,row.session);
+  if(!batch.valid)return {ok:false,reason:"invalid",errors:batch.errors,allocationCount:batch.allocationCount};
+  createRecoveryCheckpoint("Before applying distribution for "+(row.item.name||"Item"));
+  const planIds=[];
+  for(const entry of batch.specs){
+    const spec=entry.spec;
+    const plan=createSavedPlanForStorage(spec.storage,spec.layout,{
+      note:"Applied from owned-stock distribution",
+      derivedFrom:spec.derivedFrom,
+      settings:spec.settings,
+      goal:spec.goal,
+      stacking:spec.stacking
+    });
+    if(!choosePlan(plan.id))return {ok:false,reason:"choose",planIds};
+    planIds.push(plan.id);
+  }
+  const settings=fitLookupSettings();
+  const remaining=stockStatusForItem(row.item).unallocatedOwned;
+  const rebased=calculateOwnedDistributionSession(row.item,settings,remaining,row.session);
+  state.ownedDistributionSessions=state.ownedDistributionSessions||{};
+  if(rebased.session)state.ownedDistributionSessions[itemId]=rebased.session;
+  else delete state.ownedDistributionSessions[itemId];
+  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
+  return {
+    ok:true,planIds,allocationCount:batch.allocationCount,assignedCopies:batch.assignedCopies,remaining,
+    sessionClosed:!rebased.session,carriedAllocations:rebased.carriedAllocations||0,resetAllocations:rebased.resetAllocations||0
+  };
 }
 function toggleOwnedDistributionAllocationDone(itemId,allocationId){
   const row=currentOwnedDistributionWorkRow(itemId);if(!row||row.stale)return false;
@@ -1327,10 +1380,12 @@ function openItemFitModal(){
     distributionBtn.disabled=false;
     distributionBtn.textContent=unallocatedOwned?"Recalculate remaining":"Finish distribution";
     distributionStatus.textContent=ownedDistributionSessionSummaryText(session,stale);
-    distributionEl.innerHTML=(session.allocations||[]).length?session.allocations.map(allocation=>{
+    const batchCount=(session.allocations||[]).length;
+    const batchBar=batchCount>1?'<div class="fitdistributionbulk"><div><strong>Apply the full distribution</strong><div class="small">Prevalidates every destination before changing the project.</div></div><button class="btn primary" type="button" data-session-apply-all '+(stale?"disabled":"")+'>Apply all '+batchCount+' spaces</button></div>':"";
+    distributionEl.innerHTML=batchBar+((session.allocations||[]).length?session.allocations.map(allocation=>{
       const view=ownedDistributionAllocationView(allocation,stale);
       return '<div class="fitdistributioncard '+esc(view.status)+(stale?" stale":"")+'"><div><div class="fitdistributiontitle">'+allocation.assigned+' owned → '+esc(allocation.storagePath)+' <span class="distributionstatus '+esc(view.status)+'">'+view.statusLabel+'</span></div><div class="fitdistributionmeta">'+esc(view.sourceLabel)+' · '+allocation.capacity+' '+esc(view.certaintyLabel)+(stale?" · out of date":"")+'</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-session-open="'+allocation.id+'" '+(view.disabled?"disabled":"")+'>'+view.openLabel+'</button><button class="btn primary" type="button" data-session-apply="'+allocation.id+'" '+(view.disabled?"disabled":"")+'>'+view.applyLabel+'</button><button class="btn soft" type="button" data-session-done="'+allocation.id+'" '+(view.disabled?"disabled":"")+'>'+view.doneLabel+'</button></div></div>';
-    }).join(""):'<div class="fitfindersummary">No safe allocation was stored in this distribution session.</div>';
+    }).join(""):'<div class="fitfindersummary">No safe allocation was stored in this distribution session.</div>');
     if(session.skipped?.length){
       distributionEl.innerHTML+='<div class="fitfindersummary">'+session.skipped.map(x=>esc(x.storagePath)+": "+esc(x.skipReason)).join(" · ")+'</div>';
     }
@@ -1348,6 +1403,18 @@ function openItemFitModal(){
       if(stale)return;
       const result=applyOwnedDistributionAllocation(item.id,btn.dataset.sessionApply);
       if(!result.ok){alert(result.reasons?.[0]||"This allocation could not be applied safely.");return}
+      closeItemFitModal();renderAll();
+    }));
+    distributionEl.querySelectorAll("[data-session-apply-all]").forEach(btn=>btn.addEventListener("click",()=>{
+      if(stale)return;
+      const count=(session.allocations||[]).length;
+      if(!confirm("Apply all "+count+" distribution destinations to the project? This saves and chooses each plan, and may clear Installed status where a physical layout changes."))return;
+      const result=applyAllOwnedDistributionAllocations(item.id);
+      if(!result.ok){
+        const first=result.errors?.[0];
+        alert(first?.reasons?.[0]||"The full distribution could not be applied safely.");
+        return;
+      }
       closeItemFitModal();renderAll();
     }));
   };
@@ -3213,7 +3280,8 @@ function renderDistributionWorkDashboard(){
     return '<div class="distributionworkcard '+row.status+'"><div><div class="installtitle">'+esc(row.item.name||"Item")+
       ' <span class="distributionworkstatus '+row.status+'">'+statusLabel+'</span></div><div class="installmeta">'+esc(meta)+
       '</div>'+note+'</div><div class="installactions"><button class="btn primary" type="button" data-distribution-resume="'+row.itemId+'">'+actionLabel+
-      '</button><button class="btn soft" type="button" data-distribution-clear="'+row.itemId+'">Clear session</button></div><div class="distributionworkallocations">'+allocations+'</div></div>';
+      '</button>'+((session.allocations||[]).length>1?'<button class="btn primary" type="button" data-distribution-apply-all="'+row.itemId+'" '+(row.stale?"disabled":"")+'>Apply all '+session.allocations.length+'</button>':"")+
+      '<button class="btn soft" type="button" data-distribution-clear="'+row.itemId+'">Clear session</button></div><div class="distributionworkallocations">'+allocations+'</div></div>';
   }).join("");
   list.querySelectorAll("[data-distribution-resume]").forEach(btn=>btn.addEventListener("click",()=>resumeOwnedDistributionWork(btn.dataset.distributionResume)));
   list.querySelectorAll("[data-distribution-allocation-open]").forEach(btn=>btn.addEventListener("click",()=>{
@@ -3222,6 +3290,19 @@ function renderDistributionWorkDashboard(){
   list.querySelectorAll("[data-distribution-allocation-apply]").forEach(btn=>btn.addEventListener("click",()=>{
     const result=applyOwnedDistributionAllocation(btn.dataset.distributionItem,btn.dataset.distributionAllocationApply);
     if(!result.ok){alert(result.reasons?.[0]||"This allocation could not be applied safely.");return}
+    renderAll();
+  }));
+  list.querySelectorAll("[data-distribution-apply-all]").forEach(btn=>btn.addEventListener("click",()=>{
+    const itemId=btn.dataset.distributionApplyAll,row=ownedDistributionWorkRows().find(x=>x.itemId===itemId);
+    if(!row||row.stale)return;
+    const count=(row.session.allocations||[]).length;
+    if(!confirm("Apply all "+count+" distribution destinations to the project? This saves and chooses each plan, and may clear Installed status where a physical layout changes."))return;
+    const result=applyAllOwnedDistributionAllocations(itemId);
+    if(!result.ok){
+      const first=result.errors?.[0];
+      alert(first?.reasons?.[0]||"The full distribution could not be applied safely.");
+      return;
+    }
     renderAll();
   }));
   list.querySelectorAll("[data-distribution-allocation-done]").forEach(btn=>btn.addEventListener("click",()=>{
@@ -5345,6 +5426,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     rebaseOwnedDistributionSession,
     calculateOwnedDistributionSession,
     ownedDistributionAppliedPlanSpec,
+    ownedDistributionBatchApplySpecs,
     ownedDistributionSessionPlan,
     ownedDistributionSessionProgress,
     setOwnedDistributionAllocationStatus,
@@ -5357,6 +5439,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     persistOwnedDistributionSession,
     toggleOwnedDistributionAllocationDone,
     applyOwnedDistributionAllocation,
+    applyAllOwnedDistributionAllocations,
     openOwnedDistributionAllocation,
     setItemFitDistributionVisible,
     itemPlanRoomRows,
