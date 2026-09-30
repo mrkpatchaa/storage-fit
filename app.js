@@ -12,6 +12,8 @@ const EDIT_HISTORY_LIMIT = 60;
 const CAPACITY_SEARCH_LIMIT = 25000;
 const CAPACITY_COPY_LIMIT = 40;
 const INSTALL_ORDER_SEARCH_LIMIT = 60000;
+const STOCK_UNLOCK_SEARCH_LIMIT = 12000;
+const STOCK_UNLOCK_ITEM_LIMIT = 30;
 
 let state = loadState();
 ensureHomeHierarchy(state);
@@ -36,6 +38,7 @@ let comparePlanIds = new Set();
 let pendingImport = null;
 let capacityLayoutContext = null;
 let savedPlanSourceContext = null;
+let installUnlockAnalysisCache = null;
 
 state.itemLimits = state.itemLimits || {};
 state.fitTolerance = Math.max(0, Number(state.fitTolerance)||0);
@@ -1909,6 +1912,77 @@ function suggestInstallOrder(options={}){
     gainedReady:impact.gainedReady,lostReady:impact.lostReady,transitions:impact.transitions
   };
 }
+function installAllocationSnapshot(ownedById,options={}){
+  const install=options.install||currentInstallAllocation();
+  const entries=Array.isArray(install?.entries)?install.entries:[];
+  const plans=Array.isArray(options.plans)?options.plans:entries.filter(entry=>entry.status!=="stale"&&entry.plan).map(entry=>entry.plan);
+  const installedPlanIds=options.installedPlanIds&&typeof options.installedPlanIds==="object"?options.installedPlanIds:state.installedPlanIds;
+  const requestedOrder=Array.isArray(options.installOrder)?options.installOrder:entries.map(entry=>entry.storageId);
+  const base=computeInstallAllocation(plans,ownedById,installedPlanIds,requestedOrder);
+  const byStorage=new Map(base.entries.map(entry=>[entry.storageId,entry]));
+  for(const entry of entries){if(entry.status==="stale")byStorage.set(entry.storageId,entry)}
+  const order=[],seen=new Set();
+  for(const id of requestedOrder){if(byStorage.has(id)&&!seen.has(id)){seen.add(id);order.push(id)}}
+  for(const entry of entries){if(byStorage.has(entry.storageId)&&!seen.has(entry.storageId)){seen.add(entry.storageId);order.push(entry.storageId)}}
+  for(const plan of plans){if(byStorage.has(plan.storageId)&&!seen.has(plan.storageId)){seen.add(plan.storageId);order.push(plan.storageId)}}
+  return {entries:order.map(id=>byStorage.get(id)).filter(Boolean),remainingOwned:base.remainingOwned};
+}
+function stockUnlockAnalysis(options={}){
+  const install=options.install||currentInstallAllocation();
+  const entries=Array.isArray(install?.entries)?install.entries:[];
+  const plans=Array.isArray(options.plans)?options.plans:entries.filter(entry=>entry.status!=="stale"&&entry.plan).map(entry=>entry.plan);
+  const ownedById=options.ownedById&&typeof options.ownedById==="object"
+    ?{...options.ownedById}:Object.fromEntries(state.boxes.map(item=>[item.id,item.ownedQty||0]));
+  const installedPlanIds=options.installedPlanIds&&typeof options.installedPlanIds==="object"?options.installedPlanIds:state.installedPlanIds;
+  const installOrder=Array.isArray(options.installOrder)?options.installOrder:entries.map(entry=>entry.storageId);
+  const baseline=suggestInstallOrder({
+    ...options,install,plans,ownedById,installedPlanIds,installOrder,
+    nodeLimit:Math.max(1,Math.floor(Number(options.baselineNodeLimit)||INSTALL_ORDER_SEARCH_LIMIT))
+  });
+  const baselineBest=baseline.bestReady;
+  const requirements=aggregateRequiredCounts(plans);
+  const itemLookup=typeof options.itemLookup==="function"?options.itemLookup:boxById;
+  const purchaseRows=Array.isArray(options.purchaseRows)?options.purchaseRows:projectProcurement(plans).rows;
+  const purchaseById=new Map(purchaseRows.map(row=>[row.id,row]));
+  const scarce=Object.entries(requirements).map(([id,qty])=>({
+    id,required:qty,owned:Math.max(0,Math.floor(Number(ownedById[id])||0)),item:itemLookup(id)
+  })).filter(row=>row.required>row.owned)
+    .sort((a,b)=>(a.required-a.owned)-(b.required-b.owned)||String(a.item?.name||a.id).localeCompare(String(b.item?.name||b.id)));
+  const itemLimit=Math.max(1,Math.floor(Number(options.itemLimit)||STOCK_UNLOCK_ITEM_LIMIT));
+  const candidates=scarce.slice(0,itemLimit),candidateCapped=scarce.length>candidates.length;
+  const nodeLimit=Math.max(1,Math.floor(Number(options.nodeLimit)||STOCK_UNLOCK_SEARCH_LIMIT));
+  const rows=[];
+  let allExact=baseline.exact;
+  for(const candidate of candidates){
+    const hypotheticalOwned={...ownedById,[candidate.id]:candidate.owned+1};
+    const hypotheticalInstall=installAllocationSnapshot(hypotheticalOwned,{install,plans,installedPlanIds,installOrder});
+    const suggestion=suggestInstallOrder({
+      ...options,install:hypotheticalInstall,plans,ownedById:hypotheticalOwned,installedPlanIds,installOrder,nodeLimit
+    });
+    allExact=allExact&&suggestion.exact;
+    if(suggestion.bestReady<=baselineBest)continue;
+    const purchase=purchaseById.get(candidate.id),item=candidate.item;
+    rows.push({
+      id:candidate.id,name:item?.name||purchase?.name||"Deleted item",sku:item?.sku||purchase?.sku||"",
+      bestReady:suggestion.bestReady,gain:suggestion.bestReady-baselineBest,exact:baseline.exact&&suggestion.exact,
+      candidateSearchExact:suggestion.exact,boughtQty:Math.max(0,Math.floor(Number(purchase?.boughtQty)||0)),
+      remainingQty:Math.max(0,Math.floor(Number(purchase?.remainingQty)||0)),url:safeUrl(item?.url||purchase?.url),
+      order:suggestion.order,gainedReady:suggestion.gainedReady,lostReady:suggestion.lostReady
+    });
+  }
+  rows.sort((a,b)=>b.gain-a.gain||Number(b.boughtQty>0)-Number(a.boughtQty>0)||a.name.localeCompare(b.name));
+  return {
+    baselineReady:baselineBest,baselineExact:baseline.exact,rows,allExact,candidateCapped,
+    analyzedCandidates:candidates.length,totalCandidates:scarce.length
+  };
+}
+function installUnlockFingerprint(){
+  return JSON.stringify({
+    chosen:state.chosenPlanIds||{},installed:state.installedPlanIds||{},order:state.installOrder||[],
+    owned:state.boxes.map(item=>[item.id,item.ownedQty||0]),bought:state.shoppingBought||{},
+    plans:chosenPlans().map(plan=>[plan.id,plan.signature||planSignature(plan.storageId,plan.layout||[])])
+  });
+}
 function roomInstallPriorityImpact(roomId,options={}){
   const furniture=Array.isArray(options.furniture)?options.furniture:state.furniture;
   const storages=Array.isArray(options.storages)?options.storages:state.storages;
@@ -3746,6 +3820,39 @@ function findMoreReadyInstallOrder(){
   localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();
   return true;
 }
+function renderInstallUnlockAnalysis(){
+  const panel=$("installUnlockPanel"),summary=$("installUnlockSummary"),list=$("installUnlockList");
+  if(!panel||!summary||!list)return;
+  if(installUnlockAnalysisCache?.fingerprint!==installUnlockFingerprint())installUnlockAnalysisCache=null;
+  const analysis=installUnlockAnalysisCache?.analysis;
+  if(!analysis){panel.style.display="none";summary.textContent="";list.innerHTML="";return}
+  panel.style.display="block";
+  const searchNote=analysis.baselineExact&&analysis.allExact?"exact analysis":"bounded analysis";
+  const capNote=analysis.candidateCapped?` · first ${analysis.analyzedCandidates} of ${analysis.totalCandidates} scarce organizer types checked`:"";
+  summary.textContent=`${analysis.baselineReady} Ready at best with current stock · ${searchNote}${capNote}`;
+  if(!analysis.rows.length){
+    list.innerHTML=`<div class="empty">${analysis.baselineExact&&analysis.allExact&&!analysis.candidateCapped
+      ?"No single additional organizer unit increases the maximum Ready count."
+      :"No one-unit improvement was found in the bounded analysis."}</div>`;
+    return;
+  }
+  list.innerHTML=analysis.rows.slice(0,8).map(row=>{
+    const purchase=row.boughtQty>0
+      ?`<span class="unlockbadge bought">Already purchased ×${row.boughtQty}</span>`
+      :row.remainingQty>0?`<span class="unlockbadge">Still to source ×${row.remainingQty}</span>`:"";
+    const exact=row.exact?"exact":"+ bounded";
+    return `<div class="installunlockrow" data-unlock-item="${row.id}"><div><div class="installunlocktitle">+1 ${esc(row.name)} <span class="unlockgain">+${row.gain} Ready</span></div><div class="installunlockmeta">Best Ready count: ${analysis.baselineReady} → ${row.bestReady} · ${exact} search ${purchase}</div></div><button class="btn soft" type="button" data-unlock-shopping="${row.id}">Shopping / receiving</button></div>`;
+  }).join("");
+  list.querySelectorAll("[data-unlock-shopping]").forEach(btn=>btn.addEventListener("click",()=>focusShoppingItem(btn.dataset.unlockShopping)));
+}
+function analyzeInstallStockUnlocks(){
+  normalizeInstallState(state);
+  const allocation=currentInstallAllocation();
+  const analysis=stockUnlockAnalysis({install:allocation,installOrder:state.installOrder});
+  installUnlockAnalysisCache={fingerprint:installUnlockFingerprint(),analysis};
+  renderInstallUnlockAnalysis();
+  return analysis;
+}
 function renderInstallDashboard(){
   const sec=$("installDashboardSection");if(!sec)return;
   normalizeInstallState(state);
@@ -3761,6 +3868,8 @@ function renderInstallDashboard(){
   $("installProgressText").textContent=`${installed}/${entries.length} installed`;
   const findMoreReadyBtn=$("findMoreReadyBtn");
   if(findMoreReadyBtn){findMoreReadyBtn.disabled=waiting===0||ready+waiting<2;findMoreReadyBtn.onclick=findMoreReadyInstallOrder}
+  const analyzeUnlocksBtn=$("analyzeUnlocksBtn");
+  if(analyzeUnlocksBtn){analyzeUnlocksBtn.disabled=waiting===0;analyzeUnlocksBtn.onclick=analyzeInstallStockUnlocks}
   $("installSummary").innerHTML=`
     <div class="installstat"><div class="k">Chosen spaces</div><div class="v">${entries.length}</div></div>
     <div class="installstat"><div class="k">Ready now</div><div class="v">${ready}</div></div>
@@ -3802,7 +3911,7 @@ function renderInstallDashboard(){
     state.installedPlanIds[storageId]=entry.plan.id;
     localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();renderHomeProcurement();
   }));
-  renderProjectNextActions();renderRoomProgressOverview();
+  renderProjectNextActions();renderRoomProgressOverview();renderInstallUnlockAnalysis();
   $("installQueue").querySelectorAll("[data-install-undo]").forEach(btn=>btn.addEventListener("click",()=>{
     delete state.installedPlanIds[btn.dataset.installUndo];
     localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();renderHomeProcurement();
@@ -5963,6 +6072,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     installOrderImpact,
     installOrderMoveImpact,
     suggestInstallOrder,
+    installAllocationSnapshot,
+    stockUnlockAnalysis,
     roomInstallPriorityImpact,
     projectRoomProgress,
     projectNextActions,
