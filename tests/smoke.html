@@ -735,8 +735,8 @@
         planHealthLookup:function(){return {status:"current"}}
       });
       var blockedBedroom=blockedRoomProgress.rooms.find(function(r){return r.roomId==="room-b"});
-      result(blockedBedroom.waiting===2&&blockedBedroom.missingUnits===4&&blockedBedroom.blockers.length===2,"room progress aggregates inventory blockers from waiting install allocations");
-      result(blockedBedroom.blockers[0].name==="Labels"&&blockedBedroom.blockers[0].qty===1&&blockedBedroom.blockers[1].name==="Sock boxes"&&blockedBedroom.blockers[1].qty===3&&blockedBedroom.blockers[1].storageCount===2,"room inventory blockers aggregate quantities and affected storage counts by organizer");
+      result(blockedBedroom.waiting===2&&blockedBedroom.blockedStorages===2&&blockedBedroom.blockers.length===3,"room progress exposes per-storage inventory blockers from waiting install allocations");
+      result(blockedBedroom.blockers[0].storageId==="action-s4"&&blockedBedroom.blockers[0].name==="Sock boxes"&&blockedBedroom.blockers[0].qty===1&&blockedBedroom.blockers[1].storageId==="action-s2"&&blockedBedroom.blockers[1].name==="Labels"&&blockedBedroom.blockers[2].name==="Sock boxes"&&blockedBedroom.blockers[2].qty===2,"room inventory blockers preserve each waiting storage deficit instead of summing them into a shopping total");
       result(blockedBedroom.tone==="waiting","room progress highlights inventory-blocked rooms separately from plan-review rooms");
 
       var nextActions=api.projectNextActions({
