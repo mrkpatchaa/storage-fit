@@ -616,6 +616,20 @@
         storages:narrowedStorages,plans:[applySourcePlan],settings:distSettings,itemLookup:applyLookup
       });
       result(invalidApplySpec.valid===false&&invalidApplySpec.reasons.length>0,"direct distribution apply refuses stored packing geometry that no longer validates");
+      var batchApply=api.ownedDistributionBatchApplySpecs(distItem,persistedSession,{
+        storages:sessionStorages,plans:[applySourcePlan],settings:distSettings,itemLookup:applyLookup,goal:"balanced"
+      });
+      result(batchApply.valid&&batchApply.allocationCount===2&&batchApply.assignedCopies===4&&batchApply.specs.length===2,"full distribution apply prevalidates every destination before project mutation");
+      var invalidBatchApply=api.ownedDistributionBatchApplySpecs(distItem,persistedSession,{
+        storages:narrowedStorages,plans:[applySourcePlan],settings:distSettings,itemLookup:applyLookup
+      });
+      result(invalidBatchApply.valid===false&&invalidBatchApply.errors.length===1&&invalidBatchApply.errors[0].storageId==="sA","full distribution apply fails preflight when any destination no longer validates");
+      var duplicateBatchSession=JSON.parse(JSON.stringify(persistedSession));
+      duplicateBatchSession.allocations[1].storageId="sA";
+      var duplicateBatchApply=api.ownedDistributionBatchApplySpecs(distItem,duplicateBatchSession,{
+        storages:sessionStorages,plans:[applySourcePlan],settings:distSettings,itemLookup:applyLookup
+      });
+      result(duplicateBatchApply.valid===false&&duplicateBatchApply.errors.some(function(e){return e.reason==="duplicate storage"}),"full distribution apply rejects duplicate destination storages");
       var firstAllocation=persistedSession.allocations[0];
       result(api.setOwnedDistributionAllocationStatus(persistedSession,firstAllocation.id,"opened")===true&&api.ownedDistributionSessionProgress(persistedSession).opened===1,"distribution session records an opened allocation");
       result(api.setOwnedDistributionAllocationStatus(persistedSession,firstAllocation.id,"done")===true&&api.ownedDistributionSessionProgress(persistedSession).done===1,"distribution session records a completed allocation");
