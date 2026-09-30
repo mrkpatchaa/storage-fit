@@ -677,6 +677,45 @@
       result(workRows.map(function(r){return r.status}).join(",")==="stale,opened,done","distribution work dashboard prioritizes stale, active and completed sessions");
       var workSummary=api.ownedDistributionWorkSummary(workRows);
       result(workSummary.sessions===3&&workSummary.staleSessions===1&&workSummary.completeSessions===1&&workSummary.allocations===6&&workSummary.doneAllocations===4&&workSummary.openedAllocations===1,"distribution work dashboard aggregates session and allocation progress");
+      var actionStorages=[{id:"action-s1"},{id:"action-s2"},{id:"action-s3"},{id:"action-s4"}];
+      var actionPlans=[
+        {id:"action-stale",storageId:"action-s1",layout:[]},
+        {id:"action-option",storageId:"action-s2",layout:[]},
+        {id:"action-ready",storageId:"action-s4",layout:[]}
+      ];
+      var nextActions=api.projectNextActions({
+        storages:actionStorages,
+        savedPlans:actionPlans,
+        chosen:[actionPlans[0],actionPlans[2]],
+        installedPlanIds:{},
+        distributionRows:[
+          {itemId:"dist-stale-action",stale:true,complete:false},
+          {itemId:"dist-active-action",stale:false,complete:false}
+        ],
+        procurement:{boughtUnits:2,remainingUnits:3},
+        install:{entries:[{storageId:"action-s4",status:"ready"}]},
+        planHealthLookup:function(plan){return {status:plan.id==="action-stale"?"review":"current"}}
+      });
+      result(nextActions.actions.map(function(a){return a.kind}).join(",")==="review-plan,recalculate-distribution,continue-distribution,choose-plan,plan-space,receive-purchases,shopping,install-ready","project next actions prioritize safety, unfinished planning, receiving, shopping and installation");
+      result(nextActions.actions[0].targetId==="action-stale"&&nextActions.actions[1].targetId==="dist-stale-action"&&nextActions.actions[4].targetId==="action-s3","project next actions deep-link to the first blocking plan, distribution and unplanned storage");
+      var installedReviewPlan={id:"installed-review",storageId:"complete-s1",layout:[]};
+      var installedReviewActions=api.projectNextActions({
+        storages:[{id:"complete-s1"}],
+        savedPlans:[installedReviewPlan],
+        chosen:[installedReviewPlan],
+        installedPlanIds:{"complete-s1":"installed-review"},
+        distributionRows:[],
+        procurement:{boughtUnits:0,remainingUnits:0},
+        install:{entries:[{storageId:"complete-s1",status:"installed"}]},
+        planHealthLookup:function(){return {status:"review"}}
+      });
+      result(installedReviewActions.complete&&installedReviewActions.actions.length===1&&installedReviewActions.actions[0].kind==="complete","installed plans stay complete even if their source plan later needs review");
+      var emptyHomeActions=api.projectNextActions({
+        storages:[],savedPlans:[],chosen:[],installedPlanIds:{},distributionRows:[],
+        procurement:{boughtUnits:0,remainingUnits:0},install:{entries:[]},
+        planHealthLookup:function(){return {status:"current"}}
+      });
+      result(emptyHomeActions.actions.length===1&&emptyHomeActions.actions[0].kind==="add-storage","project next actions guide an empty home to create its first storage space");
       var allocationView=api.ownedDistributionAllocationView({
         status:"opened",assigned:2,source:"chosen",planName:"Bedroom plan",exact:false
       },false);
