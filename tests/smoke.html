@@ -606,6 +606,23 @@
       result(api.setOwnedDistributionAllocationStatus(persistedSession,firstAllocation.id,"done")===true&&api.ownedDistributionSessionProgress(persistedSession).done===1,"distribution session records a completed allocation");
       result(api.ownedDistributionSessionIsStale(persistedSession,fp1)===false&&api.ownedDistributionSessionIsStale(persistedSession,fp1+"changed")===true,"distribution session detects fingerprint drift");
       result(api.ownedDistributionSessionSummaryText(persistedSession,false).indexOf("1 done")>=0,"distribution session summary includes workflow progress");
+      var progressSession=JSON.parse(JSON.stringify(persistedSession));
+      api.setOwnedDistributionAllocationStatus(progressSession,progressSession.allocations[1].id,"opened");
+      var sameRebase=api.rebaseOwnedDistributionSession(distItem,sessionSourcePlan,"fp-rebased",progressSession);
+      result(sameRebase.carriedAllocations===2&&sameRebase.resetAllocations===0&&sameRebase.session.allocations[0].status==="done"&&sameRebase.session.allocations[1].status==="opened","distribution recalculation preserves progress for identical remaining allocation work");
+      result(sameRebase.session.createdAt===progressSession.createdAt&&sameRebase.session.fingerprint==="fp-rebased"&&!!sameRebase.session.recalculatedAt,"distribution recalculation keeps session age while refreshing its safety fingerprint");
+      var changedRemainingPlan=api.ownedDistributionPlan(4,[
+        {storageId:"sA",storagePath:"A",source:"chosen",planId:"session-plan-v2",planName:"Chosen v2",capacity:2,exact:true,tightness:10,result:{count:2,exact:true,layout:[{typeId:"dist-bin",x:10,y:0,z:0,w:10,d:10,h:5},{typeId:"dist-bin",x:20,y:0,z:0,w:10,d:10,h:5}]}},
+        {storageId:"sB",storagePath:"B",source:"empty",planId:null,planName:"",capacity:2,exact:true,tightness:20,result:{count:2,exact:true,layout:[{typeId:"dist-bin",x:0,y:0,z:0,w:10,d:10,h:5},{typeId:"dist-bin",x:10,y:0,z:0,w:10,d:10,h:5}]}}
+      ]);
+      var changedRebase=api.rebaseOwnedDistributionSession(distItem,changedRemainingPlan,"fp-v2",progressSession);
+      result(changedRebase.carriedAllocations===1&&changedRebase.resetAllocations===1&&changedRebase.session.allocations[0].status==="pending"&&changedRebase.session.allocations[1].status==="opened","distribution recalculation resets changed chosen-plan work but preserves an identical untouched destination");
+      var changedGeometryPlan=api.ownedDistributionPlan(4,[
+        {storageId:"sA",storagePath:"A",source:"chosen",planId:"session-plan",planName:"Chosen",capacity:2,exact:true,tightness:10,result:{count:2,exact:true,layout:[{typeId:"dist-bin",x:11,y:0,z:0,w:10,d:10,h:5},{typeId:"dist-bin",x:21,y:0,z:0,w:10,d:10,h:5}]}},
+        {storageId:"sB",storagePath:"B",source:"empty",planId:null,planName:"",capacity:2,exact:true,tightness:20,result:{count:2,exact:true,layout:[{typeId:"dist-bin",x:0,y:0,z:0,w:10,d:10,h:5},{typeId:"dist-bin",x:10,y:0,z:0,w:10,d:10,h:5}]}}
+      ]);
+      var geometryRebase=api.rebaseOwnedDistributionSession(distItem,changedGeometryPlan,"fp-geometry",progressSession);
+      result(geometryRebase.carriedAllocations===1&&geometryRebase.session.allocations[0].status==="pending"&&geometryRebase.session.allocations[1].status==="opened","distribution recalculation does not carry progress onto changed placement geometry");
       var activeWorkSession=JSON.parse(JSON.stringify(persistedSession));
       activeWorkSession.itemId="dist-active";activeWorkSession.fingerprint="active-fp";
       api.setOwnedDistributionAllocationStatus(activeWorkSession,activeWorkSession.allocations[1].id,"opened");

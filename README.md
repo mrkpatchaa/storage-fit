@@ -944,7 +944,25 @@ The dashboard gathers every organizer with a saved distribution session and show
 - **Review & recalculate** for stale work and **Review** for completed work.
 - **Clear session** for removing workflow progress without changing owned inventory, saved plans, or chosen plans.
 
-Sessions are ordered so stale work appears first, followed by in-progress, not-started, and completed work. Stale allocations remain visible for context but their direct actions are disabled until recalculation. The dashboard does not create a second inventory system: marking work Done is still workflow progress only, and stock remains committed exclusively through chosen plans.
+Sessions are ordered so stale work appears first, followed by in-progress, not-started, and completed work. Stale allocations remain visible for context but their direct actions are disabled until recalculation.
+
+### Recalculate remaining work
+
+Applying one distribution destination can legitimately change owned-stock commitments or the chosen plan for that storage. That makes the old safety fingerprint stale, but it no longer forces the entire workflow back to zero.
+
+**Recalculate remaining** builds a fresh distribution from the current unallocated stock and current storage/plan state, then carries **Opened** or **Done** progress only onto allocations whose actual work is unchanged:
+
+- same storage;
+- same chosen-vs-unplanned source;
+- same chosen plan when applicable;
+- same assigned quantity;
+- same assigned placement geometry.
+
+Changed work returns to **Pending**. Unchanged destinations keep their progress. Allocations already absorbed by a newly chosen plan naturally disappear from the remaining-work calculation instead of being assigned again.
+
+If no owned copies remain unallocated, **Finish distribution** closes the remaining-work session instead of leaving a permanently stale card.
+
+The dashboard does not create a second inventory system: marking work Done is still workflow progress only, and stock remains committed exclusively through chosen plans.
 
 No schema migration is required; the app remains on V28.
 
