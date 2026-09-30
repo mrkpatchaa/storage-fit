@@ -866,6 +866,7 @@
       result(unlockAnalysis.baselineReady===1&&unlockAnalysis.baselineExact&&unlockAnalysis.rows.length===1,"stock unlock analysis compares one-unit stock changes against the best current-stock install order");
       result(unlockAnalysis.rows[0].id==="b"&&unlockAnalysis.rows[0].gain===1&&unlockAnalysis.rows[0].bestReady===2&&unlockAnalysis.rows[0].exact,"stock unlock analysis finds the single organizer unit that increases maximum Ready count");
       result(unlockAnalysis.rows[0].boughtQty===1&&unlockAnalysis.rows[0].remainingQty===0,"stock unlock analysis preserves purchased-vs-still-to-source context without changing inventory");
+      result(unlockAnalysis.rows[0].gainedReady.length===1&&unlockAnalysis.rows[0].gainedReady[0].storageId==="unlock-b"&&unlockAnalysis.rows[0].gainedReady[0].path==="Utility → Cabinet → B only"&&unlockAnalysis.rows[0].lostReady.length===0,"stock unlock impact compares the suggested hypothetical allocation with the best current-stock allocation");
 
       var unlockSnapshot=api.installAllocationSnapshot({a:1,b:1},{
         install:unlockInstall,plans:unlockPlans,installedPlanIds:{},installOrder:["unlock-big","unlock-a","unlock-b"]
@@ -905,6 +906,7 @@
       });
       result(comboUnlock.rows.length===0&&comboUnlock.bundle&&comboUnlock.bundle.totalUnits===2&&comboUnlock.bundle.parts.length===2,"stock unlock bundle search finds a mixed-organizer unlock when neither +1 change works alone");
       result(comboUnlock.bundle.parts.map(function(part){return part.id+":"+part.qty}).join(",")==="combo-a:1,combo-b:1"&&comboUnlock.bundle.parts[0].boughtQty===1&&comboUnlock.bundle.parts[1].remainingQty===1,"mixed unlock bundle preserves per-organizer purchased and sourcing context");
+      result(comboUnlock.bundle.gainedReady.length===1&&comboUnlock.bundle.gainedReady[0].storageId==="combo-space"&&comboUnlock.bundle.lostReady.length===0,"stock unlock bundle impact reports which storage becomes Ready against the best current-stock allocation");
 
       var cappedBundlePlan={id:"capped-bundle-plan",storageId:"capped-bundle-space",layout:[{typeId:"cap-a"},{typeId:"cap-b"},{typeId:"cap-c"}]};
       var cappedBundleInstall=api.computeInstallAllocation([cappedBundlePlan],{"cap-a":0,"cap-b":0,"cap-c":0},{},["capped-bundle-space"]);

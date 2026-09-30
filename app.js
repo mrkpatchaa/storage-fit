@@ -1930,6 +1930,30 @@ function installAllocationSnapshot(ownedById,options={}){
   for(const plan of plans){if(byStorage.has(plan.storageId)&&!seen.has(plan.storageId)){seen.add(plan.storageId);order.push(plan.storageId)}}
   return {entries:order.map(id=>byStorage.get(id)).filter(Boolean),remainingOwned:base.remainingOwned};
 }
+function installScenarioTransitions(beforeAllocation,afterAllocation,options={}){
+  const furniture=Array.isArray(options.furniture)?options.furniture:state.furniture;
+  const storages=Array.isArray(options.storages)?options.storages:state.storages;
+  const rooms=Array.isArray(options.rooms)?options.rooms:state.rooms;
+  const beforeEntries=Array.isArray(beforeAllocation?.entries)?beforeAllocation.entries:[];
+  const afterEntries=Array.isArray(afterAllocation?.entries)?afterAllocation.entries:[];
+  const before=new Map(beforeEntries.map(entry=>[entry.storageId,entry.status]));
+  const after=new Map(afterEntries.map(entry=>[entry.storageId,entry.status]));
+  const ids=[],seen=new Set();
+  for(const entry of afterEntries){if(!seen.has(entry.storageId)){seen.add(entry.storageId);ids.push(entry.storageId)}}
+  for(const entry of beforeEntries){if(!seen.has(entry.storageId)){seen.add(entry.storageId);ids.push(entry.storageId)}}
+  const transitions=[];
+  for(const storageId of ids){
+    const from=before.get(storageId),to=after.get(storageId);
+    if(from===to||!((from==="ready"||from==="waiting")&&(to==="ready"||to==="waiting")))continue;
+    const context=projectStorageContext(storageId,{furniture,storages,rooms});
+    transitions.push({storageId,from,to,path:context.path,roomId:context.room?.id||""});
+  }
+  return {
+    transitions,
+    gainedReady:transitions.filter(item=>item.from==="waiting"&&item.to==="ready"),
+    lostReady:transitions.filter(item=>item.from==="ready"&&item.to==="waiting")
+  };
+}
 function stockUnlockAnalysis(options={}){
   const install=options.install||currentInstallAllocation();
   const entries=Array.isArray(install?.entries)?install.entries:[];
@@ -1943,6 +1967,7 @@ function stockUnlockAnalysis(options={}){
     nodeLimit:Math.max(1,Math.floor(Number(options.baselineNodeLimit)||INSTALL_ORDER_SEARCH_LIMIT))
   });
   const baselineBest=baseline.bestReady;
+  const baselineAllocation=computeInstallAllocation(plans,ownedById,installedPlanIds,baseline.order);
   const requirements=aggregateRequiredCounts(plans);
   const itemLookup=typeof options.itemLookup==="function"?options.itemLookup:boxById;
   const purchaseRows=Array.isArray(options.purchaseRows)?options.purchaseRows:projectProcurement(plans).rows;
@@ -1964,13 +1989,15 @@ function stockUnlockAnalysis(options={}){
     });
     allExact=allExact&&suggestion.exact;
     if(suggestion.bestReady<=baselineBest)continue;
+    const candidateAllocation=computeInstallAllocation(plans,hypotheticalOwned,installedPlanIds,suggestion.order);
+    const impact=installScenarioTransitions(baselineAllocation,candidateAllocation,options);
     const purchase=purchaseById.get(candidate.id),item=candidate.item;
     rows.push({
       id:candidate.id,name:item?.name||purchase?.name||"Deleted item",sku:item?.sku||purchase?.sku||"",
       bestReady:suggestion.bestReady,gain:suggestion.bestReady-baselineBest,exact:baseline.exact&&suggestion.exact,
       candidateSearchExact:suggestion.exact,boughtQty:Math.max(0,Math.floor(Number(purchase?.boughtQty)||0)),
       remainingQty:Math.max(0,Math.floor(Number(purchase?.remainingQty)||0)),url:safeUrl(item?.url||purchase?.url),
-      order:suggestion.order,gainedReady:suggestion.gainedReady,lostReady:suggestion.lostReady
+      order:suggestion.order,gainedReady:impact.gainedReady,lostReady:impact.lostReady,transitions:impact.transitions
     });
   }
   rows.sort((a,b)=>b.gain-a.gain||Number(b.boughtQty>0)-Number(a.boughtQty>0)||a.name.localeCompare(b.name));
@@ -2004,10 +2031,12 @@ function stockUnlockAnalysis(options={}){
       });
       bundleAllExact=bundleAllExact&&suggestion.exact;
       if(suggestion.bestReady<=baselineBest)return;
+      const candidateAllocation=computeInstallAllocation(plans,hypotheticalOwned,installedPlanIds,suggestion.order);
+      const impact=installScenarioTransitions(baselineAllocation,candidateAllocation,options);
       const candidate={
         totalUnits,parts,bestReady:suggestion.bestReady,gain:suggestion.bestReady-baselineBest,
         exact:baseline.exact&&suggestion.exact,order:suggestion.order,
-        gainedReady:suggestion.gainedReady,lostReady:suggestion.lostReady
+        gainedReady:impact.gainedReady,lostReady:impact.lostReady,transitions:impact.transitions
       };
       const partKey=parts.map(part=>part.id+":"+part.qty).join("|");
       const currentKey=bundle?.parts?.map(part=>part.id+":"+part.qty).join("|")||"";
@@ -3889,6 +3918,18 @@ function findMoreReadyInstallOrder(){
   localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();
   return true;
 }
+function installUnlockImpactHtml(result){
+  const gained=Array.isArray(result?.gainedReady)?result.gainedReady:[];
+  const lost=Array.isArray(result?.lostReady)?result.lostReady:[];
+  if(!gained.length&&!lost.length)return "";
+  const gainedHtml=gained.length
+    ?`<div class="installunlockimpactgroup"><strong>Would become Ready</strong>${gained.map(item=>`<span>${esc(item.path)}</span>`).join("")}</div>`
+    :`<div class="installunlockimpactgroup"><strong>No additional space becomes Ready</strong></div>`;
+  const lostHtml=lost.length
+    ?`<div class="installunlockimpactgroup warn"><strong>Would become Waiting</strong>${lost.map(item=>`<span>${esc(item.path)}</span>`).join("")}</div>`
+    :`<div class="installunlockimpactgroup"><strong>No baseline-Ready space is displaced</strong></div>`;
+  return `<details class="installunlockimpact"><summary>Show impact · ${gained.length} become Ready${lost.length?` · ${lost.length} displaced`:""}</summary><div class="installunlockimpactbody"><div class="installunlockimpactnote">Compared with the best allocation possible using current owned stock.</div>${gainedHtml}${lostHtml}</div></details>`;
+}
 function renderInstallUnlockAnalysis(){
   const panel=$("installUnlockPanel"),summary=$("installUnlockSummary"),list=$("installUnlockList");
   if(!panel||!summary||!list)return;
@@ -3911,7 +3952,7 @@ function renderInstallUnlockAnalysis(){
       const scopeNote=analysis.bundleCandidateCapped
         ?`first ${analysis.bundleAnalyzedCandidates} of ${analysis.totalCandidates} scarce types`
         :`all ${analysis.bundleAnalyzedCandidates} scarce types`;
-      list.innerHTML=`<div class="installunlockbundle"><div><div class="installunlocktitle">${bundleExact?"Smallest unlock bundle":"Smallest bundle found"}: ${parts} <span class="unlockgain">+${analysis.bundle.gain} Ready</span></div><div class="installunlockmeta">Best Ready count: ${analysis.baselineReady} → ${analysis.bundle.bestReady} · ${bundleExact?"exact":"bounded"} search · ${scopeNote} · ${analysis.bundleScenarios} bundle scenarios checked ${purchase}</div></div><div class="installunlockbundleactions">${analysis.bundle.parts.map(part=>`<button class="btn soft" type="button" data-unlock-shopping="${part.id}">${esc(part.name)} · Shopping / receiving</button>`).join("")}</div></div>`;
+      list.innerHTML=`<div class="installunlockbundle"><div><div class="installunlocktitle">${bundleExact?"Smallest unlock bundle":"Smallest bundle found"}: ${parts} <span class="unlockgain">+${analysis.bundle.gain} Ready</span></div><div class="installunlockmeta">Best Ready count: ${analysis.baselineReady} → ${analysis.bundle.bestReady} · ${bundleExact?"exact":"bounded"} search · ${scopeNote} · ${analysis.bundleScenarios} bundle scenarios checked ${purchase}</div>${installUnlockImpactHtml(analysis.bundle)}</div><div class="installunlockbundleactions">${analysis.bundle.parts.map(part=>`<button class="btn soft" type="button" data-unlock-shopping="${part.id}">${esc(part.name)} · Shopping / receiving</button>`).join("")}</div></div>`;
       list.querySelectorAll("[data-unlock-shopping]").forEach(btn=>btn.addEventListener("click",()=>focusShoppingItem(btn.dataset.unlockShopping)));
       return;
     }
@@ -3926,7 +3967,7 @@ function renderInstallUnlockAnalysis(){
       ?`<span class="unlockbadge bought">Already purchased ×${row.boughtQty}</span>`
       :row.remainingQty>0?`<span class="unlockbadge">Still to source ×${row.remainingQty}</span>`:"";
     const exact=row.exact?"exact":"bounded";
-    return `<div class="installunlockrow" data-unlock-item="${row.id}"><div><div class="installunlocktitle">+1 ${esc(row.name)} <span class="unlockgain">+${row.gain} Ready</span></div><div class="installunlockmeta">Best Ready count: ${analysis.baselineReady} → ${row.bestReady} · ${exact} search ${purchase}</div></div><button class="btn soft" type="button" data-unlock-shopping="${row.id}">Shopping / receiving</button></div>`;
+    return `<div class="installunlockrow" data-unlock-item="${row.id}"><div><div class="installunlocktitle">+1 ${esc(row.name)} <span class="unlockgain">+${row.gain} Ready</span></div><div class="installunlockmeta">Best Ready count: ${analysis.baselineReady} → ${row.bestReady} · ${exact} search ${purchase}</div>${installUnlockImpactHtml(row)}</div><button class="btn soft" type="button" data-unlock-shopping="${row.id}">Shopping / receiving</button></div>`;
   }).join("");
   list.querySelectorAll("[data-unlock-shopping]").forEach(btn=>btn.addEventListener("click",()=>focusShoppingItem(btn.dataset.unlockShopping)));
 }

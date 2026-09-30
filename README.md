@@ -979,6 +979,8 @@ If no **+1 organizer** change helps, the analysis now searches small multi-unit 
 
 The bundle search is intentionally bounded for responsiveness: by default it considers up to 8 scarce organizer types, up to 4 added units total, and up to 350 bundle scenarios. When those limits are hit, the UI says **Smallest bundle found** rather than claiming a global minimum, and reports the checked scope. Each bundle component keeps its own already-purchased vs still-to-source context and links back to Shopping / receiving.
 
+Every useful one-unit or bundle result also has a **Show impact** disclosure. It compares the suggested hypothetical allocation with the best allocation achievable from current owned stock, lists the exact storage paths that would become Ready, and calls out any baseline-Ready storage that would become Waiting under the new best allocation. This is still a preview only: it does not receive stock or change install priority.
+
 This also tightens the existing Home structure progress semantics: a storage counts as planned only when it has a **current usable saved plan** (or is already installed). Historical stale/invalid plans no longer inflate the planned count, and storage rows explicitly show **saved plan needs review** when appropriate.
 
 The overview is fully derived from the existing plan, inventory, and install state. No new persistent room-status data or schema migration is required; the app remains on V28.
