@@ -563,6 +563,43 @@
         {storageId:"two",storagePath:"Two",capacity:3,exact:true,tightness:2}
       ]);
       result(partialDistribution.assigned===7&&partialDistribution.remaining===3&&partialDistribution.spaceCount===2,"owned distribution reports stock that cannot be assigned from safe capacity");
+      var sessionStorages=[
+        {id:"sA",w:30,d:10,h:5,obstacles:[],dividers:[]},
+        {id:"sB",w:20,d:10,h:5,obstacles:[],dividers:[]}
+      ];
+      var sessionPlan={id:"session-plan",storageId:"sA",settings:{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true},stacking:false,layout:[{typeId:"fixed",x:0,y:0,z:0,w:10,d:10,h:5}]};
+      var fp1=api.ownedDistributionFingerprint(distItem,distSettings,7,{
+        storages:sessionStorages,
+        plans:[sessionPlan],
+        chosenPlanIds:{sA:"session-plan"},
+        planStatusLookup:function(){return "current";}
+      });
+      var fp2=api.ownedDistributionFingerprint(distItem,distSettings,7,{
+        storages:[sessionStorages[1],sessionStorages[0]],
+        plans:[sessionPlan],
+        chosenPlanIds:{sA:"session-plan"},
+        planStatusLookup:function(){return "current";}
+      });
+      result(fp1===fp2,"owned distribution fingerprint is stable across storage ordering");
+      result(fp1!==api.ownedDistributionFingerprint(distItem,distSettings,6,{storages:sessionStorages,plans:[sessionPlan],chosenPlanIds:{sA:"session-plan"},planStatusLookup:function(){return "current";}}),"owned distribution fingerprint changes when unallocated stock changes");
+      result(fp1!==api.ownedDistributionFingerprint(distItem,{...distSettings,fitTolerance:1},7,{storages:sessionStorages,plans:[sessionPlan],chosenPlanIds:{sA:"session-plan"},planStatusLookup:function(){return "current";}}),"owned distribution fingerprint changes when fit settings change");
+      var changedSessionPlan={...sessionPlan,layout:[...sessionPlan.layout,{typeId:"fixed",x:10,y:0,z:0,w:10,d:10,h:5}]};
+      result(fp1!==api.ownedDistributionFingerprint(distItem,distSettings,7,{storages:sessionStorages,plans:[changedSessionPlan],chosenPlanIds:{sA:"session-plan"},planStatusLookup:function(){return "current";}}),"owned distribution fingerprint changes when the chosen-plan layout changes");
+      var sessionSourcePlan=api.ownedDistributionPlan(7,[
+        {storageId:"sA",storagePath:"A",source:"chosen",planId:"session-plan",planName:"Chosen",capacity:5,exact:true,tightness:10,result:{count:5,exact:true,layout:[{typeId:"dist-bin",x:10,y:0,z:0,w:10,d:10,h:5},{typeId:"dist-bin",x:20,y:0,z:0,w:10,d:10,h:5}]}},
+        {storageId:"sB",storagePath:"B",source:"empty",planId:null,planName:"",capacity:4,exact:true,tightness:20,result:{count:4,exact:true,layout:[{typeId:"dist-bin",x:0,y:0,z:0,w:10,d:10,h:5},{typeId:"dist-bin",x:10,y:0,z:0,w:10,d:10,h:5}]}}
+      ]);
+      var persistedSession=api.createOwnedDistributionSession(distItem,sessionSourcePlan,fp1);
+      var initialProgress=api.ownedDistributionSessionProgress(persistedSession);
+      result(initialProgress.pending===2&&initialProgress.opened===0&&initialProgress.done===0&&initialProgress.totalCopies===7,"new distribution session starts with all allocations pending");
+      var firstAllocation=persistedSession.allocations[0];
+      result(api.setOwnedDistributionAllocationStatus(persistedSession,firstAllocation.id,"opened")===true&&api.ownedDistributionSessionProgress(persistedSession).opened===1,"distribution session records an opened allocation");
+      result(api.setOwnedDistributionAllocationStatus(persistedSession,firstAllocation.id,"done")===true&&api.ownedDistributionSessionProgress(persistedSession).done===1,"distribution session records a completed allocation");
+      result(api.ownedDistributionSessionIsStale(persistedSession,fp1)===false&&api.ownedDistributionSessionIsStale(persistedSession,fp1+"changed")===true,"distribution session detects fingerprint drift");
+      result(api.ownedDistributionSessionSummaryText(persistedSession,false).indexOf("1 done")>=0,"distribution session summary includes workflow progress");
+      var restoredState={boxes:[distItem],ownedDistributionSessions:{[distItem.id]:JSON.parse(JSON.stringify(persistedSession))}};
+      api.normalizeOwnedDistributionSessions(restoredState);
+      result(restoredState.ownedDistributionSessions[distItem.id].allocations[0].status==="done","distribution session progress survives state normalization after reload");
       var emptyFloorCapacity=api.maxCopiesInStorage(
         emptyStackItem,{id:"empty-floor-space",name:"Tall cube",w:10,d:10,h:15,obstacles:[],dividers:[]},
         {...emptyStackSettings,enableStacking:false},{nodeLimit:10000,copyLimit:20}
