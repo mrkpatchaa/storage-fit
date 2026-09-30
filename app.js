@@ -1749,6 +1749,93 @@ function projectStorageContext(storageId,options={}){
   const path=[roomName,furnitureName,storageName].filter(Boolean).join(" → ")||storageName;
   return {storageId:String(storageId||""),storage,room,furniture:furnishing,roomName,furnitureName,storageName,path,sortKey:path.toLocaleLowerCase()};
 }
+function projectRoomProgress(options={}){
+  const rooms=Array.isArray(options.rooms)?options.rooms:state.rooms;
+  const furniture=Array.isArray(options.furniture)?options.furniture:state.furniture;
+  const storages=Array.isArray(options.storages)?options.storages:state.storages;
+  const savedPlans=Array.isArray(options.savedPlans)?options.savedPlans:state.savedPlans;
+  const chosen=Array.isArray(options.chosen)?options.chosen:chosenPlans();
+  const installedPlanIds=options.installedPlanIds&&typeof options.installedPlanIds==="object"?options.installedPlanIds:state.installedPlanIds;
+  const install=options.install||currentInstallAllocation();
+  const healthLookup=typeof options.planHealthLookup==="function"?options.planHealthLookup:planHealth;
+  const chosenByStorage=new Map(chosen.map(plan=>[plan.storageId,plan]));
+  const installByStorage=new Map((install.entries||[]).map(entry=>[entry.storageId,entry]));
+  const furnitureByStorageRoom=new Map(furniture.map(item=>[item.id,item.roomId]));
+  const currentSavedByStorage=new Set();
+  for(const plan of savedPlans||[]){
+    if(healthLookup(plan).status==="current")currentSavedByStorage.add(plan.storageId);
+  }
+  const statusPriority={review:0,choose:1,plan:2,ready:3,waiting:4,chosen:5,installed:6};
+  const storageRows=storages.map(storage=>{
+    const chosenPlan=chosenByStorage.get(storage.id)||null;
+    const installedPlanId=installedPlanIds?.[storage.id]||"";
+    const installed=!!chosenPlan&&installedPlanId===chosenPlan.id;
+    const health=chosenPlan?healthLookup(chosenPlan):null;
+    const installEntry=installByStorage.get(storage.id)||null;
+    const currentPlan=installed||currentSavedByStorage.has(storage.id);
+    let status="plan";
+    if(installed)status="installed";
+    else if(chosenPlan&&health?.status!=="current")status="review";
+    else if(installEntry?.status==="ready")status="ready";
+    else if(installEntry?.status==="waiting")status="waiting";
+    else if(chosenPlan)status="chosen";
+    else if(currentPlan)status="choose";
+    const path=projectStorageContext(storage.id,{rooms,furniture,storages}).path;
+    return {storageId:storage.id,storage,path,roomId:furnitureByStorageRoom.get(storage.furnitureId)||"",status,currentPlan,chosen:!!chosenPlan,installed};
+  });
+  const roomRows=rooms.map(room=>{
+    const rows=storageRows.filter(row=>row.roomId===room.id);
+    const count=status=>rows.filter(row=>row.status===status).length;
+    const ordered=rows.slice().sort((a,b)=>(statusPriority[a.status]??99)-(statusPriority[b.status]??99)||a.path.localeCompare(b.path));
+    const total=rows.length,installed=count("installed"),review=count("review"),choose=count("choose"),plan=count("plan"),ready=count("ready"),waiting=count("waiting"),chosenOnly=count("chosen");
+    const currentPlans=rows.filter(row=>row.currentPlan).length,chosenCount=rows.filter(row=>row.chosen).length;
+    const complete=total>0&&installed===total;
+    return {
+      roomId:room.id,roomName:room.name||"Room",total,currentPlans,chosen:chosenCount,installed,review,choose,plan,ready,waiting,chosenOnly,complete,
+      progressPct:total?Math.round(installed/total*100):0,
+      nextStorageId:ordered.find(row=>row.status!=="installed")?.storageId||ordered[0]?.storageId||"",
+      storageIds:rows.map(row=>row.storageId),
+      tone:complete?"good":review?"warn":""
+    };
+  });
+  const totals={
+    rooms:rooms.length,storages:storageRows.length,
+    currentPlans:storageRows.filter(row=>row.currentPlan).length,
+    chosen:storageRows.filter(row=>row.chosen).length,
+    installed:storageRows.filter(row=>row.installed).length,
+    review:storageRows.filter(row=>row.status==="review").length
+  };
+  return {rooms:roomRows,storages:storageRows,totals};
+}
+function focusProjectRoom(roomId){
+  const progress=projectRoomProgress(),row=progress.rooms.find(item=>item.roomId===roomId);if(!row)return false;
+  if(row.nextStorageId){openCompatibleStorage(row.nextStorageId);return true}
+  const firstFurniture=state.furniture.find(item=>item.roomId===roomId);
+  state.selectedRoom=roomId;state.selectedFurniture=firstFurniture?.id||"";
+  localStorage.setItem(KEY,JSON.stringify(state));renderHierarchy();renderStorageList();
+  document.querySelector(".sidebar")?.scrollIntoView({behavior:"smooth",block:"start"});
+  return true;
+}
+function renderRoomProgressOverview(){
+  const sec=$("roomProgressSection"),list=$("roomProgressList"),summary=$("roomProgressSummary");if(!sec||!list||!summary)return;
+  const progress=projectRoomProgress(),rows=progress.rooms.filter(row=>row.total>0);
+  if(!rows.length){sec.style.display="none";list.innerHTML="";summary.textContent="";return}
+  sec.style.display="block";
+  summary.textContent=progress.totals.installed+"/"+progress.totals.storages+" installed · "+progress.totals.chosen+" chosen · "+progress.totals.currentPlans+" current plans";
+  list.innerHTML=rows.map(row=>{
+    const chips=[
+      row.review?`<span class="roomprogresschip warn">${row.review} review</span>`:"",
+      row.plan?`<span class="roomprogresschip">${row.plan} plan</span>`:"",
+      row.choose?`<span class="roomprogresschip">${row.choose} choose</span>`:"",
+      row.waiting?`<span class="roomprogresschip">${row.waiting} waiting</span>`:"",
+      row.ready?`<span class="roomprogresschip good">${row.ready} ready</span>`:"",
+      row.chosenOnly?`<span class="roomprogresschip">${row.chosenOnly} chosen</span>`:"",
+      row.installed?`<span class="roomprogresschip installed">${row.installed} installed</span>`:""
+    ].filter(Boolean).join("");
+    return `<div class="roomprogresscard ${row.tone}"><div><div class="roomprogresstitle">${esc(row.roomName)}</div><div class="roomprogressmeta">${row.currentPlans}/${row.total} current plans · ${row.chosen}/${row.total} chosen · ${row.installed}/${row.total} installed</div><div class="progressbar"><span style="width:${row.progressPct}%"></span></div><div class="roomprogresschips">${chips}</div></div><button class="btn soft" type="button" data-room-progress="${row.roomId}">Focus room</button></div>`;
+  }).join("");
+  list.querySelectorAll("[data-room-progress]").forEach(btn=>btn.addEventListener("click",()=>focusProjectRoom(btn.dataset.roomProgress)));
+}
 function projectDistributionTarget(row){
   const allocation=(row?.session?.allocations||[])[0];
   const path=String(allocation?.storagePath||"");
@@ -1929,9 +2016,8 @@ function renderAll(){
   $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;$("enableStacking").checked=!!state.enableStacking;
   $("clearanceEnabled").checked=!!state.clearanceEnabled;$("clearance").value=state.clearance??0.5;$("fitTolerance").value=state.fitTolerance??0;
   $("clearanceField").style.display=state.clearanceEnabled?"block":"none";
-  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();renderDividerEditor();loadBoxEditor();renderSavedPlans();renderInstallDashboard();renderDistributionWorkDashboard();renderHomeProcurement();renderProjectNextActions();renderBackupStats();renderRecoveryHistory();resetResults();
+  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();renderDividerEditor();loadBoxEditor();renderSavedPlans();renderInstallDashboard();renderDistributionWorkDashboard();renderHomeProcurement();renderProjectNextActions();renderRoomProgressOverview();renderBackupStats();renderRecoveryHistory();resetResults();
 }
-function plannedStorageIds(){return new Set((state.savedPlans||[]).map(p=>p.storageId))}
 function installedStorageIds(){return new Set(Object.keys(state.installedPlanIds||{}))}
 function renderHierarchy(){
   const roomSelect=$("roomSelect"),furnitureSelect=$("furnitureSelect"),storageFurniture=$("storageFurniture");
@@ -1951,16 +2037,16 @@ function renderHierarchy(){
   const furnitureOptions=state.rooms.flatMap(r=>state.furniture.filter(f=>f.roomId===r.id).map(f=>`<option value="${f.id}">${esc(r.name)} → ${esc(f.name)}</option>`)).join("");
   storageFurniture.innerHTML=furnitureOptions;
 
-  const planned=plannedStorageIds(),installed=installedStorageIds(),allCount=state.storages.length;
-  const plannedCount=state.storages.filter(s=>planned.has(s.id)).length,installedCount=state.storages.filter(s=>installed.has(s.id)).length;
-  $("homeProgress").textContent=allCount?`${plannedCount}/${allCount} planned · ${installedCount} installed`:"No storage yet";
+  const progress=projectRoomProgress(),statusById=new Map(progress.storages.map(row=>[row.storageId,row])),allCount=progress.totals.storages;
+  $("homeProgress").textContent=allCount?`${progress.totals.currentPlans}/${allCount} current plans · ${progress.totals.installed} installed`:"No storage yet";
 
   const currentSpaces=state.storages.filter(s=>s.furnitureId===state.selectedFurniture);
   if(!currentSpaces.some(s=>s.id===editingStorage))editingStorage=currentSpaces[0]?.id||"";
-  const currentPlanned=currentSpaces.filter(s=>planned.has(s.id)).length,currentInstalled=currentSpaces.filter(s=>installed.has(s.id)).length;
+  const currentRows=currentSpaces.map(s=>statusById.get(s.id)).filter(Boolean);
+  const currentPlanned=currentRows.filter(row=>row.currentPlan).length,currentInstalled=currentRows.filter(row=>row.installed).length,currentReview=currentRows.filter(row=>row.status==="review").length;
   const pct=currentSpaces.length?Math.round(currentInstalled/currentSpaces.length*100):0;
   $("furnitureProgress").innerHTML=currentSpaces.length
-    ? `${currentPlanned} of ${currentSpaces.length} planned · ${currentInstalled} installed.<div class="progressbar"><span style="width:${pct}%"></span></div>`
+    ? `${currentPlanned} of ${currentSpaces.length} current plans · ${currentInstalled} installed${currentReview?` · ${currentReview} need review`:""}.<div class="progressbar"><span style="width:${pct}%"></span></div>`
     : "No storage spaces in this furniture yet.";
 
   $("deleteRoom").disabled=state.rooms.length<=1;
@@ -1969,10 +2055,10 @@ function renderHierarchy(){
 function renderStorageList(){
   const el=$("storageList"),filtered=state.storages.filter(s=>s.furnitureId===state.selectedFurniture);
   if(!filtered.length){el.innerHTML='<div class="empty">No storage spaces in this furniture yet.</div>';return}
-  const planned=plannedStorageIds();
-  el.innerHTML=filtered.map(s=>`<div class="listitem ${s.id===editingStorage?"active":""}" data-s="${s.id}">
-    <div><div class="listname">${esc(s.name)}</div><div class="dims">${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${esc(state.unit)}${s.obstacles?.length?` · ${s.obstacles.length} blocked`:""}${s.dividers?.length?` · ${s.dividers.length} divider${s.dividers.length===1?"":"s"}`:""}<div class="crumb">${planned.has(s.id)?"saved plan available":"not planned yet"}</div></div></div>
-    ${s.id===state.selectedStorage?'<span class="badge">selected</span>':planned.has(s.id)?'<span class="badge">planned</span>':""}</div>`).join("");
+  const progress=projectRoomProgress(),statusById=new Map(progress.storages.map(row=>[row.storageId,row]));
+  el.innerHTML=filtered.map(s=>{const project=statusById.get(s.id),review=project?.status==="review",planned=!!project?.currentPlan;return `<div class="listitem ${s.id===editingStorage?"active":""}" data-s="${s.id}">
+    <div><div class="listname">${esc(s.name)}</div><div class="dims">${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${esc(state.unit)}${s.obstacles?.length?` · ${s.obstacles.length} blocked`:""}${s.dividers?.length?` · ${s.dividers.length} divider${s.dividers.length===1?"":"s"}`:""}<div class="crumb">${review?"saved plan needs review":planned?"current saved plan available":"not planned yet"}</div></div></div>
+    ${s.id===state.selectedStorage?'<span class="badge">selected</span>':review?'<span class="badge">review</span>':planned?'<span class="badge">planned</span>':""}</div>`}).join("");
   el.querySelectorAll("[data-s]").forEach(n=>n.addEventListener("click",()=>{
     editingStorage=n.dataset.s;state.selectedStorage=n.dataset.s;syncHierarchyToStorage(n.dataset.s);
     localStorage.setItem(KEY,JSON.stringify(state));
@@ -5584,6 +5670,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeInstallState,
     normalizeOwnedDistributionSessions,
     projectStorageContext,
+    projectRoomProgress,
     projectNextActions,
     computeInstallAllocation,
     repeatStorageNames,
