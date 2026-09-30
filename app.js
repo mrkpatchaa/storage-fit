@@ -951,6 +951,11 @@ function openItemFitModal(){
   $("itemFitSummary").textContent=matches.length
     ? `${matches.length} of ${state.storages.length} storage space${state.storages.length===1?"":"s"} can fit one copy. ${ownedNote} Tightest compatible spaces are shown first. This checks storage geometry only, not occupancy inside a saved layout.`
     : `No storage space can fit one copy with the current geometry and fit settings. ${ownedNote} This checks storage geometry only, not occupancy inside a saved layout.`;
+  const distributionBtn=$("itemFitDistributionBtn"),distributionStatus=$("itemFitDistributionStatus"),distributionEl=$("itemFitDistribution");
+  distributionBtn.disabled=!unallocatedOwned||!matches.length;
+  distributionBtn.textContent=unallocatedOwned?`Plan ${unallocatedOwned} owned`:"No unallocated stock";
+  distributionStatus.textContent=unallocatedOwned?"Uses chosen-plan remaining capacity first; unplanned spaces use empty-space capacity.":"";
+  distributionEl.innerHTML="";
   const capacityResults=new Map();
   $("itemFitList").innerHTML=matches.length?matches.map(match=>{
     const S=state.storages.find(s=>s.id===match.storageId),blocked=(S?.obstacles||[]).length,dividers=(S?.dividers||[]).length;
@@ -985,6 +990,45 @@ function openItemFitModal(){
     if(openBtn)openBtn.disabled=!result.layout.length;
     btn.textContent=result.exact?"Recalculate":"Try again";btn.disabled=false;
   }));
+  distributionBtn.addEventListener("click",()=>{
+    if(!unallocatedOwned||!matches.length)return;
+    distributionBtn.disabled=true;distributionBtn.textContent="Planning…";
+    distributionStatus.textContent="Calculating safe capacity across compatible spaces…";
+    const chosenByStorage=new Map(chosenPlans().map(plan=>[plan.storageId,plan]));
+    const copyLimit=Math.max(1,Math.min(CAPACITY_COPY_LIMIT,unallocatedOwned));
+    const candidates=matches.map(match=>{
+      const S=state.storages.find(s=>s.id===match.storageId);if(!S)return null;
+      const chosen=chosenByStorage.get(S.id)||null;
+      return ownedDistributionCandidate(item,S,settings,chosen,match,{
+        copyLimit,
+        nodeLimit:Math.min(CAPACITY_SEARCH_LIMIT,12000),
+        storagePath:storageBreadcrumb(S)
+      });
+    }).filter(Boolean);
+    const plan=ownedDistributionPlan(unallocatedOwned,candidates);
+    distributionStatus.textContent=ownedDistributionSummaryText(plan);
+    distributionEl.innerHTML=plan.allocations.length?plan.allocations.map((allocation,index)=>{
+      const source=allocation.source==="chosen"
+        ? "Chosen plan · "+esc(allocation.planName)
+        : "Unplanned space · empty-capacity packing";
+      const certainty=allocation.exact?"exact capacity":"safe lower-bound capacity";
+      return '<div class="fitdistributioncard"><div><div class="fitdistributiontitle">'+allocation.assigned+' owned → '+esc(allocation.storagePath)+'</div><div class="fitdistributionmeta">'+source+' · '+allocation.capacity+' '+certainty+'</div></div><button class="btn soft" type="button" data-open-distribution="'+index+'">Open '+allocation.assigned+' here</button></div>';
+    }).join(""):'<div class="fitfindersummary">No safe capacity was found for the currently unallocated copies.</div>';
+    if(plan.skipped.length){
+      distributionEl.innerHTML+='<div class="fitfindersummary">'+plan.skipped.map(x=>esc(x.storagePath)+": "+esc(x.skipReason)).join(" · ")+'</div>';
+    }
+    distributionEl.querySelectorAll("[data-open-distribution]").forEach(btn=>btn.addEventListener("click",()=>{
+      const allocation=plan.allocations[Number(btn.dataset.openDistribution)];if(!allocation)return;
+      if(allocation.source==="chosen"){
+        const owned=ownedPackingFromCapacity(allocation.assigned,allocation.result);
+        if(owned.layout.length)openSavedPlanWithExtraItems(allocation.planId,item.id,owned.layout);
+      }else{
+        const owned=ownedCapacityResult(allocation.assigned,allocation.result,item);
+        if(owned)openCapacityPacking(allocation.storageId,owned);
+      }
+    }));
+    distributionBtn.disabled=false;distributionBtn.textContent="Recalculate distribution";
+  });
   $("itemFitList").querySelectorAll("[data-open-owned-capacity]").forEach(btn=>btn.addEventListener("click",()=>{
     const result=capacityResults.get(btn.dataset.openOwnedCapacity),owned=ownedCapacityResult(unallocatedOwned,result,item);
     if(owned)openCapacityPacking(btn.dataset.openOwnedCapacity,owned);
