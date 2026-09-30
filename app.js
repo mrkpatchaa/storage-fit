@@ -4065,7 +4065,7 @@ function setShoppingBought(itemId,value){
   const summary=projectProcurement(),row=summary.rows.find(r=>r.id===itemId);
   const max=row?.buyQty||0,qty=Math.max(0,Math.min(max,Math.floor(Number(value)||0)));
   if(qty>0)state.shoppingBought[itemId]=qty;else delete state.shoppingBought[itemId];
-  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderHomeProcurement();
+  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderHomeProcurement();renderInstallUnlockAnalysis();
 }
 function renderHomeProcurement(){
   renderBoxStockSummary();renderBoxList();renderItemPicker();
@@ -4129,7 +4129,7 @@ function receiveMarkedPurchases(){
     received+=row.boughtQty;
     delete state.shoppingBought[row.id];
   }
-  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
+  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderInstallUnlockAnalysis();
   return received;
 }
 function homeShoppingExportPayload(){
