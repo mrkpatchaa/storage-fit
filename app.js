@@ -1758,6 +1758,8 @@ function projectRoomProgress(options={}){
   const installedPlanIds=options.installedPlanIds&&typeof options.installedPlanIds==="object"?options.installedPlanIds:state.installedPlanIds;
   const install=options.install||currentInstallAllocation();
   const healthLookup=typeof options.planHealthLookup==="function"?options.planHealthLookup:planHealth;
+  const items=Array.isArray(options.items)?options.items:state.boxes;
+  const itemName=id=>items.find(item=>item.id===id)?.name||"Deleted item";
   const chosenByStorage=new Map(chosen.map(plan=>[plan.storageId,plan]));
   const installByStorage=new Map((install.entries||[]).map(entry=>[entry.storageId,entry]));
   const furnitureByStorageRoom=new Map(furniture.map(item=>[item.id,item.roomId]));
@@ -1781,7 +1783,7 @@ function projectRoomProgress(options={}){
     else if(chosenPlan)status="chosen";
     else if(currentPlan)status="choose";
     const path=projectStorageContext(storage.id,{rooms,furniture,storages}).path;
-    return {storageId:storage.id,storage,path,roomId:furnitureByStorageRoom.get(storage.furnitureId)||"",status,currentPlan,chosen:!!chosenPlan,installed};
+    return {storageId:storage.id,storage,path,roomId:furnitureByStorageRoom.get(storage.furnitureId)||"",status,currentPlan,chosen:!!chosenPlan,installed,missing:(installEntry?.missing||[]).map(x=>({id:x.id,qty:Math.max(0,Math.floor(Number(x.qty)||0))})).filter(x=>x.qty>0)};
   });
   const roomRows=rooms.map(room=>{
     const rows=storageRows.filter(row=>row.roomId===room.id);
@@ -1789,13 +1791,19 @@ function projectRoomProgress(options={}){
     const ordered=rows.slice().sort((a,b)=>(statusPriority[a.status]??99)-(statusPriority[b.status]??99)||a.path.localeCompare(b.path));
     const total=rows.length,installed=count("installed"),review=count("review"),choose=count("choose"),plan=count("plan"),ready=count("ready"),waiting=count("waiting"),chosenOnly=count("chosen");
     const currentPlans=rows.filter(row=>row.currentPlan).length,chosenCount=rows.filter(row=>row.chosen).length;
+    const blockers=rows.filter(row=>row.status==="waiting").flatMap(row=>
+      (row.missing||[]).map(missing=>({
+        storageId:row.storageId,storagePath:row.path,id:missing.id,name:itemName(missing.id),qty:missing.qty
+      }))
+    ).sort((a,b)=>a.storagePath.localeCompare(b.storagePath)||a.name.localeCompare(b.name));
     const complete=total>0&&installed===total;
     return {
       roomId:room.id,roomName:room.name||"Room",total,currentPlans,chosen:chosenCount,installed,review,choose,plan,ready,waiting,chosenOnly,complete,
       progressPct:total?Math.round(installed/total*100):0,
       nextStorageId:ordered.find(row=>row.status!=="installed")?.storageId||ordered[0]?.storageId||"",
       storageIds:rows.map(row=>row.storageId),
-      tone:complete?"good":review?"warn":""
+      blockers,blockedStorages:new Set(blockers.map(item=>item.storageId)).size,
+      tone:complete?"good":review?"warn":waiting?"waiting":""
     };
   });
   const totals={
@@ -1816,6 +1824,12 @@ function focusProjectRoom(roomId){
   document.querySelector(".sidebar")?.scrollIntoView({behavior:"smooth",block:"start"});
   return true;
 }
+function focusRoomInventoryBlockers(roomId){
+  const row=projectRoomProgress().rooms.find(item=>item.roomId===roomId);if(!row||!row.blockers.length)return false;
+  const first=row.blockers[0],target=document.querySelector(`[data-home-shop-item="${first.id}"]`);
+  if(target){target.scrollIntoView({behavior:"smooth",block:"center"});target.classList.add("roomshoppingfocus");setTimeout(()=>target.classList.remove("roomshoppingfocus"),1400);return true}
+  return scrollProjectSection("homeProcurementSection");
+}
 function renderRoomProgressOverview(){
   const sec=$("roomProgressSection"),list=$("roomProgressList"),summary=$("roomProgressSummary");if(!sec||!list||!summary)return;
   const progress=projectRoomProgress(),rows=progress.rooms.filter(row=>row.total>0);
@@ -1832,9 +1846,13 @@ function renderRoomProgressOverview(){
       row.chosenOnly?`<span class="roomprogresschip">${row.chosenOnly} chosen</span>`:"",
       row.installed?`<span class="roomprogresschip installed">${row.installed} installed</span>`:""
     ].filter(Boolean).join("");
-    return `<div class="roomprogresscard ${row.tone}"><div><div class="roomprogresstitle">${esc(row.roomName)}</div><div class="roomprogressmeta">${row.currentPlans}/${row.total} current plans · ${row.chosen}/${row.total} chosen · ${row.installed}/${row.total} installed</div><div class="progressbar"><span style="width:${row.progressPct}%"></span></div><div class="roomprogresschips">${chips}</div></div><button class="btn soft" type="button" data-room-progress="${row.roomId}">Focus room</button></div>`;
+    const blockers=row.blockers.length
+      ?`<div class="roomprogressblockers"><strong>Current install blockers:</strong> ${row.blockers.slice(0,3).map(item=>esc(item.storagePath.split(" → ").slice(-1)[0])+" — "+esc(item.name)+" ×"+item.qty).join(" · ")}${row.blockers.length>3?` · +${row.blockers.length-3} more`:""}</div>`:"";
+    const blockerButton=row.blockers.length?`<button class="btn soft" type="button" data-room-shopping="${row.roomId}">Shopping / receiving</button>`:"";
+    return `<div class="roomprogresscard ${row.tone}"><div><div class="roomprogresstitle">${esc(row.roomName)}</div><div class="roomprogressmeta">${row.currentPlans}/${row.total} current plans · ${row.chosen}/${row.total} chosen · ${row.installed}/${row.total} installed</div><div class="progressbar"><span style="width:${row.progressPct}%"></span></div><div class="roomprogresschips">${chips}</div>${blockers}</div><div class="roomprogressactions"><button class="btn soft" type="button" data-room-progress="${row.roomId}">Focus room</button>${blockerButton}</div></div>`;
   }).join("");
   list.querySelectorAll("[data-room-progress]").forEach(btn=>btn.addEventListener("click",()=>focusProjectRoom(btn.dataset.roomProgress)));
+  list.querySelectorAll("[data-room-shopping]").forEach(btn=>btn.addEventListener("click",()=>focusRoomInventoryBlockers(btn.dataset.roomShopping)));
 }
 function projectDistributionTarget(row){
   const allocation=(row?.session?.allocations||[])[0];
@@ -3695,7 +3713,7 @@ function renderHomeProcurement(){
     const health=planHealth(plan);return `<span class="projectplan">${esc(m.storagePath)} · ${esc(plan.name)}${health.status!=="current"?" · needs review":""}</span>`;
   }).join("");
 
-  $("homeProcurementList").innerHTML=summary.rows.map(r=>`<div class="homeshoprow">
+  $("homeProcurementList").innerHTML=summary.rows.map(r=>`<div class="homeshoprow" data-home-shop-item="${r.id}">
     <div><div class="shopname">${esc(r.name)}</div><div class="shopsub">${r.sku?esc(r.sku)+" · ":""}used in ${r.storageCount} storage${r.storageCount===1?"":"s"}</div></div>
     <div class="shopnum">Use ×${r.qty}</div>
     <div class="shopnum">Own ×${r.ownedUsed}</div>
