@@ -944,9 +944,9 @@ Each room rolls its storage spaces into mutually exclusive execution states:
 
 The overview shows current-plan, chosen-plan, and installed counts per room plus a completion bar and state chips. **Focus room** selects the first unfinished storage in that room and brings it into the normal planning workspace.
 
-For rooms in **Waiting**, the card also explains the current inventory blocker using the same missing-item data as the install allocator, for example **Missing from owned stock: SOCKERBIT ×2 · divider ×1**. Quantities are aggregated across waiting storage spaces in that room. **Shopping / receiving** jumps to the first affected organizer in the whole-home shopping list.
+For rooms in **Waiting**, the card also explains the current per-storage blockers using the same missing-item data as the install allocator, for example **Current install blockers: Left drawer — SOCKERBIT ×1 · Top shelf — divider ×1**. The quantities stay attached to each waiting storage instead of being summed into a room shopping total, because the install allocator commits inventory only to whole ready plans and a summed deficit could be misleading.
 
-This wording is intentionally inventory-based rather than assuming every blocker still needs to be purchased: an organizer already marked purchased remains missing from owned stock until it is physically received.
+**Shopping / receiving** jumps to the first affected organizer in the whole-home shopping list. The wording is intentionally inventory-based rather than assuming every blocker still needs to be purchased: an organizer already marked purchased remains unavailable to installation until it is physically received.
 
 This also tightens the existing Home structure progress semantics: a storage counts as planned only when it has a **current usable saved plan** (or is already installed). Historical stale/invalid plans no longer inflate the planned count, and storage rows explicitly show **saved plan needs review** when appropriate.
 
