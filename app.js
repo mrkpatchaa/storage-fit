@@ -11,6 +11,7 @@ const SHARE_LINK_LIMIT = 12000;
 const EDIT_HISTORY_LIMIT = 60;
 const CAPACITY_SEARCH_LIMIT = 25000;
 const CAPACITY_COPY_LIMIT = 40;
+const INSTALL_ORDER_SEARCH_LIMIT = 60000;
 
 let state = loadState();
 ensureHomeHierarchy(state);
@@ -1816,6 +1817,97 @@ function installOrderMoveImpact(storageId,delta,options={}){
   if(i<0||j<0||j>=order.length)return {changed:false,order,gainedReady:[],lostReady:[],transitions:[]};
   [order[i],order[j]]=[order[j],order[i]];
   return installOrderImpact(order,{...options,install,installOrder:requested});
+}
+function suggestInstallOrder(options={}){
+  const install=options.install||currentInstallAllocation();
+  const entries=Array.isArray(install?.entries)?install.entries:[];
+  const entryIds=new Set(entries.map(entry=>entry.storageId));
+  const baseOrder=[],seen=new Set();
+  const requested=Array.isArray(options.installOrder)?options.installOrder:entries.map(entry=>entry.storageId);
+  for(const id of requested){if(entryIds.has(id)&&!seen.has(id)){seen.add(id);baseOrder.push(id)}}
+  for(const entry of entries){if(!seen.has(entry.storageId)){seen.add(entry.storageId);baseOrder.push(entry.storageId)}}
+  const activeEntries=entries.filter(entry=>entry.status==="ready"||entry.status==="waiting");
+  const activeIds=baseOrder.filter(id=>activeEntries.some(entry=>entry.storageId===id));
+  const currentReady=activeEntries.filter(entry=>entry.status==="ready").length;
+  if(activeIds.length<2||!activeEntries.some(entry=>entry.status==="waiting")){
+    return {improved:false,exact:true,nodes:0,currentReady,bestReady:currentReady,order:baseOrder,gainedReady:[],lostReady:[],transitions:[]};
+  }
+  const planByStorage=new Map(entries.filter(entry=>entry.plan).map(entry=>[entry.storageId,entry.plan]));
+  const plans=Array.isArray(options.plans)?options.plans:entries.filter(entry=>entry.status!=="stale"&&entry.plan).map(entry=>entry.plan);
+  const ownedById=options.ownedById&&typeof options.ownedById==="object"
+    ?options.ownedById:Object.fromEntries(state.boxes.map(item=>[item.id,item.ownedQty||0]));
+  const installedPlanIds=options.installedPlanIds&&typeof options.installedPlanIds==="object"?options.installedPlanIds:state.installedPlanIds;
+  const available={};
+  for(const [id,qty] of Object.entries(ownedById||{}))available[id]=Math.max(0,Math.floor(Number(qty)||0));
+  for(const entry of entries){
+    if(entry.status!=="installed"||!entry.plan)continue;
+    for(const [id,qty] of Object.entries(layoutCounts(entry.plan.layout||[])))available[id]=Math.max(0,(available[id]||0)-qty);
+  }
+  const candidates=activeIds.map((storageId,index)=>{
+    const plan=planByStorage.get(storageId),req=layoutCounts(plan?.layout||[]);
+    const total=Object.values(req).reduce((sum,qty)=>sum+qty,0);
+    const scarcity=Object.entries(req).reduce((sum,[id,qty])=>sum+qty/Math.max(1,available[id]||0),0);
+    return {storageId,index,req,total,scarcity};
+  });
+  const currentReadyIds=new Set(activeEntries.filter(entry=>entry.status==="ready").map(entry=>entry.storageId));
+  let bestIds=new Set(currentReadyIds),bestCount=currentReady,bestOverlap=currentReady;
+  const consider=ids=>{
+    const set=ids instanceof Set?ids:new Set(ids),count=set.size,overlap=[...set].filter(id=>currentReadyIds.has(id)).length;
+    if(count>bestCount||(count===bestCount&&overlap>bestOverlap)){bestIds=new Set(set);bestCount=count;bestOverlap=overlap}
+  };
+  const greedy=ordered=>{
+    const remaining={...available},selected=[];
+    for(const candidate of ordered){
+      const fits=Object.entries(candidate.req).every(([id,qty])=>(remaining[id]||0)>=qty);
+      if(!fits)continue;
+      for(const [id,qty] of Object.entries(candidate.req))remaining[id]=(remaining[id]||0)-qty;
+      selected.push(candidate.storageId);
+    }
+    consider(selected);
+  };
+  greedy(candidates);
+  greedy(candidates.slice().sort((a,b)=>a.total-b.total||a.scarcity-b.scarcity||a.index-b.index));
+  greedy(candidates.slice().sort((a,b)=>a.scarcity-b.scarcity||a.total-b.total||a.index-b.index));
+  greedy(candidates.slice().sort((a,b)=>Object.keys(a.req).length-Object.keys(b.req).length||a.total-b.total||a.index-b.index));
+
+  const searchCandidates=candidates.slice().sort((a,b)=>a.scarcity-b.scarcity||a.total-b.total||a.index-b.index);
+  const resourceIds=[...new Set(searchCandidates.flatMap(candidate=>Object.keys(candidate.req)))].sort();
+  const reqVectors=searchCandidates.map(candidate=>resourceIds.map(id=>candidate.req[id]||0));
+  const startRemaining=resourceIds.map(id=>available[id]||0);
+  const nodeLimit=Math.max(1,Math.floor(Number(options.nodeLimit)||INSTALL_ORDER_SEARCH_LIMIT));
+  let nodes=0,truncated=false;
+  const memo=new Map(),selected=[];
+  const dfs=(index,remaining)=>{
+    if(++nodes>nodeLimit){truncated=true;return}
+    if(selected.length+(searchCandidates.length-index)<bestCount)return;
+    if(index>=searchCandidates.length){consider(selected);return}
+    const key=index+"|"+remaining.join(",");
+    const seenCount=memo.get(key);
+    if(seenCount!=null&&seenCount>=selected.length)return;
+    memo.set(key,selected.length);
+    const req=reqVectors[index];
+    let fits=true;
+    for(let i=0;i<req.length;i++)if(req[i]>remaining[i]){fits=false;break}
+    if(fits){
+      selected.push(searchCandidates[index].storageId);
+      dfs(index+1,remaining.map((qty,i)=>qty-req[i]));
+      selected.pop();
+      if(truncated&&nodes>nodeLimit)return;
+    }
+    dfs(index+1,remaining);
+  };
+  dfs(0,startRemaining);
+
+  const selectedFirst=activeIds.filter(id=>bestIds.has(id)),rest=activeIds.filter(id=>!bestIds.has(id));
+  const reorderedActive=[...selectedFirst,...rest];
+  let activeIndex=0;
+  const order=baseOrder.map(id=>activeIds.includes(id)?reorderedActive[activeIndex++]:id);
+  const impact=installOrderImpact(order,{...options,install,installOrder:baseOrder,plans,ownedById,installedPlanIds});
+  const bestReady=currentReady+impact.gainedReady.length-impact.lostReady.length;
+  return {
+    improved:bestReady>currentReady,exact:!truncated,nodes,currentReady,bestReady,order:impact.order,
+    gainedReady:impact.gainedReady,lostReady:impact.lostReady,transitions:impact.transitions
+  };
 }
 function roomInstallPriorityImpact(roomId,options={}){
   const furniture=Array.isArray(options.furniture)?options.furniture:state.furniture;
@@ -3631,6 +3723,29 @@ function moveInstallStorage(storageId,delta){
   localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();
   return true;
 }
+function findMoreReadyInstallOrder(){
+  normalizeInstallState(state);
+  const allocation=currentInstallAllocation(),suggestion=suggestInstallOrder({install:allocation,installOrder:state.installOrder});
+  if(!suggestion.improved){
+    alert(suggestion.exact
+      ?`Current order already yields ${suggestion.currentReady} Ready space${suggestion.currentReady===1?"":"s"}. No install order can make more spaces Ready with the current owned stock.`
+      :`No better order was found before the search cap. The current order still yields ${suggestion.currentReady} Ready space${suggestion.currentReady===1?"":"s"}.`);
+    return false;
+  }
+  const gains=suggestion.gainedReady.length
+    ?"Would become Ready:\n"+suggestion.gainedReady.map(item=>"• "+item.path).join("\n")
+    :"No additional waiting spaces would become Ready.";
+  const losses=suggestion.lostReady.length
+    ?"Would become Waiting:\n"+suggestion.lostReady.map(item=>"• "+item.path).join("\n")
+    :"No currently Ready spaces would become Waiting.";
+  const searchNote=suggestion.exact
+    ?"Search completed for the current unfinished install plans."
+    :"Search hit its responsiveness cap; this is the best better order found so far.";
+  if(!confirm(`Use a better install order?\n\nReady now: ${suggestion.currentReady} → ${suggestion.bestReady}\n${searchNote}\n\n${gains}\n\n${losses}\n\nOnly install order will change.`))return false;
+  state.installOrder=suggestion.order;
+  localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();
+  return true;
+}
 function renderInstallDashboard(){
   const sec=$("installDashboardSection");if(!sec)return;
   normalizeInstallState(state);
@@ -3644,6 +3759,8 @@ function renderInstallDashboard(){
   const waiting=entries.filter(e=>e.status==="waiting").length;
   const stale=entries.filter(e=>e.status==="stale").length;
   $("installProgressText").textContent=`${installed}/${entries.length} installed`;
+  const findMoreReadyBtn=$("findMoreReadyBtn");
+  if(findMoreReadyBtn){findMoreReadyBtn.disabled=waiting===0||ready+waiting<2;findMoreReadyBtn.onclick=findMoreReadyInstallOrder}
   $("installSummary").innerHTML=`
     <div class="installstat"><div class="k">Chosen spaces</div><div class="v">${entries.length}</div></div>
     <div class="installstat"><div class="k">Ready now</div><div class="v">${ready}</div></div>
@@ -5845,6 +5962,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     prioritizedInstallOrderForRoom,
     installOrderImpact,
     installOrderMoveImpact,
+    suggestInstallOrder,
     roomInstallPriorityImpact,
     projectRoomProgress,
     projectNextActions,

@@ -787,6 +787,61 @@
       });
       result(!boundaryMoveImpact.changed&&boundaryMoveImpact.order.join(",")==="outside-ready,room-waiting","manual install move preview rejects out-of-range moves");
 
+      var improveRooms=[{id:"improve-room",name:"Utility"}];
+      var improveFurniture=[{id:"improve-furn",roomId:"improve-room",name:"Cabinet"}];
+      var improveStorages=[
+        {id:"big-space",furnitureId:"improve-furn",name:"Big plan"},
+        {id:"a-space",furnitureId:"improve-furn",name:"A only"},
+        {id:"b-space",furnitureId:"improve-furn",name:"B only"}
+      ];
+      var improvePlans=[
+        {id:"big-plan",storageId:"big-space",layout:[{typeId:"a"},{typeId:"b"}]},
+        {id:"a-plan",storageId:"a-space",layout:[{typeId:"a"}]},
+        {id:"b-plan",storageId:"b-space",layout:[{typeId:"b"}]}
+      ];
+      var improveOwned={a:1,b:1};
+      var improveBefore=api.computeInstallAllocation(improvePlans,improveOwned,{},["big-space","a-space","b-space"]);
+      var improveSuggestion=api.suggestInstallOrder({
+        rooms:improveRooms,furniture:improveFurniture,storages:improveStorages,
+        install:improveBefore,plans:improvePlans,ownedById:improveOwned,installedPlanIds:{},
+        installOrder:["big-space","a-space","b-space"]
+      });
+      result(improveSuggestion.improved&&improveSuggestion.exact&&improveSuggestion.currentReady===1&&improveSuggestion.bestReady===2,"find-more-ready search finds the exact higher-ready order on a small project");
+      result(improveSuggestion.order.join(",")==="a-space,b-space,big-space","find-more-ready suggestion keeps selected plans in existing relative order and pushes the blocked plan after them");
+      result(improveSuggestion.gainedReady.length===2&&improveSuggestion.lostReady.length===1,"find-more-ready preview exposes the full readiness tradeoff before applying");
+
+      var fixedPlan={id:"fixed-plan",storageId:"installed-space",layout:[{typeId:"fixed"}]};
+      var fixedOwned={a:1,b:1,fixed:1};
+      var fixedBase=api.computeInstallAllocation([fixedPlan].concat(improvePlans),fixedOwned,{"installed-space":"fixed-plan"},["installed-space","big-space","a-space","b-space"]);
+      var fixedById=new Map(fixedBase.entries.map(function(entry){return [entry.storageId,entry]}));
+      var fixedInstall={entries:[
+        fixedById.get("installed-space"),
+        fixedById.get("big-space"),
+        {storageId:"stale-space",status:"stale",plan:{id:"stale-plan",storageId:"stale-space",layout:[]}},
+        fixedById.get("a-space"),
+        fixedById.get("b-space")
+      ]};
+      var fixedSuggestion=api.suggestInstallOrder({
+        rooms:priorityRooms,furniture:priorityFurniture,storages:priorityStorages.concat(improveStorages),
+        install:fixedInstall,plans:[fixedPlan].concat(improvePlans),ownedById:fixedOwned,installedPlanIds:{"installed-space":"fixed-plan"},
+        installOrder:["installed-space","big-space","stale-space","a-space","b-space"]
+      });
+      result(fixedSuggestion.improved&&fixedSuggestion.order[0]==="installed-space"&&fixedSuggestion.order[2]==="stale-space","find-more-ready preserves Installed and Needs-review slots while reordering unfinished active plans");
+
+      var abundantSuggestion=api.suggestInstallOrder({
+        rooms:improveRooms,furniture:improveFurniture,storages:improveStorages,
+        install:api.computeInstallAllocation(improvePlans,{a:2,b:2},{},["big-space","a-space","b-space"]),
+        plans:improvePlans,ownedById:{a:2,b:2},installedPlanIds:{},installOrder:["big-space","a-space","b-space"]
+      });
+      result(!abundantSuggestion.improved&&abundantSuggestion.exact&&abundantSuggestion.currentReady===3&&abundantSuggestion.bestReady===3,"find-more-ready proves no improvement when current stock already makes every active plan ready");
+
+      var cappedSuggestion=api.suggestInstallOrder({
+        rooms:improveRooms,furniture:improveFurniture,storages:improveStorages,
+        install:improveBefore,plans:improvePlans,ownedById:improveOwned,installedPlanIds:{},
+        installOrder:["big-space","a-space","b-space"],nodeLimit:1
+      });
+      result(cappedSuggestion.improved&&!cappedSuggestion.exact&&cappedSuggestion.bestReady===2,"find-more-ready keeps a better deterministic suggestion even when exhaustive search hits its node cap");
+
       var roomProgress=api.projectRoomProgress({
         rooms:actionRooms,
         furniture:actionFurniture,
