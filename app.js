@@ -157,14 +157,20 @@ function normalizeOwnedDistributionSessions(target){
     session.usedBounded=!!session.usedBounded;
     session.boundedCandidates=Math.max(0,Math.floor(Number(session.boundedCandidates)||0));
     session.skipped=Array.isArray(session.skipped)?session.skipped:[];
-    session.allocations=session.allocations.filter(a=>a&&a.storageId&&a.result&&Array.isArray(a.result.layout)).map(a=>({
-      ...a,
-      id:String(a.id||uid("alloc")),
-      assigned:Math.max(0,Math.floor(Number(a.assigned)||0)),
-      capacity:Math.max(0,Math.floor(Number(a.capacity)||0)),
-      exact:!!a.exact,
-      status:["pending","opened","done"].includes(a.status)?a.status:"pending"
-    }));
+    session.allocations=session.allocations.filter(a=>a&&a.storageId&&a.result&&Array.isArray(a.result.layout)).map(a=>{
+      const available=a.result.layout.length;
+      return {
+        ...a,
+        id:String(a.id||uid("alloc")),
+        assigned:Math.min(available,Math.max(0,Math.floor(Number(a.assigned)||0))),
+        capacity:Math.min(available,Math.max(0,Math.floor(Number(a.capacity)||0))),
+        exact:!!a.exact,
+        status:["pending","opened","done"].includes(a.status)?a.status:"pending"
+      };
+    }).filter(a=>a.assigned>0);
+    session.assigned=session.allocations.reduce((sum,a)=>sum+a.assigned,0);
+    session.remaining=Math.max(0,session.requested-session.assigned);
+    if(session.remaining>0)session.provenMinimumSpaces=false;
   }
   return target.ownedDistributionSessions;
 }
@@ -737,17 +743,27 @@ function ownedDistributionFingerprint(item,settings,unallocatedOwned,options={})
 function createOwnedDistributionSession(item,plan,fingerprint){
   if(!item||!plan)return null;
   const clone=value=>JSON.parse(JSON.stringify(value));
+  const requested=Math.max(0,Math.floor(Number(plan.requested)||0));
+  const allocations=(plan.allocations||[]).map(a=>{
+    const result=clone(a.result);
+    const available=Array.isArray(result?.layout)?result.layout.length:0;
+    const assigned=Math.min(available,Math.max(0,Math.floor(Number(a.assigned)||0)));
+    const capacity=Math.min(available,Math.max(0,Math.floor(Number(a.capacity)||0)));
+    return {
+      id:uid("alloc"),storageId:a.storageId,storagePath:a.storagePath,source:a.source,planId:a.planId||null,
+      planName:a.planName||"",assigned,capacity,exact:!!a.exact,tightness:a.tightness,
+      status:"pending",result
+    };
+  }).filter(a=>a.assigned>0);
+  const assigned=allocations.reduce((sum,a)=>sum+a.assigned,0);
+  const remaining=Math.max(0,requested-assigned);
   return {
     id:uid("dist"),itemId:item.id,itemName:item.name||"Item",createdAt:new Date().toISOString(),
-    fingerprint:String(fingerprint||""),requested:plan.requested,assigned:plan.assigned,remaining:plan.remaining,
-    provenMinimumSpaces:!!plan.provenMinimumSpaces,usedBounded:!!plan.usedBounded,
+    fingerprint:String(fingerprint||""),requested,assigned,remaining,
+    provenMinimumSpaces:!!plan.provenMinimumSpaces&&remaining===0,usedBounded:!!plan.usedBounded,
     boundedCandidates:Math.max(0,Math.floor(Number(plan.boundedCandidates)||0)),
     skipped:(plan.skipped||[]).map(x=>({storageId:x.storageId,storagePath:x.storagePath,skipReason:x.skipReason})),
-    allocations:(plan.allocations||[]).map(a=>({
-      id:uid("alloc"),storageId:a.storageId,storagePath:a.storagePath,source:a.source,planId:a.planId||null,
-      planName:a.planName||"",assigned:a.assigned,capacity:a.capacity,exact:!!a.exact,tightness:a.tightness,
-      status:"pending",result:clone(a.result)
-    }))
+    allocations
   };
 }
 function ownedDistributionSessionPlan(session){
@@ -1386,6 +1402,8 @@ function validateBackupState(candidate){
     for(const allocation of session.allocations){
       if(!allocation||typeof allocation!=="object"||!allocation.storageId||!["pending","opened","done"].includes(allocation.status||"pending"))return "An owned distribution allocation is malformed.";
       if(!allocation.result||!Array.isArray(allocation.result.layout))return "An owned distribution allocation has no packing layout.";
+      const available=allocation.result.layout.length,assigned=Math.max(0,Math.floor(Number(allocation.assigned)||0)),capacity=Math.max(0,Math.floor(Number(allocation.capacity)||0));
+      if(assigned>available||capacity>available)return "An owned distribution allocation exceeds its stored packing geometry.";
     }
   }
   if(Array.isArray(candidate.installOrder)){
