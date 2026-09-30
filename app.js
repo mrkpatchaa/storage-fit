@@ -3713,7 +3713,7 @@ function renderHomeProcurement(){
     const health=planHealth(plan);return `<span class="projectplan">${esc(m.storagePath)} · ${esc(plan.name)}${health.status!=="current"?" · needs review":""}</span>`;
   }).join("");
 
-  $("homeProcurementList").innerHTML=summary.rows.map(r=>`<div class="homeshoprow" data-home-shop-item="${r.id}">`
+  $("homeProcurementList").innerHTML=summary.rows.map(r=>`<div class="homeshoprow" data-home-shop-item="${r.id}">
     <div><div class="shopname">${esc(r.name)}</div><div class="shopsub">${r.sku?esc(r.sku)+" · ":""}used in ${r.storageCount} storage${r.storageCount===1?"":"s"}</div></div>
     <div class="shopnum">Use ×${r.qty}</div>
     <div class="shopnum">Own ×${r.ownedUsed}</div>
