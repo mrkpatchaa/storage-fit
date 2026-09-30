@@ -606,6 +606,31 @@
       result(api.setOwnedDistributionAllocationStatus(persistedSession,firstAllocation.id,"done")===true&&api.ownedDistributionSessionProgress(persistedSession).done===1,"distribution session records a completed allocation");
       result(api.ownedDistributionSessionIsStale(persistedSession,fp1)===false&&api.ownedDistributionSessionIsStale(persistedSession,fp1+"changed")===true,"distribution session detects fingerprint drift");
       result(api.ownedDistributionSessionSummaryText(persistedSession,false).indexOf("1 done")>=0,"distribution session summary includes workflow progress");
+      var activeWorkSession=JSON.parse(JSON.stringify(persistedSession));
+      activeWorkSession.itemId="dist-active";activeWorkSession.fingerprint="active-fp";
+      api.setOwnedDistributionAllocationStatus(activeWorkSession,activeWorkSession.allocations[1].id,"opened");
+      var staleWorkSession=JSON.parse(JSON.stringify(persistedSession));
+      staleWorkSession.itemId="dist-stale";staleWorkSession.fingerprint="stale-old";
+      var doneWorkSession=JSON.parse(JSON.stringify(persistedSession));
+      doneWorkSession.itemId="dist-done";doneWorkSession.fingerprint="done-fp";
+      doneWorkSession.allocations.forEach(function(a){a.status="done"});
+      var workItems=[
+        {...distItem,id:"dist-active",name:"Active distribution"},
+        {...distItem,id:"dist-stale",name:"Stale distribution"},
+        {...distItem,id:"dist-done",name:"Done distribution"}
+      ];
+      var workRows=api.ownedDistributionWorkRows({
+        "dist-active":activeWorkSession,
+        "dist-stale":staleWorkSession,
+        "dist-done":doneWorkSession
+      },{
+        boxes:workItems,settings:distSettings,
+        stockLookup:function(){return {unallocatedOwned:4}},
+        fingerprintLookup:function(item){return item.id==="dist-active"?"active-fp":item.id==="dist-done"?"done-fp":"stale-current"}
+      });
+      result(workRows.map(function(r){return r.status}).join(",")==="stale,opened,done","distribution work dashboard prioritizes stale, active and completed sessions");
+      var workSummary=api.ownedDistributionWorkSummary(workRows);
+      result(workSummary.sessions===3&&workSummary.staleSessions===1&&workSummary.completeSessions===1&&workSummary.allocations===6&&workSummary.doneAllocations===4&&workSummary.openedAllocations===1,"distribution work dashboard aggregates session and allocation progress");
       var restoredState={boxes:[distItem],ownedDistributionSessions:{[distItem.id]:JSON.parse(JSON.stringify(persistedSession))}};
       api.normalizeOwnedDistributionSessions(restoredState);
       result(restoredState.ownedDistributionSessions[distItem.id].allocations[0].status==="done","distribution session progress survives state normalization after reload");
