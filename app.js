@@ -3666,8 +3666,8 @@ function renderInstallDashboard(){
         ${entry.status==="installed"&&entry.health?.status!=="current"?`<div class="planissues">Installed from a plan that has since changed: ${(entry.health?.reasons||[]).slice(0,2).map(esc).join(" · ")}</div>`:""}
       </div>
       <div class="installactions">
-        <button class="btn soft" type="button" data-install-up="${entry.storageId}" ${index===0?"disabled":""}>↑</button>
-        <button class="btn soft" type="button" data-install-down="${entry.storageId}" ${index===entries.length-1?"disabled":""}>↓</button>
+        <button class="btn soft" type="button" data-install-up="${entry.storageId}" title="Move earlier in install order" ${index===0?"disabled":""}>↑</button>
+        <button class="btn soft" type="button" data-install-down="${entry.storageId}" title="Move later in install order" ${index===entries.length-1?"disabled":""}>↓</button>
         <button class="btn soft" type="button" data-install-open="${plan.id}">Open</button>
         ${entry.status==="installed"
           ?`<button class="btn soft" type="button" data-install-undo="${entry.storageId}">Undo installed</button>`
