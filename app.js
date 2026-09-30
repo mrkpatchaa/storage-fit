@@ -3397,7 +3397,7 @@ function renderInstallDashboard(){
     const plan=entry.plan,m=planMetrics(plan),contents=labeledPlacements(plan.layout||[]);
     const missing=entry.missing.map(x=>`${esc(boxById(x.id)?.name||"Item")} ×${x.qty}`).join(" · ");
     const label=entry.status==="installed"?"Installed":entry.status==="ready"?"Ready now":entry.status==="stale"?"Needs plan review":"Waiting for inventory";
-    return `<div class="installcard ${entry.status}" data-install-card="${entry.storageId}">`
+    return `<div class="installcard ${entry.status}" data-install-card="${entry.storageId}">
       <div>
         <div class="installtitle">${esc(m.storagePath)}</div>
         <div class="installmeta">${esc(plan.name)} · ${m.itemCount} organizer${m.itemCount===1?"":"s"}</div>
