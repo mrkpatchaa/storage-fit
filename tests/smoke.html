@@ -514,6 +514,11 @@
       result(emptyStackCapacity.layout.map(function(p){return p.z;}).join(",")==="0,5,10","whole-home stacked capacity keeps support-safe insertion order");
       result(emptyStackCapacity.stackSummary.floorCount===1&&emptyStackCapacity.stackSummary.stackedCount===2&&emptyStackCapacity.stackSummary.maxLevel===3&&emptyStackCapacity.stackSummary.stackCount===1,"whole-home capacity exposes stack count and tallest level");
       result(api.packingStackSummaryText(emptyStackCapacity.stackSummary)==="1 stack · tallest level 3 · L1:1 / L2:1 / L3:1","whole-home capacity exposes a readable layer breakdown");
+      var ownedCapacitySubset=api.ownedCapacityResult(2,emptyStackCapacity,emptyStackItem);
+      result(ownedCapacitySubset&&ownedCapacitySubset.count===2&&ownedCapacitySubset.sourceCapacity===3&&ownedCapacitySubset.sourceExact===true&&ownedCapacitySubset.packingPurpose==="owned","owned capacity subset keeps theoretical capacity provenance");
+      result(ownedCapacitySubset.layout.map(function(p){return p.z;}).join(",")==="0,5"&&ownedCapacitySubset.floorCount===1&&ownedCapacitySubset.stackedCount===1,"owned capacity subset keeps a support-safe packing prefix");
+      result(api.packingStackSummaryText(ownedCapacitySubset.stackSummary)==="1 stack · tallest level 2 · L1:1 / L2:1","owned capacity subset recomputes stack structure for owned copies only");
+      result(api.ownedCapacityResult(0,emptyStackCapacity,emptyStackItem)===null,"owned capacity subset is unavailable when no stock is unallocated");
       var emptyFloorCapacity=api.maxCopiesInStorage(
         emptyStackItem,{id:"empty-floor-space",name:"Tall cube",w:10,d:10,h:15,obstacles:[],dividers:[]},
         {...emptyStackSettings,enableStacking:false},{nodeLimit:10000,copyLimit:20}
@@ -621,6 +626,8 @@
         {typeId:"b3",name:"Small box",x:0,y:0,z:8,w:20,d:13,h:4}
       ]});
       result(w.document.getElementById("detailSubtitle").textContent.indexOf("1 stack · tallest level 3 · L1:1 / L2:1 / L3:1")>0,"capacity detail keeps the stack-structure explanation after opening");
+      api.openCapacityPacking("s1",{...ownedCapacitySubset,stackingEnabled:true});
+      result(w.document.getElementById("detailSubtitle").textContent.indexOf("Owned-stock packing: 2 of 3 capacity.")===0,"owned capacity detail does not mislabel a stock-limited subset as the geometric maximum");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{
