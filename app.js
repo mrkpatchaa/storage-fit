@@ -2072,6 +2072,51 @@ function stockUnlockAnalysis(options={}){
     bundleAnalyzedCandidates:bundleCandidates.length,bundleUnitLimit
   };
 }
+function purchasedArrivalAnalysis(options={}){
+  const install=options.install||currentInstallAllocation();
+  const entries=Array.isArray(install?.entries)?install.entries:[];
+  const plans=Array.isArray(options.plans)?options.plans:entries.filter(entry=>entry.status!=="stale"&&entry.plan).map(entry=>entry.plan);
+  const ownedById=options.ownedById&&typeof options.ownedById==="object"
+    ?{...options.ownedById}:Object.fromEntries(state.boxes.map(item=>[item.id,item.ownedQty||0]));
+  const installedPlanIds=options.installedPlanIds&&typeof options.installedPlanIds==="object"?options.installedPlanIds:state.installedPlanIds;
+  const installOrder=Array.isArray(options.installOrder)?options.installOrder:entries.map(entry=>entry.storageId);
+  const purchaseRows=Array.isArray(options.purchaseRows)?options.purchaseRows:projectProcurement(plans).rows;
+  const itemLookup=typeof options.itemLookup==="function"?options.itemLookup:boxById;
+  const purchased=purchaseRows.map(row=>({
+    id:row.id,
+    name:row.name||itemLookup(row.id)?.name||"Deleted item",
+    qty:Math.max(0,Math.floor(Number(row.boughtQty)||0))
+  })).filter(row=>row.qty>0);
+  const boughtUnits=purchased.reduce((sum,row)=>sum+row.qty,0);
+  const beforeReady=entries.filter(entry=>entry.status==="ready").length;
+  if(!boughtUnits){
+    return {
+      boughtUnits:0,purchased:[],beforeReady,afterReady:beforeReady,arrivalGain:0,
+      gainedReady:[],lostReady:[],bestReady:beforeReady,optimizationGain:0,
+      optimizationExact:true,optimizedGainedReady:[],optimizedLostReady:[],optimizedOrder:installOrder
+    };
+  }
+  const hypotheticalOwned={...ownedById};
+  for(const row of purchased)hypotheticalOwned[row.id]=(hypotheticalOwned[row.id]||0)+row.qty;
+  const afterCurrent=installAllocationSnapshot(hypotheticalOwned,{install,plans,installedPlanIds,installOrder});
+  const currentImpact=installScenarioTransitions(install,afterCurrent,options);
+  const afterReady=afterCurrent.entries.filter(entry=>entry.status==="ready").length;
+  const suggestion=suggestInstallOrder({
+    ...options,install:afterCurrent,plans,ownedById:hypotheticalOwned,installedPlanIds,installOrder,
+    nodeLimit:Math.max(1,Math.floor(Number(options.nodeLimit)||INSTALL_ORDER_SEARCH_LIMIT))
+  });
+  const optimized=installAllocationSnapshot(hypotheticalOwned,{
+    install:afterCurrent,plans,installedPlanIds,installOrder:suggestion.order
+  });
+  const optimizedImpact=installScenarioTransitions(afterCurrent,optimized,options);
+  return {
+    boughtUnits,purchased,beforeReady,afterReady,arrivalGain:afterReady-beforeReady,
+    gainedReady:currentImpact.gainedReady,lostReady:currentImpact.lostReady,
+    bestReady:suggestion.bestReady,optimizationGain:Math.max(0,suggestion.bestReady-afterReady),
+    optimizationExact:suggestion.exact,optimizedGainedReady:optimizedImpact.gainedReady,
+    optimizedLostReady:optimizedImpact.lostReady,optimizedOrder:suggestion.order
+  };
+}
 function installUnlockFingerprint(){
   const install=currentInstallAllocation();
   return JSON.stringify({
@@ -4191,6 +4236,26 @@ function setShoppingBought(itemId,value){
   if(qty>0)state.shoppingBought[itemId]=qty;else delete state.shoppingBought[itemId];
   localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderHomeProcurement();renderInstallUnlockAnalysis();
 }
+function purchaseArrivalTransitionHtml(title,rows,warn=false){
+  if(!rows?.length)return "";
+  return `<div class="purchasearrivalgroup${warn?" warn":""}"><strong>${title}</strong>${rows.map(item=>`<span>${esc(item.path)}</span>`).join("")}</div>`;
+}
+function renderPurchaseArrivalPreview(summary=projectProcurement()){
+  const panel=$("purchaseArrivalPreview");if(!panel)return;
+  if(!summary?.boughtUnits){panel.style.display="none";panel.innerHTML="";return}
+  const analysis=purchasedArrivalAnalysis({purchaseRows:summary.rows});
+  const arriving=analysis.purchased.map(row=>`${esc(row.name)} ×${row.qty}`).join(" · ");
+  const delta=analysis.afterReady-analysis.beforeReady;
+  const deltaText=delta>0?`+${delta} Ready`:delta<0?`${delta} Ready`:"same Ready count";
+  const currentChanges=purchaseArrivalTransitionHtml("Would become Ready",analysis.gainedReady)+
+    purchaseArrivalTransitionHtml("Would become Waiting",analysis.lostReady,true);
+  const currentDetail=currentChanges||'<div class="purchasearrivalquiet">No chosen storage changes readiness with the current queue order.</div>';
+  const optimize=analysis.optimizationGain>0
+    ?`<div class="purchasearrivalopt"><strong>Reorder opportunity after receipt: +${analysis.optimizationGain} more Ready</strong><div>Best after arrival: ${analysis.bestReady} Ready · ${analysis.optimizationExact?"exact":"bounded"} order search.</div>${purchaseArrivalTransitionHtml("Would become Ready after reordering",analysis.optimizedGainedReady)}${purchaseArrivalTransitionHtml("Would become Waiting after reordering",analysis.optimizedLostReady,true)}<div class="purchasearrivalquiet">Receiving does not change install order automatically; use Find more Ready afterward if you want the better allocation.</div></div>`
+    :`<div class="purchasearrivalquiet">Current queue already reaches the best Ready count found after these arrivals${analysis.optimizationExact?".":" in the bounded order search."}</div>`;
+  panel.style.display="block";
+  panel.innerHTML=`<div class="purchasearrivalhead"><strong>When purchases arrive</strong><span>${analysis.boughtUnits} purchased organizer${analysis.boughtUnits===1?"":"s"}</span></div><div class="purchasearrivalmeta">Current queue: ${analysis.beforeReady} → ${analysis.afterReady} Ready · ${deltaText}. Earlier waiting plans can start reserving shared stock once their missing items arrive.</div><div class="purchasearrivalitems"><strong>Arriving:</strong> ${arriving}</div><details><summary>Show arrival impact</summary><div class="purchasearrivalbody">${currentDetail}${optimize}</div></details>`;
+}
 function renderHomeProcurement(){
   renderBoxStockSummary();renderBoxList();renderItemPicker();
   const sec=$("homeProcurementSection");if(!sec)return;
@@ -4198,6 +4263,7 @@ function renderHomeProcurement(){
   if(!summary.plans.length){
     sec.style.display="none";$("homeProcurementList").innerHTML="";
     $("receivePurchasesBtn").disabled=true;
+    renderPurchaseArrivalPreview(summary);
     renderProjectNextActions();return;
   }
   sec.style.display="block";
@@ -4217,6 +4283,7 @@ function renderHomeProcurement(){
     const m=planMetrics(plan);
     const health=planHealth(plan);return `<span class="projectplan">${esc(m.storagePath)} · ${esc(plan.name)}${health.status!=="current"?" · needs review":""}</span>`;
   }).join("");
+  renderPurchaseArrivalPreview(summary);
 
   $("homeProcurementList").innerHTML=summary.rows.map(r=>`<div class="homeshoprow" data-home-shop-item="${r.id}">
     <div><div class="shopname">${esc(r.name)}</div><div class="shopsub">${r.sku?esc(r.sku)+" · ":""}used in ${r.storageCount} storage${r.storageCount===1?"":"s"}</div></div>
@@ -6200,6 +6267,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     suggestInstallOrder,
     installAllocationSnapshot,
     stockUnlockAnalysis,
+    purchasedArrivalAnalysis,
     roomInstallPriorityImpact,
     projectRoomProgress,
     projectNextActions,
