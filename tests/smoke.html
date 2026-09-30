@@ -594,13 +594,13 @@
       result(supportFpA!==supportFpB,"owned distribution fingerprint changes when a chosen-plan support organizer changes handling rules");
       var changedSessionPlan={...sessionPlan,layout:[...sessionPlan.layout,{typeId:"fixed",x:10,y:0,z:0,w:10,d:10,h:5}]};
       result(fp1!==api.ownedDistributionFingerprint(distItem,distSettings,7,{storages:sessionStorages,plans:[changedSessionPlan],chosenPlanIds:{sA:"session-plan"},planStatusLookup:function(){return "current";}}),"owned distribution fingerprint changes when the chosen-plan layout changes");
-      var sessionSourcePlan=api.ownedDistributionPlan(7,[
-        {storageId:"sA",storagePath:"A",source:"chosen",planId:"session-plan",planName:"Chosen",capacity:5,exact:true,tightness:10,result:{count:5,exact:true,layout:[{typeId:"dist-bin",x:10,y:0,z:0,w:10,d:10,h:5},{typeId:"dist-bin",x:20,y:0,z:0,w:10,d:10,h:5}]}},
-        {storageId:"sB",storagePath:"B",source:"empty",planId:null,planName:"",capacity:4,exact:true,tightness:20,result:{count:4,exact:true,layout:[{typeId:"dist-bin",x:0,y:0,z:0,w:10,d:10,h:5},{typeId:"dist-bin",x:10,y:0,z:0,w:10,d:10,h:5}]}}
+      var sessionSourcePlan=api.ownedDistributionPlan(4,[
+        {storageId:"sA",storagePath:"A",source:"chosen",planId:"session-plan",planName:"Chosen",capacity:2,exact:true,tightness:10,result:{count:2,exact:true,layout:[{typeId:"dist-bin",x:10,y:0,z:0,w:10,d:10,h:5},{typeId:"dist-bin",x:20,y:0,z:0,w:10,d:10,h:5}]}},
+        {storageId:"sB",storagePath:"B",source:"empty",planId:null,planName:"",capacity:2,exact:true,tightness:20,result:{count:2,exact:true,layout:[{typeId:"dist-bin",x:0,y:0,z:0,w:10,d:10,h:5},{typeId:"dist-bin",x:10,y:0,z:0,w:10,d:10,h:5}]}}
       ]);
       var persistedSession=api.createOwnedDistributionSession(distItem,sessionSourcePlan,fp1);
       var initialProgress=api.ownedDistributionSessionProgress(persistedSession);
-      result(initialProgress.pending===2&&initialProgress.opened===0&&initialProgress.done===0&&initialProgress.totalCopies===7,"new distribution session starts with all allocations pending");
+      result(initialProgress.pending===2&&initialProgress.opened===0&&initialProgress.done===0&&initialProgress.totalCopies===4,"new distribution session starts with all allocations pending");
       var firstAllocation=persistedSession.allocations[0];
       result(api.setOwnedDistributionAllocationStatus(persistedSession,firstAllocation.id,"opened")===true&&api.ownedDistributionSessionProgress(persistedSession).opened===1,"distribution session records an opened allocation");
       result(api.setOwnedDistributionAllocationStatus(persistedSession,firstAllocation.id,"done")===true&&api.ownedDistributionSessionProgress(persistedSession).done===1,"distribution session records a completed allocation");
