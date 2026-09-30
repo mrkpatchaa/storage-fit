@@ -971,6 +971,10 @@ The Install queue also offers **Find more Ready** when at least one active space
 
 For small/currently tractable sets the search is exhaustive, so a no-improvement result means no install order can make more spaces Ready with the current owned stock. The search has a responsiveness cap for larger projects; if that cap is hit, the UI says so and offers only the best better order found before the limit. Any proposed order is still previewed through the allocator and requires confirmation before it is saved.
 
+When reordering alone cannot answer the inventory question, **Analyze stock** runs a second dry-run: it tests adding **one owned unit** of each genuinely scarce organizer type, reruns the install-order search, and keeps only item changes that increase the best Ready count found. Results show **+1 organizer → +N Ready**, whether that organizer is already marked purchased or still needs sourcing, and a direct **Shopping / receiving** jump.
+
+This analysis is informational only. It never increments owned stock, marks an item purchased, changes install order, or claims that an item must be bought. A purchased organizer still counts as unavailable until it is physically received. Exact/capped search status is shown, and very large item sets are bounded with an explicit candidate-count notice.
+
 This also tightens the existing Home structure progress semantics: a storage counts as planned only when it has a **current usable saved plan** (or is already installed). Historical stale/invalid plans no longer inflate the planned count, and storage rows explicitly show **saved plan needs review** when appropriate.
 
 The overview is fully derived from the existing plan, inventory, and install state. No new persistent room-status data or schema migration is required; the app remains on V28.
