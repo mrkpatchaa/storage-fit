@@ -742,7 +742,7 @@
       result(blockedBedroom.blockers[0].storageId==="action-s4"&&blockedBedroom.blockers[0].name==="Sock boxes"&&blockedBedroom.blockers[0].qty===1&&blockedBedroom.blockers[1].storageId==="action-s2"&&blockedBedroom.blockers[1].name==="Labels"&&blockedBedroom.blockers[2].name==="Sock boxes"&&blockedBedroom.blockers[2].qty===2,"room inventory blockers preserve each waiting storage deficit instead of summing them into a shopping total");
       result(blockedBedroom.tone==="waiting","room progress highlights inventory-blocked rooms separately from plan-review rooms");
       result(blockedBedroom.spaces.filter(function(s){return s.status==="waiting"}).map(function(s){return s.storageId}).join(",")==="action-s4,action-s2","waiting room storage queue is deterministic by hierarchy path");
-      result(blockedBedroom.spaces[0].action.kind==="room-shopping"&&blockedBedroom.spaces[0].action.targetId==="sock"&&blockedBedroom.spaces[0].action.label==="View blocker","waiting storage queue routes to the first concrete missing organizer");
+      var firstWaitingSpace=blockedBedroom.spaces.find(function(s){return s.status==="waiting"});\n      result(firstWaitingSpace&&firstWaitingSpace.action.kind==="room-shopping"&&firstWaitingSpace.action.targetId==="sock"&&firstWaitingSpace.action.label==="View blocker","waiting storage queue routes to the first concrete missing organizer");
 
       var nextActions=api.projectNextActions({
         rooms:actionRooms,
