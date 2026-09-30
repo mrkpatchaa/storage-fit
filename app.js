@@ -701,6 +701,96 @@ function ownedDistributionSummaryText(plan){
   return text;
 }
 
+function ownedDistributionFingerprint(item,settings,unallocatedOwned,options={}){
+  if(!item)return "";
+  const storages=Array.isArray(options.storages)?options.storages:state.storages;
+  const plans=Array.isArray(options.plans)?options.plans:state.savedPlans;
+  const chosenPlanIds=options.chosenPlanIds&&typeof options.chosenPlanIds==="object"?options.chosenPlanIds:state.chosenPlanIds;
+  const statusLookup=typeof options.planStatusLookup==="function"
+    ? options.planStatusLookup
+    : plan=>planHealth(plan).status;
+  const settingsSig=[
+    !!settings?.clearanceEnabled,round6(Number(settings?.clearance)||0),
+    round6(Number(settings?.fitTolerance)||0),settings?.uprightOnly!==false,!!settings?.enableStacking
+  ];
+  const storageSig=(storages||[]).map(S=>{
+    const planId=chosenPlanIds?.[S.id]||"";
+    const plan=planId?plans.find(p=>p.id===planId&&p.storageId===S.id):null;
+    const planSig=plan?[
+      plan.id,
+      planSignature(plan.storageId,plan.layout||[]),
+      JSON.stringify(plan.settings||null),
+      plan.stacking ?? layoutUsesStacking(plan.layout||[]),
+      statusLookup(plan)
+    ]:null;
+    return [S.id,storageStructureSignature(S),planSig];
+  }).sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
+  return JSON.stringify([
+    item.id,itemPlanningSignature(item),Math.max(0,Math.floor(Number(unallocatedOwned)||0)),
+    settingsSig,storageSig
+  ]);
+}
+function createOwnedDistributionSession(item,plan,fingerprint){
+  if(!item||!plan)return null;
+  const clone=value=>JSON.parse(JSON.stringify(value));
+  return {
+    id:uid("dist"),itemId:item.id,itemName:item.name||"Item",createdAt:new Date().toISOString(),
+    fingerprint:String(fingerprint||""),requested:plan.requested,assigned:plan.assigned,remaining:plan.remaining,
+    provenMinimumSpaces:!!plan.provenMinimumSpaces,usedBounded:!!plan.usedBounded,
+    boundedCandidates:Math.max(0,Math.floor(Number(plan.boundedCandidates)||0)),
+    skipped:(plan.skipped||[]).map(x=>({storageId:x.storageId,storagePath:x.storagePath,skipReason:x.skipReason})),
+    allocations:(plan.allocations||[]).map(a=>({
+      id:uid("alloc"),storageId:a.storageId,storagePath:a.storagePath,source:a.source,planId:a.planId||null,
+      planName:a.planName||"",assigned:a.assigned,capacity:a.capacity,exact:!!a.exact,tightness:a.tightness,
+      status:"pending",result:clone(a.result)
+    }))
+  };
+}
+function ownedDistributionSessionPlan(session){
+  if(!session)return null;
+  return {
+    requested:Math.max(0,Math.floor(Number(session.requested)||0)),
+    assigned:Math.max(0,Math.floor(Number(session.assigned)||0)),
+    remaining:Math.max(0,Math.floor(Number(session.remaining)||0)),
+    spaceCount:Array.isArray(session.allocations)?session.allocations.length:0,
+    allocations:Array.isArray(session.allocations)?session.allocations:[],
+    skipped:Array.isArray(session.skipped)?session.skipped:[],
+    usedBounded:!!session.usedBounded,
+    boundedCandidates:Math.max(0,Math.floor(Number(session.boundedCandidates)||0)),
+    provenMinimumSpaces:!!session.provenMinimumSpaces
+  };
+}
+function ownedDistributionSessionProgress(session){
+  const allocations=Array.isArray(session?.allocations)?session.allocations:[];
+  const progress={pending:0,opened:0,done:0,pendingCopies:0,openedCopies:0,doneCopies:0,total:allocations.length,totalCopies:0};
+  for(const a of allocations){
+    const status=["pending","opened","done"].includes(a.status)?a.status:"pending";
+    const copies=Math.max(0,Math.floor(Number(a.assigned)||0));
+    progress[status]++;progress[status+"Copies"]+=copies;progress.totalCopies+=copies;
+  }
+  return progress;
+}
+function setOwnedDistributionAllocationStatus(session,allocationId,status){
+  if(!session||!["pending","opened","done"].includes(status))return false;
+  const allocation=(session.allocations||[]).find(a=>a.id===allocationId);
+  if(!allocation)return false;
+  allocation.status=status;
+  allocation.updatedAt=new Date().toISOString();
+  return true;
+}
+function ownedDistributionSessionIsStale(session,fingerprint){
+  return !session||!session.fingerprint||session.fingerprint!==String(fingerprint||"");
+}
+function ownedDistributionSessionSummaryText(session,stale=false){
+  if(!session)return "";
+  const base=ownedDistributionSummaryText(ownedDistributionSessionPlan(session));
+  const p=ownedDistributionSessionProgress(session);
+  const progress=p.total
+    ? " Progress: "+p.done+" done · "+p.opened+" opened · "+p.pending+" pending."
+    : "";
+  return (stale?"Out of date — recalculate before opening allocations. ":"")+base+progress;
+}
+
 function stackedExtraItemPlacementInPlan(item,plan,liveStorage,itemLookup=boxById){
   if(!item||!plan||!liveStorage||!item.canBeStacked)return null;
   const stackingEnabled=plan.stacking ?? layoutUsesStacking(plan.layout||[]);
@@ -4916,6 +5006,13 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     ownedDistributionCandidate,
     ownedDistributionPlan,
     ownedDistributionSummaryText,
+    ownedDistributionFingerprint,
+    createOwnedDistributionSession,
+    ownedDistributionSessionPlan,
+    ownedDistributionSessionProgress,
+    setOwnedDistributionAllocationStatus,
+    ownedDistributionSessionIsStale,
+    ownedDistributionSessionSummaryText,
     itemPlanRoomRows,
     openSavedPlanWithExtraItems,
     openSavedPlanWithExtraItem,
