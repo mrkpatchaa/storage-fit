@@ -842,6 +842,52 @@
       });
       result(cappedSuggestion.improved&&!cappedSuggestion.exact&&cappedSuggestion.bestReady===2,"find-more-ready keeps a better deterministic suggestion even when exhaustive search hits its node cap");
 
+      var unlockRooms=[{id:"unlock-room",name:"Utility"}];
+      var unlockFurniture=[{id:"unlock-furn",roomId:"unlock-room",name:"Cabinet"}];
+      var unlockStorages=[
+        {id:"unlock-big",furnitureId:"unlock-furn",name:"Big"},
+        {id:"unlock-a",furnitureId:"unlock-furn",name:"A only"},
+        {id:"unlock-b",furnitureId:"unlock-furn",name:"B only"}
+      ];
+      var unlockPlans=[
+        {id:"unlock-big-plan",storageId:"unlock-big",layout:[{typeId:"a"},{typeId:"b"}]},
+        {id:"unlock-a-plan",storageId:"unlock-a",layout:[{typeId:"a"}]},
+        {id:"unlock-b-plan",storageId:"unlock-b",layout:[{typeId:"b"}]}
+      ];
+      var unlockOwned={a:1,b:0};
+      var unlockInstall=api.computeInstallAllocation(unlockPlans,unlockOwned,{},["unlock-big","unlock-a","unlock-b"]);
+      var unlockAnalysis=api.stockUnlockAnalysis({
+        rooms:unlockRooms,furniture:unlockFurniture,storages:unlockStorages,
+        install:unlockInstall,plans:unlockPlans,ownedById:unlockOwned,installedPlanIds:{},
+        installOrder:["unlock-big","unlock-a","unlock-b"],
+        itemLookup:function(id){return {id:id,name:id==="a"?"Alpha":"Beta",url:"https://example.com/"+id}},
+        purchaseRows:[{id:"a",boughtQty:0,remainingQty:1},{id:"b",boughtQty:1,remainingQty:0}]
+      });
+      result(unlockAnalysis.baselineReady===1&&unlockAnalysis.baselineExact&&unlockAnalysis.rows.length===1,"stock unlock analysis compares one-unit stock changes against the best current-stock install order");
+      result(unlockAnalysis.rows[0].id==="b"&&unlockAnalysis.rows[0].gain===1&&unlockAnalysis.rows[0].bestReady===2&&unlockAnalysis.rows[0].exact,"stock unlock analysis finds the single organizer unit that increases maximum Ready count");
+      result(unlockAnalysis.rows[0].boughtQty===1&&unlockAnalysis.rows[0].remainingQty===0,"stock unlock analysis preserves purchased-vs-still-to-source context without changing inventory");
+
+      var unlockSnapshot=api.installAllocationSnapshot({a:1,b:1},{
+        install:unlockInstall,plans:unlockPlans,installedPlanIds:{},installOrder:["unlock-big","unlock-a","unlock-b"]
+      });
+      result(unlockSnapshot.entries.find(function(e){return e.storageId==="unlock-big"}).status==="ready","hypothetical stock snapshots recompute install readiness without mutating the project");
+
+      var noUnlockAnalysis=api.stockUnlockAnalysis({
+        rooms:unlockRooms,furniture:unlockFurniture,storages:unlockStorages,
+        install:api.computeInstallAllocation(unlockPlans,{a:2,b:2},{},["unlock-big","unlock-a","unlock-b"]),
+        plans:unlockPlans,ownedById:{a:2,b:2},installedPlanIds:{},installOrder:["unlock-big","unlock-a","unlock-b"],
+        itemLookup:function(id){return {id:id,name:id}},purchaseRows:[]
+      });
+      result(noUnlockAnalysis.rows.length===0&&noUnlockAnalysis.totalCandidates===0&&noUnlockAnalysis.baselineReady===3,"stock unlock analysis returns no candidates when owned stock already covers every active plan");
+
+      var cappedUnlockAnalysis=api.stockUnlockAnalysis({
+        rooms:unlockRooms,furniture:unlockFurniture,storages:unlockStorages,
+        install:unlockInstall,plans:unlockPlans,ownedById:unlockOwned,installedPlanIds:{},
+        installOrder:["unlock-big","unlock-a","unlock-b"],itemLimit:1,nodeLimit:1,baselineNodeLimit:1,
+        itemLookup:function(id){return {id:id,name:id}},purchaseRows:[]
+      });
+      result(cappedUnlockAnalysis.candidateCapped&&cappedUnlockAnalysis.analyzedCandidates===1&&cappedUnlockAnalysis.totalCandidates===2,"stock unlock analysis discloses when scarce organizer types are capped");
+
       var roomProgress=api.projectRoomProgress({
         rooms:actionRooms,
         furniture:actionFurniture,
