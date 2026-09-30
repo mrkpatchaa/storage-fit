@@ -929,6 +929,25 @@ The lookup intentionally answers a structural question: whether the organizer fi
 
 No state migration is required; the app remains on V28.
 
+## Room progress overview
+
+The workspace now includes a derived **Room progress** overview for whole-home projects.
+
+Each room rolls its storage spaces into mutually exclusive execution states:
+
+- **Plan** — no current saved plan exists yet.
+- **Choose** — a current saved plan exists but no project plan is chosen.
+- **Review** — the chosen plan is no longer current and needs revalidation, repair, or replacement.
+- **Waiting** — the chosen plan is current but owned inventory is insufficient for that storage's install allocation.
+- **Ready** — the chosen plan can be installed with currently available owned inventory.
+- **Installed** — the chosen plan is marked installed.
+
+The overview shows current-plan, chosen-plan, and installed counts per room plus a completion bar and state chips. **Focus room** selects the first unfinished storage in that room and brings it into the normal planning workspace.
+
+This also tightens the existing Home structure progress semantics: a storage counts as planned only when it has a **current usable saved plan** (or is already installed). Historical stale/invalid plans no longer inflate the planned count, and storage rows explicitly show **saved plan needs review** when appropriate.
+
+The overview is fully derived from the existing plan, inventory, and install state. No new persistent room-status data or schema migration is required; the app remains on V28.
+
 ## Project next actions
 
 The workspace now starts with a whole-home **Project next actions** coordinator. It reads the existing project state and ranks the work that can move the home forward without creating a second workflow system.
