@@ -677,27 +677,50 @@
       result(workRows.map(function(r){return r.status}).join(",")==="stale,opened,done","distribution work dashboard prioritizes stale, active and completed sessions");
       var workSummary=api.ownedDistributionWorkSummary(workRows);
       result(workSummary.sessions===3&&workSummary.staleSessions===1&&workSummary.completeSessions===1&&workSummary.allocations===6&&workSummary.doneAllocations===4&&workSummary.openedAllocations===1,"distribution work dashboard aggregates session and allocation progress");
-      var actionStorages=[{id:"action-s1"},{id:"action-s2"},{id:"action-s3"},{id:"action-s4"}];
+      var actionRooms=[{id:"room-b",name:"Bedroom"},{id:"room-a",name:"Attic"}];
+      var actionFurniture=[
+        {id:"furn-wardrobe",roomId:"room-b",name:"Wardrobe"},
+        {id:"furn-shelf",roomId:"room-a",name:"Shelf"}
+      ];
+      var actionStorages=[
+        {id:"action-s1",furnitureId:"furn-wardrobe",name:"Right drawer"},
+        {id:"action-s2",furnitureId:"furn-wardrobe",name:"Top shelf"},
+        {id:"action-s3",furnitureId:"furn-shelf",name:"Bin"},
+        {id:"action-s4",furnitureId:"furn-wardrobe",name:"Left drawer"}
+      ];
       var actionPlans=[
         {id:"action-stale",storageId:"action-s1",layout:[]},
         {id:"action-option",storageId:"action-s2",layout:[]},
         {id:"action-ready",storageId:"action-s4",layout:[]}
       ];
       var nextActions=api.projectNextActions({
+        rooms:actionRooms,
+        furniture:actionFurniture,
         storages:actionStorages,
         savedPlans:actionPlans,
         chosen:[actionPlans[0],actionPlans[2]],
         installedPlanIds:{},
         distributionRows:[
-          {itemId:"dist-stale-action",stale:true,complete:false},
-          {itemId:"dist-active-action",stale:false,complete:false}
+          {itemId:"dist-stale-action",item:{name:"Sock boxes"},stale:true,complete:false,session:{allocations:[{storagePath:"Bedroom → Wardrobe → Right drawer"}]}},
+          {itemId:"dist-active-action",item:{name:"Dividers"},stale:false,complete:false,session:{allocations:[{storagePath:"Attic → Shelf → Bin"}]}}
         ],
         procurement:{boughtUnits:2,remainingUnits:3},
         install:{entries:[{storageId:"action-s4",status:"ready"}]},
         planHealthLookup:function(plan){return {status:plan.id==="action-stale"?"review":"current"}}
       });
       result(nextActions.actions.map(function(a){return a.kind}).join(",")==="review-plan,recalculate-distribution,continue-distribution,choose-plan,plan-space,receive-purchases,shopping,install-ready","project next actions prioritize safety, unfinished planning, receiving, shopping and installation");
-      result(nextActions.actions[0].targetId==="action-stale"&&nextActions.actions[1].targetId==="dist-stale-action"&&nextActions.actions[4].targetId==="action-s3","project next actions deep-link to the first blocking plan, distribution and unplanned storage");
+      result(nextActions.actions[0].targetId==="action-stale"&&nextActions.actions[0].targetPath==="Bedroom → Wardrobe → Right drawer"&&nextActions.actions[1].targetPath.indexOf("Sock boxes → Bedroom")===0,"project next actions identify the exact first location for plan and distribution work");
+      result(nextActions.actions[4].targetId==="action-s3"&&nextActions.actions[4].targetPath==="Attic → Shelf → Bin","project next actions deep-link planning to the alphabetically first hierarchy path");
+      var invalidActionPlan={id:"action-invalid",storageId:"action-s2",layout:[]};
+      var invalidNextActions=api.projectNextActions({
+        rooms:actionRooms,furniture:actionFurniture,storages:actionStorages,
+        savedPlans:[invalidActionPlan],chosen:[invalidActionPlan],installedPlanIds:{},distributionRows:[],
+        procurement:{boughtUnits:0,remainingUnits:0},install:{entries:[]},
+        planHealthLookup:function(){return {status:"invalid"}}
+      });
+      result(invalidNextActions.actions[0].kind==="repair-plan"&&invalidNextActions.actions[0].targetPath==="Bedroom → Wardrobe → Top shelf","invalid chosen plans get a repair action instead of a revalidation action");
+      var contextCheck=api.projectStorageContext("action-s4",{rooms:actionRooms,furniture:actionFurniture,storages:actionStorages});
+      result(contextCheck.path==="Bedroom → Wardrobe → Left drawer"&&contextCheck.roomName==="Bedroom","project action location context resolves room, furniture and storage names");
       var installedReviewPlan={id:"installed-review",storageId:"complete-s1",layout:[]};
       var installedReviewActions=api.projectNextActions({
         storages:[{id:"complete-s1"}],
