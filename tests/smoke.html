@@ -548,12 +548,16 @@
       result(consolidatedDistribution.assigned===7&&consolidatedDistribution.remaining===0&&consolidatedDistribution.spaceCount===2&&consolidatedDistribution.provenMinimumSpaces===true,"owned distribution consolidates stock into the minimum number of exact-capacity spaces");
       result(consolidatedDistribution.allocations[0].storageId==="a"&&consolidatedDistribution.allocations[0].assigned===5&&consolidatedDistribution.allocations[1].storageId==="c"&&consolidatedDistribution.allocations[1].assigned===2,"owned distribution breaks equal-capacity ties toward the tighter compatible space");
       result(api.ownedDistributionSummaryText(consolidatedDistribution).indexOf("minimum of 2 spaces")>=0,"owned distribution summary only claims a proven minimum for exact capacities");
-      var boundedDistribution=api.ownedDistributionPlan(6,[
-        {storageId:"bounded",storagePath:"Bounded",capacity:6,exact:false,tightness:5},
-        {storageId:"exact",storagePath:"Exact",capacity:5,exact:true,tightness:1}
+      var boundedDistribution=api.ownedDistributionPlan(8,[
+        {storageId:"bounded",storagePath:"Bounded",capacity:5,exact:false,tightness:5},
+        {storageId:"exact",storagePath:"Exact",capacity:4,exact:true,tightness:1}
       ]);
-      result(boundedDistribution.spaceCount===1&&boundedDistribution.usedBounded===true&&boundedDistribution.provenMinimumSpaces===false,"owned distribution does not claim optimality from a bounded capacity result");
+      result(boundedDistribution.spaceCount===2&&boundedDistribution.usedBounded===true&&boundedDistribution.provenMinimumSpaces===false,"owned distribution does not claim a two-space optimum when a bounded result could hide one-space capacity");
       result(api.ownedDistributionSummaryText(boundedDistribution).indexOf("lower bounds")>=0,"owned distribution summary explains bounded-capacity uncertainty");
+      var boundedOneSpace=api.ownedDistributionPlan(5,[
+        {storageId:"bounded-one",storagePath:"Bounded one",capacity:5,exact:false,tightness:1}
+      ]);
+      result(boundedOneSpace.provenMinimumSpaces===true&&boundedOneSpace.spaceCount===1,"one-space distribution is a proven minimum even when that space has additional unknown capacity");
       var partialDistribution=api.ownedDistributionPlan(10,[
         {storageId:"one",storagePath:"One",capacity:4,exact:true,tightness:1},
         {storageId:"two",storagePath:"Two",capacity:3,exact:true,tightness:2}
