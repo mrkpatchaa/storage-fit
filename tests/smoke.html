@@ -726,6 +726,32 @@
       var stockAfter=api.computeInstallAllocation(stockPlans,{"shared-box":1},{},stockPriority.order);
       result(stockBefore.entries.find(function(e){return e.storageId==="outside-ready"}).status==="ready"&&stockBefore.entries.find(function(e){return e.storageId==="room-waiting"}).status==="waiting","scarce stock initially follows the existing install order");
       result(stockAfter.entries.find(function(e){return e.storageId==="room-waiting"}).status==="ready"&&stockAfter.entries.find(function(e){return e.storageId==="outside-ready"}).status==="waiting","prioritizing a room reallocates scarce owned stock without changing stock totals");
+      var stockImpact=api.roomInstallPriorityImpact("priority-room",{
+        rooms:priorityRooms,
+        furniture:priorityFurniture,
+        storages:priorityStorages,
+        install:stockBefore,
+        plans:stockPlans,
+        ownedById:{"shared-box":1},
+        installedPlanIds:{},
+        installOrder:["outside-ready","room-waiting"]
+      });
+      result(stockImpact.changed&&stockImpact.gainedReady.length===1&&stockImpact.gainedReady[0].storageId==="room-waiting","room priority preview identifies the selected room storage that would become ready");
+      result(stockImpact.lostReady.length===1&&stockImpact.lostReady[0].storageId==="outside-ready"&&stockImpact.transitions.length===2,"room priority preview identifies the ready space displaced by scarce stock");
+      result(stockImpact.gainedReady[0].path==="Priority → Priority unit → Room waiting"&&stockImpact.lostReady[0].path==="Other → Other unit → Outside ready","room priority preview reports full hierarchy paths for readiness transitions");
+
+      var abundantBefore=api.computeInstallAllocation(stockPlans,{"shared-box":2},{},["outside-ready","room-waiting"]);
+      var abundantImpact=api.roomInstallPriorityImpact("priority-room",{
+        rooms:priorityRooms,
+        furniture:priorityFurniture,
+        storages:priorityStorages,
+        install:abundantBefore,
+        plans:stockPlans,
+        ownedById:{"shared-box":2},
+        installedPlanIds:{},
+        installOrder:["outside-ready","room-waiting"]
+      });
+      result(abundantImpact.changed&&abundantImpact.gainedReady.length===0&&abundantImpact.lostReady.length===0,"room priority preview reports no readiness impact when stock already covers every active space");
 
       var roomProgress=api.projectRoomProgress({
         rooms:actionRooms,
