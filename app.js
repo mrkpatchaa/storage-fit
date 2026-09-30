@@ -5018,6 +5018,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeChosenPlanSelections,
     normalizeShoppingBought,
     normalizeInstallState,
+    normalizeOwnedDistributionSessions,
     computeInstallAllocation,
     repeatStorageNames,
     canonicalPlanLayout,
