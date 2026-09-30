@@ -2051,6 +2051,7 @@ function renderHierarchy(){
 
   $("deleteRoom").disabled=state.rooms.length<=1;
   $("deleteFurniture").disabled=state.furniture.length<=1;
+  renderRoomProgressOverview();
 }
 function renderStorageList(){
   const el=$("storageList"),filtered=state.storages.filter(s=>s.furnitureId===state.selectedFurniture);
@@ -3464,7 +3465,7 @@ function renderInstallDashboard(){
   normalizeInstallState(state);
   const allocation=currentInstallAllocation(),entries=allocation.entries;
   if(!entries.length){
-    sec.style.display="none";$("installQueue").innerHTML="";renderProjectNextActions();return;
+    sec.style.display="none";$("installQueue").innerHTML="";renderProjectNextActions();renderRoomProgressOverview();return;
   }
   sec.style.display="block";
   const installed=entries.filter(e=>e.status==="installed").length;
@@ -3513,7 +3514,7 @@ function renderInstallDashboard(){
     state.installedPlanIds[storageId]=entry.plan.id;
     localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();renderHomeProcurement();
   }));
-  renderProjectNextActions();
+  renderProjectNextActions();renderRoomProgressOverview();
   $("installQueue").querySelectorAll("[data-install-undo]").forEach(btn=>btn.addEventListener("click",()=>{
     delete state.installedPlanIds[btn.dataset.installUndo];
     localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();renderHomeProcurement();
