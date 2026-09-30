@@ -908,6 +908,59 @@ function resumeOwnedDistributionWork(itemId){
   return true;
 }
 
+function calculateOwnedDistributionSession(item,settings,unallocatedOwned,previous=null,matches=null){
+  if(!item)return {session:null,carriedAllocations:0,carriedCopies:0,resetAllocations:0};
+  const requested=Math.max(0,Math.floor(Number(unallocatedOwned)||0));
+  if(!requested)return {session:null,carriedAllocations:0,carriedCopies:0,resetAllocations:0};
+  const compatible=Array.isArray(matches)?matches:compatibleStoragesForItem(item,state.storages,settings);
+  if(!compatible.length)return {session:null,carriedAllocations:0,carriedCopies:0,resetAllocations:0};
+  const chosenByStorage=new Map(chosenPlans().map(plan=>[plan.storageId,plan]));
+  const copyLimit=Math.max(1,Math.min(CAPACITY_COPY_LIMIT,requested));
+  const candidates=compatible.map(match=>{
+    const S=state.storages.find(s=>s.id===match.storageId);if(!S)return null;
+    const chosen=chosenByStorage.get(S.id)||null;
+    return ownedDistributionCandidate(item,S,settings,chosen,match,{
+      copyLimit,
+      nodeLimit:Math.min(CAPACITY_SEARCH_LIMIT,12000),
+      storagePath:storageBreadcrumb(S)
+    });
+  }).filter(Boolean);
+  const plan=ownedDistributionPlan(requested,candidates);
+  const fingerprint=ownedDistributionFingerprint(item,settings,requested);
+  return rebaseOwnedDistributionSession(item,plan,fingerprint,previous);
+}
+function ownedDistributionAppliedPlanSpec(item,allocation,options={}){
+  if(!item||!allocation)return null;
+  const storages=Array.isArray(options.storages)?options.storages:state.storages;
+  const plans=Array.isArray(options.plans)?options.plans:state.savedPlans;
+  const itemLookup=typeof options.itemLookup==="function"?options.itemLookup:boxById;
+  const S=storages.find(s=>s.id===allocation.storageId);if(!S)return null;
+  const assigned=Math.max(0,Math.floor(Number(allocation.assigned)||0));
+  if(!assigned)return null;
+  const clone=v=>JSON.parse(JSON.stringify(v));
+  let layout=[],derivedFrom=null,settings=null,goal=options.goal||state.optimizeGoal,stacking=false;
+  if(allocation.source==="chosen"){
+    const sourcePlan=plans.find(p=>p.id===allocation.planId&&p.storageId===allocation.storageId);if(!sourcePlan)return null;
+    const owned=ownedPackingFromCapacity(assigned,allocation.result);
+    if(owned.layout.length!==assigned)return null;
+    layout=(sourcePlan.layout||[]).map(q=>({...q}));
+    layout.push(...owned.layout.map(p=>extraItemAddition(item,p)).filter(Boolean));
+    derivedFrom=savedPlanSourceSnapshot(sourcePlan);
+    settings=clone(sourcePlan.settings||options.settings||capturePlanSettings());
+    goal=sourcePlan.goal||goal;
+    stacking=sourcePlan.stacking ?? layoutUsesStacking(layout);
+  }else{
+    const owned=ownedCapacityResult(assigned,allocation.result,item);
+    if(!owned||owned.layout.length!==assigned)return null;
+    layout=owned.layout.map(q=>({...q}));
+    settings=clone(options.settings||capturePlanSettings());
+    stacking=typeof owned.stackingEnabled==="boolean"?owned.stackingEnabled:layoutUsesStacking(layout);
+  }
+  const draft={storageId:S.id,settings,stacking,layout};
+  const validity=validatePlanLayoutAgainst(draft,S,itemLookup);
+  if(!validity.valid)return {valid:false,reasons:validity.reasons,storage:S,layout,derivedFrom,settings,goal,stacking};
+  return {valid:true,reasons:[],storage:S,layout,derivedFrom,settings,goal,stacking};
+}
 function ownedDistributionAllocationView(allocation,stale=false){
   const status=["pending","opened","done"].includes(allocation?.status)?allocation.status:"pending";
   const assigned=Math.max(0,Math.floor(Number(allocation?.assigned)||0));
@@ -920,6 +973,7 @@ function ownedDistributionAllocationView(allocation,stale=false){
     certaintyLabel:allocation?.exact?"exact capacity":"safe lower-bound capacity",
     openLabel:"Open "+assigned+" here",
     doneLabel:status==="done"?"Undo done":"Mark done",
+    applyLabel:"Apply to project",
     disabled:!!stale
   };
 }
@@ -932,6 +986,27 @@ function persistOwnedDistributionSession(itemId,session){
 }
 function currentOwnedDistributionWorkRow(itemId){
   return ownedDistributionWorkRows().find(row=>row.itemId===itemId)||null;
+}
+function applyOwnedDistributionAllocation(itemId,allocationId){
+  const row=currentOwnedDistributionWorkRow(itemId);if(!row||row.stale)return {ok:false,reason:"stale"};
+  const allocation=(row.session.allocations||[]).find(a=>a.id===allocationId);if(!allocation)return {ok:false,reason:"missing"};
+  const spec=ownedDistributionAppliedPlanSpec(row.item,allocation);if(!spec?.valid)return {ok:false,reason:"invalid",reasons:spec?.reasons||[]};
+  const plan=createSavedPlanForStorage(spec.storage,spec.layout,{
+    note:"Applied from owned-stock distribution",
+    derivedFrom:spec.derivedFrom,
+    settings:spec.settings,
+    goal:spec.goal,
+    stacking:spec.stacking
+  });
+  if(!choosePlan(plan.id))return {ok:false,reason:"choose"};
+  const settings=fitLookupSettings();
+  const remaining=stockStatusForItem(row.item).unallocatedOwned;
+  const rebased=calculateOwnedDistributionSession(row.item,settings,remaining,row.session);
+  state.ownedDistributionSessions=state.ownedDistributionSessions||{};
+  if(rebased.session)state.ownedDistributionSessions[itemId]=rebased.session;
+  else delete state.ownedDistributionSessions[itemId];
+  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
+  return {ok:true,planId:plan.id,storageId:plan.storageId,remaining,sessionClosed:!rebased.session,carriedAllocations:rebased.carriedAllocations||0,resetAllocations:rebased.resetAllocations||0};
 }
 function toggleOwnedDistributionAllocationDone(itemId,allocationId){
   const row=currentOwnedDistributionWorkRow(itemId);if(!row||row.stale)return false;
@@ -1316,19 +1391,7 @@ function openItemFitModal(){
     }
     distributionBtn.disabled=true;distributionBtn.textContent="Planning…";
     distributionStatus.textContent=previous?"Recalculating safe remaining work…":"Calculating safe capacity across compatible spaces…";
-    const chosenByStorage=new Map(chosenPlans().map(plan=>[plan.storageId,plan]));
-    const copyLimit=Math.max(1,Math.min(CAPACITY_COPY_LIMIT,unallocatedOwned));
-    const candidates=matches.map(match=>{
-      const S=state.storages.find(s=>s.id===match.storageId);if(!S)return null;
-      const chosen=chosenByStorage.get(S.id)||null;
-      return ownedDistributionCandidate(item,S,settings,chosen,match,{
-        copyLimit,
-        nodeLimit:Math.min(CAPACITY_SEARCH_LIMIT,12000),
-        storagePath:storageBreadcrumb(S)
-      });
-    }).filter(Boolean);
-    const plan=ownedDistributionPlan(unallocatedOwned,candidates);
-    const rebased=rebaseOwnedDistributionSession(item,plan,distributionFingerprint,previous);
+    const rebased=calculateOwnedDistributionSession(item,settings,unallocatedOwned,previous,matches);
     persistOwnedDistributionSession(item.id,rebased.session);renderDistributionSession(rebased.session);
     if(previous&&(rebased.carriedAllocations||rebased.resetAllocations)){
       distributionStatus.textContent+=" Recalculation preserved "+rebased.carriedAllocations+" unchanged progress item"+(rebased.carriedAllocations===1?"":"s")+
@@ -2727,11 +2790,12 @@ function revisionDeltaText(delta){
     : "";
   return parts.join(" · ")+" · "+util+" · "+buy+cost;
 }
-function createSavedPlanForStorage(target,layout,{name=null,note="",derivedFrom=null}={}){
+function createSavedPlanForStorage(target,layout,{name=null,note="",derivedFrom=null,settings=null,goal=null,stacking=null}={}){
   const signature=planSignature(target.id,layout);
   const existing=state.savedPlans.find(p=>p.signature===signature);
   if(existing)return existing;
   const sameStorage=state.savedPlans.filter(p=>p.storageId===target.id).length+1;
+  const savedSettings=settings?JSON.parse(JSON.stringify(settings)):capturePlanSettings();
   const plan={
     id:uid("plan"),
     name:name||`${target.name} · Plan ${sameStorage}`,
@@ -2741,11 +2805,11 @@ function createSavedPlanForStorage(target,layout,{name=null,note="",derivedFrom=
     storagePath:storageBreadcrumb(target),
     storageSnapshot:captureStorageSnapshot(target),
     itemSnapshots:capturePlanItems(layout),
-    settings:capturePlanSettings(),
+    settings:savedSettings,
     savedAt:new Date().toISOString(),
     validatedAt:new Date().toISOString(),
-    goal:state.optimizeGoal,
-    stacking:state.enableStacking,
+    goal:goal||state.optimizeGoal,
+    stacking:stacking==null?state.enableStacking:!!stacking,
     signature,
     ...planLineageMetadata(derivedFrom),
     layout:layout.map(q=>({...q}))
@@ -2951,13 +3015,10 @@ function planChoiceImpact(planId,targetState=state){
     clearsInstalled:switchingInstalled&&!preservesInstalled
   };
 }
-function toggleChosenPlan(planId){
+function choosePlan(planId){
   const plan=state.savedPlans.find(p=>p.id===planId);if(!plan)return false;
   state.chosenPlanIds=state.chosenPlanIds||{};
-  if(state.chosenPlanIds[plan.storageId]===plan.id){
-    delete state.chosenPlanIds[plan.storageId];
-    normalizeInstallState(state);return true;
-  }
+  if(state.chosenPlanIds[plan.storageId]===plan.id)return true;
   const health=planHealth(plan);
   if(health.status!=="current"){
     alert(health.status==="review"
@@ -2969,6 +3030,15 @@ function toggleChosenPlan(planId){
   state.chosenPlanIds[plan.storageId]=plan.id;
   carryInstalledPlanForward(state,impact);
   normalizeInstallState(state);return true;
+}
+function toggleChosenPlan(planId){
+  const plan=state.savedPlans.find(p=>p.id===planId);if(!plan)return false;
+  state.chosenPlanIds=state.chosenPlanIds||{};
+  if(state.chosenPlanIds[plan.storageId]===plan.id){
+    delete state.chosenPlanIds[plan.storageId];
+    normalizeInstallState(state);return true;
+  }
+  return choosePlan(planId);
 }
 function chosenPlans(){
   return Object.entries(state.chosenPlanIds||{})
@@ -5262,6 +5332,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     createOwnedDistributionSession,
     ownedDistributionAllocationSignature,
     rebaseOwnedDistributionSession,
+    calculateOwnedDistributionSession,
+    ownedDistributionAppliedPlanSpec,
     ownedDistributionSessionPlan,
     ownedDistributionSessionProgress,
     setOwnedDistributionAllocationStatus,
@@ -5273,6 +5345,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     ownedDistributionAllocationView,
     persistOwnedDistributionSession,
     toggleOwnedDistributionAllocationDone,
+    applyOwnedDistributionAllocation,
     openOwnedDistributionAllocation,
     setItemFitDistributionVisible,
     itemPlanRoomRows,
@@ -5304,6 +5377,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     physicalPlanEquivalent,
     carryInstalledPlanForward,
     planChoiceImpact,
+    choosePlan,
     itemStockStatus,
     aggregateRequiredCounts,
     orientations,
