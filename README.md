@@ -940,7 +940,7 @@ The dashboard gathers every organizer with a saved distribution session and show
 - **Out of date** sessions using the same safety fingerprint as the organizer-level **Find spaces** workflow.
 - A direct **Resume** action that selects the organizer and reopens **Find spaces** with the saved session intact.
 - The actual destination allocations inline, including assigned quantity, destination path, chosen-plan vs unplanned source, capacity certainty, and Pending / Opened / Done status.
-- Direct **Open N here** and **Mark done / Undo done** actions for current sessions, using the same handlers as the organizer-level workflow.
+- Direct **Open N here**, **Apply to project**, and **Mark done / Undo done** actions for current sessions, using the same underlying distribution data as the organizer-level workflow.
 - **Review & recalculate** for stale work and **Review** for completed work.
 - **Clear session** for removing workflow progress without changing owned inventory, saved plans, or chosen plans.
 
@@ -962,7 +962,19 @@ Changed work returns to **Pending**. Unchanged destinations keep their progress.
 
 If no owned copies remain unallocated, **Finish distribution** closes the remaining-work session instead of leaving a permanently stale card.
 
-The dashboard does not create a second inventory system: marking work Done is still workflow progress only, and stock remains committed exclusively through chosen plans.
+### Apply an allocation to the project
+
+A current allocation can also be committed directly with **Apply to project**.
+
+For a destination that already has a chosen plan, Storage Fit creates a saved revision containing the exact assigned packing, preserves the source plan's settings and lineage, validates the resulting full layout, and makes that revision the chosen plan.
+
+For an unplanned storage space, it creates a new saved plan from the exact assigned packing, validates it against the live storage, and chooses it.
+
+The action goes through the normal chosen-plan and install-state rules. If it changes the physical layout of a storage that was marked installed, that storage is no longer treated as installed. After the new plan is chosen, Storage Fit immediately recalculates the distribution against the newly committed stock, preserving unchanged progress and removing the session entirely if no owned stock remains unallocated.
+
+**Open N here** remains available when the packing should be inspected or manually adjusted before committing it.
+
+The dashboard does not create a second inventory system: **Done** is still workflow progress only. Inventory becomes committed only when a plan is chosen, including through **Apply to project**.
 
 No schema migration is required; the app remains on V28.
 

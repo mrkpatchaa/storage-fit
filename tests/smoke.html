@@ -601,6 +601,21 @@
       var persistedSession=api.createOwnedDistributionSession(distItem,sessionSourcePlan,fp1);
       var initialProgress=api.ownedDistributionSessionProgress(persistedSession);
       result(initialProgress.pending===2&&initialProgress.opened===0&&initialProgress.done===0&&initialProgress.totalCopies===4,"new distribution session starts with all allocations pending");
+      var applySourcePlan={...sessionPlan,name:"Chosen source",goal:"access"};
+      var applyLookup=function(id){return id==="fixed"?supportRuleA:distItem};
+      var chosenApplySpec=api.ownedDistributionAppliedPlanSpec(distItem,persistedSession.allocations[0],{
+        storages:sessionStorages,plans:[applySourcePlan],settings:distSettings,itemLookup:applyLookup
+      });
+      result(chosenApplySpec.valid&&chosenApplySpec.layout.length===3&&chosenApplySpec.derivedFrom.planId==="session-plan"&&chosenApplySpec.goal==="access"&&chosenApplySpec.settings.fitTolerance===0,"direct distribution apply extends a chosen plan with its lineage and planning settings");
+      var emptyApplySpec=api.ownedDistributionAppliedPlanSpec(distItem,persistedSession.allocations[1],{
+        storages:sessionStorages,plans:[applySourcePlan],settings:distSettings,itemLookup:applyLookup,goal:"balanced"
+      });
+      result(emptyApplySpec.valid&&emptyApplySpec.layout.length===2&&!emptyApplySpec.derivedFrom&&emptyApplySpec.goal==="balanced","direct distribution apply builds a valid standalone plan for an unplanned storage");
+      var narrowedStorages=[{...sessionStorages[0],w:25},sessionStorages[1]];
+      var invalidApplySpec=api.ownedDistributionAppliedPlanSpec(distItem,persistedSession.allocations[0],{
+        storages:narrowedStorages,plans:[applySourcePlan],settings:distSettings,itemLookup:applyLookup
+      });
+      result(invalidApplySpec.valid===false&&invalidApplySpec.reasons.length>0,"direct distribution apply refuses stored packing geometry that no longer validates");
       var firstAllocation=persistedSession.allocations[0];
       result(api.setOwnedDistributionAllocationStatus(persistedSession,firstAllocation.id,"opened")===true&&api.ownedDistributionSessionProgress(persistedSession).opened===1,"distribution session records an opened allocation");
       result(api.setOwnedDistributionAllocationStatus(persistedSession,firstAllocation.id,"done")===true&&api.ownedDistributionSessionProgress(persistedSession).done===1,"distribution session records a completed allocation");
@@ -651,7 +666,7 @@
       var allocationView=api.ownedDistributionAllocationView({
         status:"opened",assigned:2,source:"chosen",planName:"Bedroom plan",exact:false
       },false);
-      result(allocationView.statusLabel==="Opened"&&allocationView.sourceLabel==="Chosen plan · Bedroom plan"&&allocationView.certaintyLabel==="safe lower-bound capacity"&&allocationView.openLabel==="Open 2 here"&&allocationView.doneLabel==="Mark done"&&!allocationView.disabled,"shared distribution allocation presentation describes actionable chosen-plan work");
+      result(allocationView.statusLabel==="Opened"&&allocationView.sourceLabel==="Chosen plan · Bedroom plan"&&allocationView.certaintyLabel==="safe lower-bound capacity"&&allocationView.openLabel==="Open 2 here"&&allocationView.applyLabel==="Apply to project"&&allocationView.doneLabel==="Mark done"&&!allocationView.disabled,"shared distribution allocation presentation describes actionable chosen-plan work");
       var staleAllocationView=api.ownedDistributionAllocationView({
         status:"done",assigned:1,source:"empty",exact:true
       },true);
