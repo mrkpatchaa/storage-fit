@@ -340,7 +340,15 @@ function openCapacityPacking(storageId,result){
   layouts=[result.layout.map(p=>({...p}))];selectedLayout=0;selectedGap=-1;currentGaps=[];galleryWasCapped=false;
   editMode=false;selectedEditItem=-1;editOriginalLayout=null;editHistory={entries:[],index:-1};topDrag=null;
   detailView="top";
-  capacityLayoutContext={exact:!!result.exact,count:result.count,storageId:S.id,mode:result.mode||"floor",floorCount:Number.isFinite(result.floorCount)?result.floorCount:result.count,stackedCount:Number.isFinite(result.stackedCount)?result.stackedCount:0,stackSummary:result.stackSummary||null};
+  capacityLayoutContext={
+    exact:!!result.exact,count:result.count,storageId:S.id,mode:result.mode||"floor",
+    floorCount:Number.isFinite(result.floorCount)?result.floorCount:result.count,
+    stackedCount:Number.isFinite(result.stackedCount)?result.stackedCount:0,
+    stackSummary:result.stackSummary||null,
+    packingPurpose:result.packingPurpose||"capacity",
+    sourceCapacity:Number(result.sourceCapacity)||result.count,
+    sourceExact:typeof result.sourceExact==="boolean"?result.sourceExact:!!result.exact
+  };
   const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0,W=S.w-2*c,D=S.d-2*c,H=S.h-2*c;
   renderDetail(W,D,H);openDetailModal();
   return true;
@@ -572,6 +580,28 @@ function ownedPackingFromCapacity(unallocatedOwned,result){
   const source=Array.isArray(result?.layout)?result.layout:[];
   const count=Math.min(available,source.length);
   return {available,capacity:source.length,count,layout:source.slice(0,count).map(p=>({...p}))};
+}
+
+function ownedCapacityResult(unallocatedOwned,result,item){
+  const owned=ownedPackingFromCapacity(unallocatedOwned,result);
+  if(!owned.count)return null;
+  const layout=owned.layout;
+  const floorCount=layout.filter(p=>(Number(p.z)||0)<=1e-9).length;
+  const stackedCount=layout.length-floorCount;
+  const lookup=id=>id===item?.id?item:null;
+  return {
+    ...result,
+    count:owned.count,
+    layout,
+    exact:false,
+    floorCount,
+    stackedCount,
+    stackSummary:packingStackSummary(layout,[],lookup),
+    packingPurpose:"owned",
+    sourceCapacity:Number(result?.count)||owned.capacity,
+    sourceExact:!!result?.exact,
+    ownedAvailable:owned.available
+  };
 }
 
 function stackedExtraItemPlacementInPlan(item,plan,liveStorage,itemLookup=boxById){
@@ -4729,6 +4759,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     packingStackSummary,
     packingStackSummaryText,
     ownedPackingFromCapacity,
+    ownedCapacityResult,
     itemPlanRoomRows,
     openSavedPlanWithExtraItems,
     openSavedPlanWithExtraItem,
