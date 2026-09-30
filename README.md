@@ -967,6 +967,10 @@ Before the reorder is applied, Room progress now dry-runs the same install alloc
 
 The global Install queue’s ↑/↓ controls now use that same dry-run path. If an adjacent move would change any Ready/Waiting allocation, Storage Fit lists the exact spaces that would gain or lose readiness and asks for confirmation before saving the new order. If the move has no readiness effect, it remains a one-click reorder with no extra prompt.
 
+The Install queue also offers **Find more Ready** when at least one active space is waiting. It searches alternative orders against the same owned-stock allocator, looking for an order that makes more unfinished storage spaces Ready without changing plans or inventory. Installed and Needs-review positions remain fixed; only active Ready/Waiting entries move.
+
+For small/currently tractable sets the search is exhaustive, so a no-improvement result means no install order can make more spaces Ready with the current owned stock. The search has a responsiveness cap for larger projects; if that cap is hit, the UI says so and offers only the best better order found before the limit. Any proposed order is still previewed through the allocator and requires confirmation before it is saved.
+
 This also tightens the existing Home structure progress semantics: a storage counts as planned only when it has a **current usable saved plan** (or is already installed). Historical stale/invalid plans no longer inflate the planned count, and storage rows explicitly show **saved plan needs review** when appropriate.
 
 The overview is fully derived from the existing plan, inventory, and install state. No new persistent room-status data or schema migration is required; the app remains on V28.
