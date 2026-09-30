@@ -14,6 +14,9 @@ const CAPACITY_COPY_LIMIT = 40;
 const INSTALL_ORDER_SEARCH_LIMIT = 60000;
 const STOCK_UNLOCK_SEARCH_LIMIT = 12000;
 const STOCK_UNLOCK_ITEM_LIMIT = 30;
+const STOCK_UNLOCK_BUNDLE_ITEM_LIMIT = 8;
+const STOCK_UNLOCK_BUNDLE_UNIT_LIMIT = 4;
+const STOCK_UNLOCK_BUNDLE_SCENARIO_LIMIT = 350;
 
 let state = loadState();
 ensureHomeHierarchy(state);
@@ -1971,9 +1974,73 @@ function stockUnlockAnalysis(options={}){
     });
   }
   rows.sort((a,b)=>b.gain-a.gain||Number(b.boughtQty>0)-Number(a.boughtQty>0)||a.name.localeCompare(b.name));
+
+  let bundle=null,bundleScenarios=0,bundleTruncated=false,bundleAllExact=baseline.exact;
+  const bundleItemLimit=Math.max(1,Math.floor(Number(options.bundleItemLimit)||STOCK_UNLOCK_BUNDLE_ITEM_LIMIT));
+  const bundleCandidates=scarce.slice(0,bundleItemLimit).map(row=>({...row,maxAdd:Math.max(0,row.required-row.owned)}));
+  const bundleCandidateCapped=scarce.length>bundleCandidates.length;
+  const bundleUnitLimit=Math.max(2,Math.floor(Number(options.bundleUnitLimit)||STOCK_UNLOCK_BUNDLE_UNIT_LIMIT));
+  const bundleScenarioLimit=Math.max(1,Math.floor(Number(options.bundleScenarioLimit)||STOCK_UNLOCK_BUNDLE_SCENARIO_LIMIT));
+  if(!rows.length&&bundleCandidates.length&&baselineBest<entries.filter(entry=>entry.status==="ready"||entry.status==="waiting").length){
+    const additions=Array(bundleCandidates.length).fill(0);
+    const evaluateBundle=totalUnits=>{
+      if(bundleScenarios>=bundleScenarioLimit){bundleTruncated=true;return}
+      bundleScenarios++;
+      const hypotheticalOwned={...ownedById};
+      const parts=[];
+      for(let i=0;i<additions.length;i++){
+        const qty=additions[i];if(!qty)continue;
+        const candidate=bundleCandidates[i],purchase=purchaseById.get(candidate.id);
+        hypotheticalOwned[candidate.id]=(hypotheticalOwned[candidate.id]||0)+qty;
+        parts.push({
+          id:candidate.id,qty,name:candidate.item?.name||purchase?.name||"Deleted item",
+          boughtQty:Math.max(0,Math.floor(Number(purchase?.boughtQty)||0)),
+          remainingQty:Math.max(0,Math.floor(Number(purchase?.remainingQty)||0))
+        });
+      }
+      const hypotheticalInstall=installAllocationSnapshot(hypotheticalOwned,{install,plans,installedPlanIds,installOrder});
+      const suggestion=suggestInstallOrder({
+        ...options,install:hypotheticalInstall,plans,ownedById:hypotheticalOwned,installedPlanIds,installOrder,nodeLimit
+      });
+      bundleAllExact=bundleAllExact&&suggestion.exact;
+      if(suggestion.bestReady<=baselineBest)return;
+      const candidate={
+        totalUnits,parts,bestReady:suggestion.bestReady,gain:suggestion.bestReady-baselineBest,
+        exact:baseline.exact&&suggestion.exact,order:suggestion.order,
+        gainedReady:suggestion.gainedReady,lostReady:suggestion.lostReady
+      };
+      const partKey=parts.map(part=>part.id+":"+part.qty).join("|");
+      const currentKey=bundle?.parts?.map(part=>part.id+":"+part.qty).join("|")||"";
+      if(!bundle||candidate.gain>bundle.gain||
+        (candidate.gain===bundle.gain&&parts.length<bundle.parts.length)||
+        (candidate.gain===bundle.gain&&parts.length===bundle.parts.length&&partKey.localeCompare(currentKey)<0))bundle=candidate;
+    };
+    const enumerate=(index,remaining,totalUnits)=>{
+      if(bundleTruncated)return;
+      if(index===bundleCandidates.length){
+        if(remaining===0)evaluateBundle(totalUnits);
+        return;
+      }
+      const max=Math.min(bundleCandidates[index].maxAdd,remaining);
+      for(let qty=0;qty<=max;qty++){
+        additions[index]=qty;
+        enumerate(index+1,remaining-qty,totalUnits);
+        if(bundleTruncated)break;
+      }
+      additions[index]=0;
+    };
+    for(let totalUnits=2;totalUnits<=bundleUnitLimit;totalUnits++){
+      const before=bundle;
+      enumerate(0,totalUnits,totalUnits);
+      if(bundle&&bundle!==before)break;
+      if(bundleTruncated)break;
+    }
+  }
   return {
     baselineReady:baselineBest,baselineExact:baseline.exact,rows,allExact,candidateCapped,
-    analyzedCandidates:candidates.length,totalCandidates:scarce.length
+    analyzedCandidates:candidates.length,totalCandidates:scarce.length,
+    bundle,bundleScenarios,bundleTruncated,bundleAllExact,bundleCandidateCapped,
+    bundleAnalyzedCandidates:bundleCandidates.length,bundleUnitLimit
   };
 }
 function installUnlockFingerprint(){
