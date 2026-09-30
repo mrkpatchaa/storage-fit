@@ -948,6 +948,17 @@ For rooms in **Waiting**, the card also explains the current per-storage blocker
 
 **Shopping / receiving** jumps to the first affected organizer in the whole-home shopping list. The wording is intentionally inventory-based rather than assuming every blocker still needs to be purchased: an organizer already marked purchased remains unavailable to installation until it is physically received.
 
+Each room card also has an expandable **Show all N storage spaces** queue. The queue uses the same room priority order and gives every storage space its real next action:
+- invalid chosen plan → **Repair**;
+- reviewable chosen plan → **Revalidate**;
+- current saved option without a chosen plan → **Choose plan**;
+- unplanned storage → **Plan**;
+- ready storage → **Install**;
+- waiting storage → **View blocker** in Shopping / receiving;
+- installed storage → **View installed**.
+
+The queue reuses the existing saved-plan, planning, shopping, and install workflows. It is not a second task system and stores no completion state of its own.
+
 This also tightens the existing Home structure progress semantics: a storage counts as planned only when it has a **current usable saved plan** (or is already installed). Historical stale/invalid plans no longer inflate the planned count, and storage rows explicitly show **saved plan needs review** when appropriate.
 
 The overview is fully derived from the existing plan, inventory, and install state. No new persistent room-status data or schema migration is required; the app remains on V28.

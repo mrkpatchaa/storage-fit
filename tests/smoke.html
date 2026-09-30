@@ -708,6 +708,9 @@
       result(bedroomProgress.total===3&&bedroomProgress.currentPlans===2&&bedroomProgress.chosen===2&&bedroomProgress.review===1&&bedroomProgress.choose===1&&bedroomProgress.ready===1,"room progress rolls current plans, chosen plans, review work and install readiness into one room");
       result(bedroomProgress.nextStorageId==="action-s1"&&atticProgress.plan===1&&atticProgress.currentPlans===0,"room progress prioritizes review work and does not count stale-only or missing plans as current");
       result(roomProgress.totals.currentPlans===2&&roomProgress.totals.chosen===2&&roomProgress.totals.review===1,"whole-home room progress totals exclude stale saved plans from current planning progress");
+      result(bedroomProgress.spaces.map(function(s){return s.status}).join(",")==="review,choose,ready","room storage queue follows the same priority order as the room focus target");
+      result(bedroomProgress.spaces[0].action.kind==="review-plan"&&bedroomProgress.spaces[0].action.targetId==="action-stale"&&bedroomProgress.spaces[0].action.label==="Revalidate","room storage queue routes reviewable chosen plans to revalidation");
+      result(bedroomProgress.spaces[1].action.kind==="choose-plan"&&bedroomProgress.spaces[1].action.targetId==="action-option"&&bedroomProgress.spaces[2].action.kind==="install-ready"&&bedroomProgress.spaces[2].action.targetId==="action-s4","room storage queue routes choose and ready states to their existing workflows");
       var installedRoomProgress=api.projectRoomProgress({
         rooms:actionRooms,
         furniture:actionFurniture,
@@ -738,6 +741,9 @@
       result(blockedBedroom.waiting===2&&blockedBedroom.blockedStorages===2&&blockedBedroom.blockers.length===3,"room progress exposes per-storage inventory blockers from waiting install allocations");
       result(blockedBedroom.blockers[0].storageId==="action-s4"&&blockedBedroom.blockers[0].name==="Sock boxes"&&blockedBedroom.blockers[0].qty===1&&blockedBedroom.blockers[1].storageId==="action-s2"&&blockedBedroom.blockers[1].name==="Labels"&&blockedBedroom.blockers[2].name==="Sock boxes"&&blockedBedroom.blockers[2].qty===2,"room inventory blockers preserve each waiting storage deficit instead of summing them into a shopping total");
       result(blockedBedroom.tone==="waiting","room progress highlights inventory-blocked rooms separately from plan-review rooms");
+      result(blockedBedroom.spaces.filter(function(s){return s.status==="waiting"}).map(function(s){return s.storageId}).join(",")==="action-s4,action-s2","waiting room storage queue is deterministic by hierarchy path");
+      var firstWaitingSpace=blockedBedroom.spaces.find(function(s){return s.status==="waiting"});
+      result(firstWaitingSpace&&firstWaitingSpace.action.kind==="room-shopping"&&firstWaitingSpace.action.targetId==="sock"&&firstWaitingSpace.action.label==="View blocker","waiting storage queue routes to the first concrete missing organizer");
 
       var nextActions=api.projectNextActions({
         rooms:actionRooms,
@@ -786,6 +792,13 @@
         planHealthLookup:function(){return {status:"invalid"}}
       });
       result(invalidNextActions.actions[0].kind==="repair-plan"&&invalidNextActions.actions[0].targetPath==="Bedroom → Wardrobe → Top shelf","invalid chosen plans get a repair action instead of a revalidation action");
+      var invalidRoomQueue=api.projectRoomProgress({
+        rooms:actionRooms,furniture:actionFurniture,storages:actionStorages,
+        savedPlans:[invalidActionPlan],chosen:[invalidActionPlan],installedPlanIds:{},install:{entries:[]},
+        planHealthLookup:function(){return {status:"invalid"}}
+      });
+      var invalidRoomSpace=invalidRoomQueue.rooms.find(function(r){return r.roomId==="room-b"}).spaces[0];
+      result(invalidRoomSpace.status==="review"&&invalidRoomSpace.healthStatus==="invalid"&&invalidRoomSpace.action.kind==="repair-plan"&&invalidRoomSpace.action.label==="Repair","room storage queue distinguishes invalid repair work from reviewable revalidation");
       var contextCheck=api.projectStorageContext("action-s4",{rooms:actionRooms,furniture:actionFurniture,storages:actionStorages});
       result(contextCheck.path==="Bedroom → Wardrobe → Left drawer"&&contextCheck.roomName==="Bedroom","project action location context resolves room, furniture and storage names");
       var installedReviewPlan={id:"installed-review",storageId:"complete-s1",layout:[]};

@@ -1763,9 +1763,10 @@ function projectRoomProgress(options={}){
   const chosenByStorage=new Map(chosen.map(plan=>[plan.storageId,plan]));
   const installByStorage=new Map((install.entries||[]).map(entry=>[entry.storageId,entry]));
   const furnitureByStorageRoom=new Map(furniture.map(item=>[item.id,item.roomId]));
-  const currentSavedByStorage=new Set();
+  const currentSavedByStorage=new Map();
   for(const plan of savedPlans||[]){
-    if(healthLookup(plan).status==="current")currentSavedByStorage.add(plan.storageId);
+    if(healthLookup(plan).status!=="current"||currentSavedByStorage.has(plan.storageId))continue;
+    currentSavedByStorage.set(plan.storageId,plan);
   }
   const statusPriority={review:0,choose:1,plan:2,ready:3,waiting:4,chosen:5,installed:6};
   const storageRows=storages.map(storage=>{
@@ -1774,7 +1775,8 @@ function projectRoomProgress(options={}){
     const installed=!!chosenPlan&&installedPlanId===chosenPlan.id;
     const health=chosenPlan?healthLookup(chosenPlan):null;
     const installEntry=installByStorage.get(storage.id)||null;
-    const currentPlan=installed||currentSavedByStorage.has(storage.id);
+    const currentSavedPlan=currentSavedByStorage.get(storage.id)||null;
+    const currentPlan=installed||!!currentSavedPlan;
     let status="plan";
     if(installed)status="installed";
     else if(chosenPlan&&health?.status!=="current")status="review";
@@ -1782,8 +1784,27 @@ function projectRoomProgress(options={}){
     else if(installEntry?.status==="waiting")status="waiting";
     else if(chosenPlan)status="chosen";
     else if(currentPlan)status="choose";
-    const path=projectStorageContext(storage.id,{rooms,furniture,storages}).path;
-    return {storageId:storage.id,storage,path,roomId:furnitureByStorageRoom.get(storage.furnitureId)||"",status,currentPlan,chosen:!!chosenPlan,installed,missing:(installEntry?.missing||[]).map(x=>({id:x.id,qty:Math.max(0,Math.floor(Number(x.qty)||0))})).filter(x=>x.qty>0)};
+    const context=projectStorageContext(storage.id,{rooms,furniture,storages}),path=context.path;
+    const missing=(installEntry?.missing||[]).map(x=>({id:x.id,name:itemName(x.id),qty:Math.max(0,Math.floor(Number(x.qty)||0))})).filter(x=>x.qty>0);
+    let action={kind:"plan-space",targetId:storage.id,label:"Plan"};
+    if(status==="review"){
+      action={kind:health?.status==="invalid"?"repair-plan":"review-plan",targetId:chosenPlan?.id||"",label:health?.status==="invalid"?"Repair":"Revalidate"};
+    }else if(status==="choose"){
+      action={kind:"choose-plan",targetId:currentSavedPlan?.id||"",label:"Choose plan"};
+    }else if(status==="ready"){
+      action={kind:"install-ready",targetId:storage.id,label:"Install"};
+    }else if(status==="waiting"){
+      action={kind:"room-shopping",targetId:missing[0]?.id||"",label:"View blocker"};
+    }else if(status==="chosen"){
+      action={kind:"open-plan",targetId:chosenPlan?.id||"",label:"Open plan"};
+    }else if(status==="installed"){
+      action={kind:"install-ready",targetId:storage.id,label:"View installed"};
+    }
+    return {
+      storageId:storage.id,storage,path,roomId:furnitureByStorageRoom.get(storage.furnitureId)||"",status,currentPlan,chosen:!!chosenPlan,installed,
+      healthStatus:health?.status||"",chosenPlanId:chosenPlan?.id||"",currentSavedPlanId:currentSavedPlan?.id||"",missing,action,
+      displayPath:[context.furnitureName,context.storageName].filter(Boolean).join(" → ")||context.storageName
+    };
   });
   const roomRows=rooms.map(room=>{
     const rows=storageRows.filter(row=>row.roomId===room.id);
@@ -1802,6 +1823,7 @@ function projectRoomProgress(options={}){
       progressPct:total?Math.round(installed/total*100):0,
       nextStorageId:ordered.find(row=>row.status!=="installed")?.storageId||ordered[0]?.storageId||"",
       storageIds:rows.map(row=>row.storageId),
+      spaces:ordered,
       blockers,blockedStorages:new Set(blockers.map(item=>item.storageId)).size,
       tone:complete?"good":review?"warn":waiting?"waiting":""
     };
@@ -1824,11 +1846,20 @@ function focusProjectRoom(roomId){
   document.querySelector(".sidebar")?.scrollIntoView({behavior:"smooth",block:"start"});
   return true;
 }
-function focusRoomInventoryBlockers(roomId){
-  const row=projectRoomProgress().rooms.find(item=>item.roomId===roomId);if(!row||!row.blockers.length)return false;
-  const first=row.blockers[0],target=document.querySelector(`[data-home-shop-item="${first.id}"]`);
+function focusShoppingItem(itemId){
+  const target=itemId?document.querySelector(`[data-home-shop-item="${itemId}"]`):null;
   if(target){target.scrollIntoView({behavior:"smooth",block:"center"});target.classList.add("roomshoppingfocus");setTimeout(()=>target.classList.remove("roomshoppingfocus"),1400);return true}
   return scrollProjectSection("homeProcurementSection");
+}
+function focusRoomInventoryBlockers(roomId){
+  const row=projectRoomProgress().rooms.find(item=>item.roomId===roomId);if(!row||!row.blockers.length)return false;
+  return focusShoppingItem(row.blockers[0].id);
+}
+function runRoomStorageAction(space){
+  if(!space?.action)return false;
+  if(space.action.kind==="room-shopping")return focusShoppingItem(space.action.targetId);
+  if(space.action.kind==="open-plan"){openSavedPlan(space.action.targetId);return true}
+  return runProjectNextAction(space.action);
 }
 function renderRoomProgressOverview(){
   const sec=$("roomProgressSection"),list=$("roomProgressList"),summary=$("roomProgressSummary");if(!sec||!list||!summary)return;
@@ -1849,10 +1880,19 @@ function renderRoomProgressOverview(){
     const blockers=row.blockers.length
       ?`<div class="roomprogressblockers"><strong>Current install blockers:</strong> ${row.blockers.slice(0,3).map(item=>esc(item.storagePath.split(" → ").slice(-1)[0])+" — "+esc(item.name)+" ×"+item.qty).join(" · ")}${row.blockers.length>3?` · +${row.blockers.length-3} more`:""}</div>`:"";
     const blockerButton=row.blockers.length?`<button class="btn soft" type="button" data-room-shopping="${row.roomId}">Shopping / receiving</button>`:"";
-    return `<div class="roomprogresscard ${row.tone}"><div><div class="roomprogresstitle">${esc(row.roomName)}</div><div class="roomprogressmeta">${row.currentPlans}/${row.total} current plans · ${row.chosen}/${row.total} chosen · ${row.installed}/${row.total} installed</div><div class="progressbar"><span style="width:${row.progressPct}%"></span></div><div class="roomprogresschips">${chips}</div>${blockers}</div><div class="roomprogressactions"><button class="btn soft" type="button" data-room-progress="${row.roomId}">Focus room</button>${blockerButton}</div></div>`;
+    const queue=`<details class="roomstoragequeue"><summary>Show all ${row.total} storage space${row.total===1?"":"s"}</summary><div class="roomstoragelist">${row.spaces.map((space,spaceIndex)=>{
+      const missing=space.status==="waiting"&&space.missing.length
+        ?`<div class="roomstoragemissing">${space.missing.map(item=>esc(item.name)+" ×"+item.qty).join(" · ")}</div>`:"";
+      return `<div class="roomstoragerow"><div><div class="roomstoragetitle">${esc(space.displayPath)}</div><div class="roomstoragestatus ${space.status}">${esc(space.status==="review"?(space.healthStatus==="invalid"?"Repair":"Review"):space.status)}</div>${missing}</div><button class="btn soft" type="button" data-room-space="${row.roomId}:${spaceIndex}">${esc(space.action.label)}</button></div>`;
+    }).join("")}</div></details>`;
+    return `<div class="roomprogresscard ${row.tone}"><div><div class="roomprogresstitle">${esc(row.roomName)}</div><div class="roomprogressmeta">${row.currentPlans}/${row.total} current plans · ${row.chosen}/${row.total} chosen · ${row.installed}/${row.total} installed</div><div class="progressbar"><span style="width:${row.progressPct}%"></span></div><div class="roomprogresschips">${chips}</div>${blockers}</div><div class="roomprogressactions"><button class="btn soft" type="button" data-room-progress="${row.roomId}">Focus room</button>${blockerButton}</div>${queue}</div>`;
   }).join("");
   list.querySelectorAll("[data-room-progress]").forEach(btn=>btn.addEventListener("click",()=>focusProjectRoom(btn.dataset.roomProgress)));
   list.querySelectorAll("[data-room-shopping]").forEach(btn=>btn.addEventListener("click",()=>focusRoomInventoryBlockers(btn.dataset.roomShopping)));
+  list.querySelectorAll("[data-room-space]").forEach(btn=>btn.addEventListener("click",()=>{
+    const [roomId,indexText]=btn.dataset.roomSpace.split(":"),room=progress.rooms.find(item=>item.roomId===roomId),space=room?.spaces?.[Number(indexText)];
+    if(space)runRoomStorageAction(space);
+  }));
 }
 function projectDistributionTarget(row){
   const allocation=(row?.session?.allocations||[])[0];
