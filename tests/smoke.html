@@ -46,6 +46,10 @@
       var valid={storages:[{id:"s",name:"Drawer",w:67,d:26,h:13,obstacles:[]}],boxes:[{id:"b",name:"Box",w:10,d:10,h:5}],savedPlans:[]};
       result(api.validateBackupState(valid)==="","backup validation accepts valid state");
       result(api.validateBackupState({storages:"bad",boxes:[]})!=="","backup validation rejects invalid state");
+      var validSessionBackup={...valid,ownedDistributionSessions:{b:{itemId:"b",allocations:[{storageId:"s",status:"opened",result:{layout:[]}}]}}};
+      result(api.validateBackupState(validSessionBackup)==="","backup validation accepts persisted owned-distribution sessions");
+      var invalidSessionBackup={...valid,ownedDistributionSessions:{b:{itemId:"b",allocations:[{storageId:"s",status:"opened",result:{}}]}}};
+      result(api.validateBackupState(invalidSessionBackup)!=="","backup validation rejects malformed owned-distribution packing data");
 
       var base={x:0,y:0,z:0,w:20,d:20,h:10};
       var touching={x:2,y:2,z:10,w:10,d:10,h:5};
