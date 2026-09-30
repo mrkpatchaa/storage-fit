@@ -693,6 +693,33 @@
         {id:"action-option",storageId:"action-s2",layout:[]},
         {id:"action-ready",storageId:"action-s4",layout:[]}
       ];
+      var roomProgress=api.projectRoomProgress({
+        rooms:actionRooms,
+        furniture:actionFurniture,
+        storages:actionStorages,
+        savedPlans:actionPlans,
+        chosen:[actionPlans[0],actionPlans[2]],
+        installedPlanIds:{},
+        install:{entries:[{storageId:"action-s4",status:"ready"}]},
+        planHealthLookup:function(plan){return {status:plan.id==="action-stale"?"review":"current"}}
+      });
+      var bedroomProgress=roomProgress.rooms.find(function(r){return r.roomId==="room-b"});
+      var atticProgress=roomProgress.rooms.find(function(r){return r.roomId==="room-a"});
+      result(bedroomProgress.total===3&&bedroomProgress.currentPlans===2&&bedroomProgress.chosen===2&&bedroomProgress.review===1&&bedroomProgress.choose===1&&bedroomProgress.ready===1,"room progress rolls current plans, chosen plans, review work and install readiness into one room");
+      result(bedroomProgress.nextStorageId==="action-s1"&&atticProgress.plan===1&&atticProgress.currentPlans===0,"room progress prioritizes review work and does not count stale-only or missing plans as current");
+      result(roomProgress.totals.currentPlans===2&&roomProgress.totals.chosen===2&&roomProgress.totals.review===1,"whole-home room progress totals exclude stale saved plans from current planning progress");
+      var installedRoomProgress=api.projectRoomProgress({
+        rooms:actionRooms,
+        furniture:actionFurniture,
+        storages:actionStorages,
+        savedPlans:actionPlans,
+        chosen:[actionPlans[0],actionPlans[2]],
+        installedPlanIds:{"action-s4":"action-ready"},
+        install:{entries:[{storageId:"action-s4",status:"installed"}]},
+        planHealthLookup:function(plan){return {status:plan.id==="action-stale"?"review":"current"}}
+      });
+      result(installedRoomProgress.rooms.find(function(r){return r.roomId==="room-b"}).installed===1&&installedRoomProgress.totals.installed===1,"room progress treats the installed chosen plan as complete work");
+
       var nextActions=api.projectNextActions({
         rooms:actionRooms,
         furniture:actionFurniture,
