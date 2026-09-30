@@ -604,6 +604,73 @@ function ownedCapacityResult(unallocatedOwned,result,item){
   };
 }
 
+function ownedDistributionCandidate(item,S,settings,chosenPlan,match={},options={}){
+  if(!item||!S)return null;
+  const copyLimit=Math.max(1,Math.min(CAPACITY_COPY_LIMIT,Math.floor(Number(options.copyLimit)||CAPACITY_COPY_LIMIT)));
+  const nodeLimit=Math.max(100,Math.min(CAPACITY_SEARCH_LIMIT,Math.floor(Number(options.nodeLimit)||CAPACITY_SEARCH_LIMIT)));
+  const tightness=Number.isFinite(Number(match?.freeAfter))?Number(match.freeAfter):Number.POSITIVE_INFINITY;
+  const storagePath=options.storagePath||S.name||"Storage";
+  if(chosenPlan){
+    const healthStatus=options.planStatus||planHealth(chosenPlan).status;
+    if(healthStatus!=="current"){
+      return {
+        storageId:S.id,storageName:S.name||"Storage",storagePath,source:"chosen",planId:chosenPlan.id,
+        planName:chosenPlan.name||"Chosen plan",capacity:0,exact:false,tightness,skipped:true,
+        skipReason:healthStatus==="review"?"chosen plan needs review":"chosen plan is invalid"
+      };
+    }
+    const result=maxAdditionalCopiesInPlan(item,chosenPlan,S,{
+      nodeLimit,copyLimit,itemLookup:options.itemLookup||boxById
+    });
+    return {
+      storageId:S.id,storageName:S.name||"Storage",storagePath,source:"chosen",planId:chosenPlan.id,
+      planName:chosenPlan.name||"Chosen plan",capacity:Array.isArray(result.layout)?result.layout.length:0,
+      exact:!!result.exact,tightness,result,skipped:false
+    };
+  }
+  const result=maxCopiesInStorage(item,S,settings,{nodeLimit,copyLimit,itemLookup:options.itemLookup});
+  return {
+    storageId:S.id,storageName:S.name||"Storage",storagePath,source:"empty",planId:null,planName:"",
+    capacity:Array.isArray(result.layout)?result.layout.length:0,exact:!!result.exact,tightness,result,skipped:false
+  };
+}
+function ownedDistributionPlan(unallocatedOwned,candidates=[]){
+  const requested=Math.max(0,Math.floor(Number(unallocatedOwned)||0));
+  const skipped=(candidates||[]).filter(c=>c?.skipped);
+  const ready=(candidates||[]).filter(c=>c&&!c.skipped&&Math.max(0,Math.floor(Number(c.capacity)||0))>0)
+    .map(c=>({...c,capacity:Math.max(0,Math.floor(Number(c.capacity)||0))}))
+    .sort((a,b)=>b.capacity-a.capacity||(b.exact?1:0)-(a.exact?1:0)||a.tightness-b.tightness||String(a.storagePath||a.storageName||a.storageId).localeCompare(String(b.storagePath||b.storageName||b.storageId)));
+  let remaining=requested;
+  const allocations=[];
+  for(const candidate of ready){
+    if(remaining<=0)break;
+    const assigned=Math.min(remaining,candidate.capacity);
+    if(!assigned)continue;
+    allocations.push({...candidate,assigned});
+    remaining-=assigned;
+  }
+  const assigned=requested-remaining;
+  return {
+    requested,assigned,remaining,spaceCount:allocations.length,allocations,skipped,
+    totalSafeCapacity:ready.reduce((sum,c)=>sum+c.capacity,0),
+    boundedCandidates:ready.filter(c=>!c.exact).length,
+    usedBounded:allocations.some(c=>!c.exact),
+    provenMinimumSpaces:remaining===0&&ready.every(c=>c.exact)
+  };
+}
+function ownedDistributionSummaryText(plan){
+  if(!plan||!plan.requested)return "No unallocated owned stock to distribute.";
+  const spaces=plan.spaceCount+" space"+(plan.spaceCount===1?"":"s");
+  let text=plan.remaining===0
+    ? (plan.provenMinimumSpaces
+      ? plan.assigned+" owned copies fit in a minimum of "+spaces+"."
+      : plan.assigned+" owned copies are assigned across "+spaces+" using the safe capacity found.")
+    : plan.assigned+" of "+plan.requested+" owned copies are assigned across "+spaces+"; "+plan.remaining+" remain unassigned.";
+  if(plan.usedBounded||plan.boundedCandidates)text+=" Some capacity results are lower bounds, so a tighter distribution may exist.";
+  if(plan.skipped?.length)text+=" "+plan.skipped.length+" storage space"+(plan.skipped.length===1?" was":"s were")+" skipped because the chosen plan needs review.";
+  return text;
+}
+
 function stackedExtraItemPlacementInPlan(item,plan,liveStorage,itemLookup=boxById){
   if(!item||!plan||!liveStorage||!item.canBeStacked)return null;
   const stackingEnabled=plan.stacking ?? layoutUsesStacking(plan.layout||[]);
@@ -4772,6 +4839,9 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     packingStackSummaryText,
     ownedPackingFromCapacity,
     ownedCapacityResult,
+    ownedDistributionCandidate,
+    ownedDistributionPlan,
+    ownedDistributionSummaryText,
     itemPlanRoomRows,
     openSavedPlanWithExtraItems,
     openSavedPlanWithExtraItem,
