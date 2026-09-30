@@ -1770,43 +1770,47 @@ function projectNextActions(options={}){
   const context=storageId=>projectStorageContext(storageId,{storages,furniture,rooms});
   const byStoragePath=(a,b)=>context(a.storageId).sortKey.localeCompare(context(b.storageId).sortKey)||String(a.name||"").localeCompare(String(b.name||""));
   const withPath=(detail,path)=>path?detail+" First: "+path+".":detail;
-  const push=(priority,kind,title,detail,label,targetId="",tone="",targetPath="")=>actions.push({priority,kind,title,detail,label,targetId,tone,targetPath});
+  const push=(priority,kind,title,detail,label,targetId="",tone="",targetPath="",targets=[])=>actions.push({priority,kind,title,detail,label,targetId,tone,targetPath,targets:Array.isArray(targets)?targets:[]});
 
   const chosenHealth=chosen.filter(plan=>installedPlanIds?.[plan.storageId]!==plan.id).map(plan=>({plan,health:healthLookup(plan)}));
   const invalidChosen=chosenHealth.filter(x=>x.health.status==="invalid").map(x=>x.plan).sort(byStoragePath);
   if(invalidChosen.length){
-    const first=invalidChosen[0],path=context(first.storageId).path;
+    const targets=invalidChosen.map(plan=>{const path=context(plan.storageId).path;return {targetId:plan.id,targetPath:path,label:path}});
+    const first=targets[0];
     push(10,"repair-plan",
       "Repair "+invalidChosen.length+" invalid chosen plan"+(invalidChosen.length===1?"":"s"),
-      withPath("The saved layout is no longer valid and must be rebuilt, replaced, or unchosen before reliable execution.",path),
-      "Go to first plan",first.id,"warn",path);
+      withPath("The saved layout is no longer valid and must be rebuilt, replaced, or unchosen before reliable execution.",first.targetPath),
+      "Go to first plan",first.targetId,"warn",first.targetPath,targets);
   }
 
   const reviewChosen=chosenHealth.filter(x=>x.health.status==="review").map(x=>x.plan).sort(byStoragePath);
   if(reviewChosen.length){
-    const first=reviewChosen[0],path=context(first.storageId).path;
+    const targets=reviewChosen.map(plan=>{const path=context(plan.storageId).path;return {targetId:plan.id,targetPath:path,label:path}});
+    const first=targets[0];
     push(11,"review-plan",
       "Revalidate "+reviewChosen.length+" chosen plan"+(reviewChosen.length===1?"":"s"),
-      withPath("The layout still fits, but storage or organizer inputs changed and need acknowledgement.",path),
-      "Go to revalidate",first.id,"warn",path);
+      withPath("The layout still fits, but storage or organizer inputs changed and need acknowledgement.",first.targetPath),
+      "Go to revalidate",first.targetId,"warn",first.targetPath,targets);
   }
 
   const staleDistribution=distributionRows.filter(row=>row.stale).slice().sort((a,b)=>projectDistributionTarget(a).sortKey.localeCompare(projectDistributionTarget(b).sortKey));
   if(staleDistribution.length){
-    const first=staleDistribution[0],target=projectDistributionTarget(first);
+    const targets=staleDistribution.map(row=>{const target=projectDistributionTarget(row);return {targetId:row.itemId,targetPath:target.path,label:target.path}});
+    const first=targets[0];
     push(20,"recalculate-distribution",
       "Recalculate "+staleDistribution.length+" distribution session"+(staleDistribution.length===1?"":"s"),
-      withPath("Stored allocation work is out of date with the current stock, plans, or storage geometry.",target.path),
-      "Recalculate first",first.itemId,"warn",target.path);
+      withPath("Stored allocation work is out of date with the current stock, plans, or storage geometry.",first.targetPath),
+      "Recalculate first",first.targetId,"warn",first.targetPath,targets);
   }
 
   const activeDistribution=distributionRows.filter(row=>!row.stale&&!row.complete).slice().sort((a,b)=>projectDistributionTarget(a).sortKey.localeCompare(projectDistributionTarget(b).sortKey));
   if(activeDistribution.length){
-    const first=activeDistribution[0],target=projectDistributionTarget(first);
+    const targets=activeDistribution.map(row=>{const target=projectDistributionTarget(row);return {targetId:row.itemId,targetPath:target.path,label:target.path}});
+    const first=targets[0];
     push(30,"continue-distribution",
       "Continue "+activeDistribution.length+" distribution session"+(activeDistribution.length===1?"":"s"),
-      withPath("Owned-stock allocation work is ready to continue or apply to the project.",target.path),
-      "Resume first",first.itemId,"",target.path);
+      withPath("Owned-stock allocation work is ready to continue or apply to the project.",first.targetPath),
+      "Resume first",first.targetId,"",first.targetPath,targets);
   }
 
   const chosenStorageIds=new Set(chosen.map(plan=>plan.storageId));
@@ -1817,20 +1821,22 @@ function projectNextActions(options={}){
   }
   const chooseable=storages.filter(storage=>!chosenStorageIds.has(storage.id)&&currentSavedByStorage.has(storage.id)).sort((a,b)=>context(a.id).sortKey.localeCompare(context(b.id).sortKey));
   if(chooseable.length){
-    const firstStorage=chooseable[0],firstPlan=currentSavedByStorage.get(firstStorage.id),path=context(firstStorage.id).path;
+    const targets=chooseable.map(storage=>{const plan=currentSavedByStorage.get(storage.id),path=context(storage.id).path;return {targetId:plan?.id||"",targetPath:path,label:path}});
+    const first=targets[0];
     push(40,"choose-plan",
       "Choose a plan for "+chooseable.length+" storage space"+(chooseable.length===1?"":"s"),
-      withPath("Current saved options exist, but no project plan has been chosen for these spaces.",path),
-      "Review first options",firstPlan?.id||"","",path);
+      withPath("Current saved options exist, but no project plan has been chosen for these spaces.",first.targetPath),
+      "Review first options",first.targetId,"",first.targetPath,targets);
   }
 
   const needsPlanning=storages.filter(storage=>!chosenStorageIds.has(storage.id)&&!currentSavedByStorage.has(storage.id)).sort((a,b)=>context(a.id).sortKey.localeCompare(context(b.id).sortKey));
   if(needsPlanning.length){
-    const first=needsPlanning[0],path=context(first.id).path;
+    const targets=needsPlanning.map(storage=>{const path=context(storage.id).path;return {targetId:storage.id,targetPath:path,label:path}});
+    const first=targets[0];
     push(50,"plan-space",
       "Plan "+needsPlanning.length+" storage space"+(needsPlanning.length===1?"":"s"),
-      withPath("These spaces do not yet have a current saved plan that can be chosen.",path),
-      "Plan next space",first.id,"",path);
+      withPath("These spaces do not yet have a current saved plan that can be chosen.",first.targetPath),
+      "Plan next space",first.targetId,"",first.targetPath,targets);
   }
 
   if((procurement.boughtUnits||0)>0)push(60,"receive-purchases",
@@ -1845,11 +1851,12 @@ function projectNextActions(options={}){
 
   const readyInstall=(install.entries||[]).filter(entry=>entry.status==="ready").slice().sort((a,b)=>context(a.storageId).sortKey.localeCompare(context(b.storageId).sortKey));
   if(readyInstall.length){
-    const first=readyInstall[0],path=context(first.storageId).path;
+    const targets=readyInstall.map(entry=>{const path=context(entry.storageId).path;return {targetId:entry.storageId,targetPath:path,label:path}});
+    const first=targets[0];
     push(80,"install-ready",
       "Install "+readyInstall.length+" ready storage space"+(readyInstall.length===1?"":"s"),
-      withPath("These chosen plans can be installed now with the owned inventory currently available.",path),
-      "Open install queue",first.storageId,"good",path);
+      withPath("These chosen plans can be installed now with the owned inventory currently available.",first.targetPath),
+      "Open install queue",first.targetId,"good",first.targetPath,targets);
   }
 
   if(!storages.length)push(90,"add-storage","Add your first storage space","Create a drawer, shelf, cupboard, or other space before planning layouts.","Add storage","","");
@@ -1885,7 +1892,11 @@ function runProjectNextAction(action){
   }
   if(action.kind==="plan-space"){openCompatibleStorage(action.targetId);return true}
   if(action.kind==="receive-purchases"||action.kind==="shopping")return scrollProjectSection("homeProcurementSection");
-  if(action.kind==="install-ready")return scrollProjectSection("installDashboardSection");
+  if(action.kind==="install-ready"){
+    const card=document.querySelector(`[data-install-card="${action.targetId}"]`);
+    if(card){card.scrollIntoView({behavior:"smooth",block:"center"});return true}
+    return scrollProjectSection("installDashboardSection");
+  }
   if(action.kind==="add-storage"){ $("addStorage")?.click();return true }
   return false;
 }
@@ -1894,13 +1905,25 @@ function renderProjectNextActions(){
   const result=projectNextActions(),actions=result.actions;
   sec.style.display="block";
   summary.textContent=result.complete?"Project complete":actions.length+" next action"+(actions.length===1?"":"s");
-  list.innerHTML=actions.map((action,index)=>
-    '<div class="nextactioncard '+esc(action.tone||"")+'"><div><div class="nextactiontitle">'+esc(action.title)+'</div>'+
-    (action.targetPath?'<div class="nextactionpath">'+esc(action.targetPath)+'</div>':"")+
-    '<div class="nextactiondetail">'+esc(action.detail)+'</div></div>'+
-    (action.label?'<button class="btn '+(index===0?"primary":"soft")+'" type="button" data-project-next="'+index+'">'+esc(action.label)+'</button>':'<span class="nextactiondone">✓</span>')+'</div>'
-  ).join("");
+  list.innerHTML=actions.map((action,index)=>{
+    const targets=Array.isArray(action.targets)?action.targets:[];
+    const drilldown=targets.length>1
+      ?'<details class="nextactiontargets"><summary>Show all '+targets.length+' targets</summary><div class="nextactiontargetlist">'+targets.map((target,targetIndex)=>
+        '<div class="nextactiontarget"><span>'+esc(target.label||target.targetPath||"Target")+'</span><button class="btn soft" type="button" data-project-next-target="'+index+':'+targetIndex+'">Open</button></div>'
+      ).join("")+'</div></details>'
+      :"";
+    return '<div class="nextactioncard '+esc(action.tone||"")+'"><div><div class="nextactiontitle">'+esc(action.title)+'</div>'+
+      (action.targetPath?'<div class="nextactionpath">'+esc(action.targetPath)+'</div>':"")+
+      '<div class="nextactiondetail">'+esc(action.detail)+'</div></div>'+
+      (action.label?'<button class="btn '+(index===0?"primary":"soft")+'" type="button" data-project-next="'+index+'">'+esc(action.label)+'</button>':'<span class="nextactiondone">✓</span>')+
+      drilldown+'</div>';
+  }).join("");
   list.querySelectorAll("[data-project-next]").forEach(btn=>btn.addEventListener("click",()=>runProjectNextAction(actions[Number(btn.dataset.projectNext)])));
+  list.querySelectorAll("[data-project-next-target]").forEach(btn=>btn.addEventListener("click",()=>{
+    const [actionIndex,targetIndex]=btn.dataset.projectNextTarget.split(":").map(Number);
+    const action=actions[actionIndex],target=action?.targets?.[targetIndex];if(!action||!target)return;
+    runProjectNextAction({...action,targetId:target.targetId,targetPath:target.targetPath});
+  }));
 }
 function renderAll(){
   $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;$("enableStacking").checked=!!state.enableStacking;
@@ -3374,7 +3397,7 @@ function renderInstallDashboard(){
     const plan=entry.plan,m=planMetrics(plan),contents=labeledPlacements(plan.layout||[]);
     const missing=entry.missing.map(x=>`${esc(boxById(x.id)?.name||"Item")} ×${x.qty}`).join(" · ");
     const label=entry.status==="installed"?"Installed":entry.status==="ready"?"Ready now":entry.status==="stale"?"Needs plan review":"Waiting for inventory";
-    return `<div class="installcard ${entry.status}">
+    return `<div class="installcard ${entry.status}" data-install-card="${entry.storageId}">
       <div>
         <div class="installtitle">${esc(m.storagePath)}</div>
         <div class="installmeta">${esc(plan.name)} · ${m.itemCount} organizer${m.itemCount===1?"":"s"}</div>

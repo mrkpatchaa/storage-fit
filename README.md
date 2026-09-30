@@ -949,6 +949,8 @@ Location-specific actions show the exact **Room → Furniture → Storage space*
 
 Each action routes into the existing source-of-truth workflow: the affected saved-plan card, distribution session, Build a layout, shopping list, or install queue. **Revalidate** actions now land on the saved-plan card where the Revalidate control actually exists; invalid plans land on the same card so they can be opened, replaced, unchosen, or deleted. The coordinator itself does not choose plans, receive stock, buy items, or mark installations automatically.
 
+When a priority category contains more than one target, the card also exposes an expandable **Show all N targets** queue. Every target keeps the same deterministic hierarchy ordering and has its own **Open** action, so the user can jump directly to any affected storage space, saved plan, install target, or distribution session instead of working through only the first item. The drill-down is UI-only and does not add persisted task state.
+
 When every storage space has an installed chosen plan and no higher-priority work remains, the coordinator shows **Project complete**.
 
 No schema migration is required; the app remains on V28.
