@@ -600,6 +600,13 @@
       var restoredState={boxes:[distItem],ownedDistributionSessions:{[distItem.id]:JSON.parse(JSON.stringify(persistedSession))}};
       api.normalizeOwnedDistributionSessions(restoredState);
       result(restoredState.ownedDistributionSessions[distItem.id].allocations[0].status==="done","distribution session progress survives state normalization after reload");
+      result(restoredState.ownedDistributionSessions[distItem.id].boundedCandidates===persistedSession.boundedCandidates,"distribution session uncertainty survives state normalization after reload");
+      var distributionBar=w.document.getElementById("itemFitDistributionBtn").closest(".fitdistributionbar");
+      w.document.getElementById("itemFitDistribution").innerHTML="<div>temporary</div>";
+      api.setItemFitDistributionVisible(false);
+      result(distributionBar.style.display==="none"&&w.document.getElementById("itemFitDistribution").innerHTML==="","shared item-fit modal hides and clears distribution controls outside Find spaces");
+      api.setItemFitDistributionVisible(true);
+      result(distributionBar.style.display==="flex","Find spaces can restore distribution controls after other item-fit modal modes");
       var emptyFloorCapacity=api.maxCopiesInStorage(
         emptyStackItem,{id:"empty-floor-space",name:"Tall cube",w:10,d:10,h:15,obstacles:[],dividers:[]},
         {...emptyStackSettings,enableStacking:false},{nodeLimit:10000,copyLimit:20}
