@@ -917,6 +917,8 @@ After capacity is calculated, **Open packing** turns the returned arrangement in
 
 When a capacity packing uses stacking, Storage Fit also summarizes its **stack structure before opening it**: number of distinct stacks, tallest physical level, and proposed copies per level (for example `2 stacks · tallest level 3 · L1:2 / L2:2 / L3:1`). Saved-plan extra-capacity summaries include existing organizers as support bases when computing physical levels, while the layer counts themselves describe only the proposed additional copies. The same summary remains visible after **Open packing**.
 
+Whole-home capacity also connects to owned inventory. After capacity is calculated, **Open N owned** becomes available when that organizer has unallocated owned stock. Storage Fit opens only a support-safe prefix of the packing, recomputes its floor/stack summary, and labels the detail as **Owned-stock packing: N of M capacity** (or **N of at least M found** for bounded searches). This is planning only: Owned quantity is not decremented and the layout is not automatically saved or chosen.
+
 **Open space** jumps directly to that compartment so planning can continue without hunting through the hierarchy.
 
 The lookup intentionally answers a structural question: whether the organizer fits the storage geometry when empty. It does not treat unused area inside an existing saved layout as available space. Leftover-space suggestions remain the right tool for filling gaps inside a particular layout.
