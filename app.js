@@ -1342,6 +1342,14 @@ function validateBackupState(candidate){
   if(candidate.shoppingBought!=null&&(typeof candidate.shoppingBought!=="object"||Array.isArray(candidate.shoppingBought)))return "Shopping progress is malformed.";
   if(candidate.installedPlanIds!=null&&(typeof candidate.installedPlanIds!=="object"||Array.isArray(candidate.installedPlanIds)))return "Installed plan status is malformed.";
   if(candidate.installOrder!=null&&!Array.isArray(candidate.installOrder))return "Install order is malformed.";
+  if(candidate.ownedDistributionSessions!=null&&(typeof candidate.ownedDistributionSessions!=="object"||Array.isArray(candidate.ownedDistributionSessions)))return "Owned distribution sessions are malformed.";
+  for(const [itemId,session] of Object.entries(candidate.ownedDistributionSessions||{})){
+    if(!session||typeof session!=="object"||session.itemId!==itemId||!Array.isArray(session.allocations))return "An owned distribution session is malformed.";
+    for(const allocation of session.allocations){
+      if(!allocation||typeof allocation!=="object"||!allocation.storageId||!["pending","opened","done"].includes(allocation.status||"pending"))return "An owned distribution allocation is malformed.";
+      if(!allocation.result||!Array.isArray(allocation.result.layout))return "An owned distribution allocation has no packing layout.";
+    }
+  }
   if(Array.isArray(candidate.installOrder)){
     if(candidate.installOrder.some(id=>typeof id!=="string"))return "Install order contains an invalid storage ID.";
     if(new Set(candidate.installOrder).size!==candidate.installOrder.length)return "Install order contains duplicates.";
@@ -4958,7 +4966,7 @@ $("deleteBox").addEventListener("click",()=>{
   if(usedBySaved){alert("This item is used by a saved plan. Use “Used in plans” to open the affected plans, then remove or replace it before deleting.");return}
   const deletingItem=state.boxes.find(b=>b.id===editingBox);
   createRecoveryCheckpoint(`Before deleting item “${deletingItem?.name||"Item"}”`);
-  state.boxes=state.boxes.filter(x=>x.id!==editingBox);delete state.selectedTypes[editingBox];delete state.itemLimits[editingBox];delete state.shoppingBought[editingBox];
+  state.boxes=state.boxes.filter(x=>x.id!==editingBox);delete state.selectedTypes[editingBox];delete state.itemLimits[editingBox];delete state.shoppingBought[editingBox];delete state.ownedDistributionSessions?.[editingBox];
   editingBox=state.boxes[0]?.id||"";save();renderAll()
 });
 
