@@ -1771,6 +1771,30 @@ function prioritizedInstallOrderForRoom(roomId,options={}){
   const changed=order.some((id,index)=>id!==baseOrder[index]);
   return {order,changed,movedIds:roomActive,activeCount:activeIds.size};
 }
+function roomInstallPriorityImpact(roomId,options={}){
+  const furniture=Array.isArray(options.furniture)?options.furniture:state.furniture;
+  const storages=Array.isArray(options.storages)?options.storages:state.storages;
+  const install=options.install||currentInstallAllocation();
+  const priority=prioritizedInstallOrderForRoom(roomId,{furniture,storages,install,installOrder:options.installOrder});
+  if(!priority.changed)return {changed:false,order:priority.order,gainedReady:[],lostReady:[],transitions:[]};
+  const entries=Array.isArray(install?.entries)?install.entries:[];
+  const plans=Array.isArray(options.plans)?options.plans:entries.filter(entry=>entry.status!=="stale"&&entry.plan).map(entry=>entry.plan);
+  const ownedById=options.ownedById&&typeof options.ownedById==="object"
+    ?options.ownedById:Object.fromEntries(state.boxes.map(item=>[item.id,item.ownedQty||0]));
+  const installedPlanIds=options.installedPlanIds&&typeof options.installedPlanIds==="object"?options.installedPlanIds:state.installedPlanIds;
+  const before=new Map(entries.map(entry=>[entry.storageId,entry.status]));
+  const after=computeInstallAllocation(plans,ownedById,installedPlanIds,priority.order);
+  const transitions=[];
+  for(const entry of after.entries){
+    const from=before.get(entry.storageId),to=entry.status;
+    if(from===to||!((from==="ready"||from==="waiting")&&(to==="ready"||to==="waiting")))continue;
+    const context=projectStorageContext(entry.storageId,{furniture,storages,rooms:Array.isArray(options.rooms)?options.rooms:state.rooms});
+    transitions.push({storageId:entry.storageId,from,to,path:context.path,roomId:context.room?.id||""});
+  }
+  const gainedReady=transitions.filter(item=>item.from==="waiting"&&item.to==="ready");
+  const lostReady=transitions.filter(item=>item.from==="ready"&&item.to==="waiting");
+  return {changed:true,order:priority.order,gainedReady,lostReady,transitions};
+}
 function projectRoomProgress(options={}){
   const rooms=Array.isArray(options.rooms)?options.rooms:state.rooms;
   const furniture=Array.isArray(options.furniture)?options.furniture:state.furniture;
@@ -1841,6 +1865,7 @@ function projectRoomProgress(options={}){
     ).sort((a,b)=>a.storagePath.localeCompare(b.storagePath)||a.name.localeCompare(b.name));
     const complete=total>0&&installed===total;
     const installPriority=prioritizedInstallOrderForRoom(room.id,{furniture,storages,install});
+    const priorityImpact=waiting>0&&installPriority.changed?roomInstallPriorityImpact(room.id,{rooms,furniture,storages,install,installedPlanIds}):null;
     return {
       roomId:room.id,roomName:room.name||"Room",total,currentPlans,chosen:chosenCount,installed,review,choose,plan,ready,waiting,chosenOnly,complete,
       progressPct:total?Math.round(installed/total*100):0,
@@ -1850,6 +1875,7 @@ function projectRoomProgress(options={}){
       blockers,blockedStorages:new Set(blockers.map(item=>item.storageId)).size,
       canPrioritizeInstall:waiting>0&&installPriority.changed,
       priorityStorageCount:installPriority.movedIds.length,
+      priorityImpact,
       tone:complete?"good":review?"warn":waiting?"waiting":""
     };
   });
@@ -1881,11 +1907,17 @@ function focusRoomInventoryBlockers(roomId){
   return focusShoppingItem(row.blockers[0].id);
 }
 function prioritizeRoomInstall(roomId){
-  const allocation=currentInstallAllocation(),priority=prioritizedInstallOrderForRoom(roomId,{install:allocation});
-  if(!priority.changed)return false;
+  const allocation=currentInstallAllocation(),impact=roomInstallPriorityImpact(roomId,{install:allocation});
+  if(!impact.changed)return false;
   const room=roomById(roomId),name=room?.name||"this room";
-  if(!confirm(`Prioritize ${name} in the install order?\n\nShared owned inventory will be allocated to this room's ready/waiting spaces first. This may make spaces in other rooms wait instead. Plans, owned quantities, and Installed status will not change.`))return false;
-  state.installOrder=priority.order;
+  const gains=impact.gainedReady.length
+    ?"Would become Ready:\n"+impact.gainedReady.map(item=>"• "+item.path).join("\n")
+    :"No waiting spaces become Ready with the current owned stock.";
+  const losses=impact.lostReady.length
+    ?"Would become Waiting:\n"+impact.lostReady.map(item=>"• "+item.path).join("\n")
+    :"No currently Ready spaces would become Waiting.";
+  if(!confirm(`Prioritize ${name} in the install order?\n\n${gains}\n\n${losses}\n\nPlans, owned quantities, purchased quantities, and Installed status will not change.`))return false;
+  state.installOrder=impact.order;
   localStorage.setItem(KEY,JSON.stringify(state));
   renderInstallDashboard();
   renderRoomProgressOverview();
@@ -1917,12 +1949,14 @@ function renderRoomProgressOverview(){
       ?`<div class="roomprogressblockers"><strong>Current install blockers:</strong> ${row.blockers.slice(0,3).map(item=>esc(item.storagePath.split(" → ").slice(-1)[0])+" — "+esc(item.name)+" ×"+item.qty).join(" · ")}${row.blockers.length>3?` · +${row.blockers.length-3} more`:""}</div>`:"";
     const blockerButton=row.blockers.length?`<button class="btn soft" type="button" data-room-shopping="${row.roomId}">Shopping / receiving</button>`:"";
     const priorityButton=row.canPrioritizeInstall?`<button class="btn soft" type="button" data-room-prioritize="${row.roomId}">Prioritize room</button>`:"";
+    const priorityPreview=row.canPrioritizeInstall&&row.priorityImpact
+      ?`<div class="roomprioritypreview"><strong>Priority preview:</strong> ${row.priorityImpact.gainedReady.length?`+${row.priorityImpact.gainedReady.length} Ready`:"no new Ready"}${row.priorityImpact.lostReady.length?` · ${row.priorityImpact.lostReady.length} other space${row.priorityImpact.lostReady.length===1?"":"s"} would wait`:" · no Ready space displaced"}</div>`:"";
     const queue=`<details class="roomstoragequeue"><summary>Show all ${row.total} storage space${row.total===1?"":"s"}</summary><div class="roomstoragelist">${row.spaces.map((space,spaceIndex)=>{
       const missing=space.status==="waiting"&&space.missing.length
         ?`<div class="roomstoragemissing">${space.missing.map(item=>esc(item.name)+" ×"+item.qty).join(" · ")}</div>`:"";
       return `<div class="roomstoragerow"><div><div class="roomstoragetitle">${esc(space.displayPath)}</div><div class="roomstoragestatus ${space.status}">${esc(space.status==="review"?(space.healthStatus==="invalid"?"Repair":"Review"):space.status)}</div>${missing}</div><button class="btn soft" type="button" data-room-space="${row.roomId}:${spaceIndex}">${esc(space.action.label)}</button></div>`;
     }).join("")}</div></details>`;
-    return `<div class="roomprogresscard ${row.tone}"><div><div class="roomprogresstitle">${esc(row.roomName)}</div><div class="roomprogressmeta">${row.currentPlans}/${row.total} current plans · ${row.chosen}/${row.total} chosen · ${row.installed}/${row.total} installed</div><div class="progressbar"><span style="width:${row.progressPct}%"></span></div><div class="roomprogresschips">${chips}</div>${blockers}${row.canPrioritizeInstall?`<div class="roomprioritynote">Install order controls which unfinished spaces reserve shared owned inventory first.</div>`:""}</div><div class="roomprogressactions"><button class="btn soft" type="button" data-room-progress="${row.roomId}">Focus room</button>${priorityButton}${blockerButton}</div>${queue}</div>`;
+    return `<div class="roomprogresscard ${row.tone}"><div><div class="roomprogresstitle">${esc(row.roomName)}</div><div class="roomprogressmeta">${row.currentPlans}/${row.total} current plans · ${row.chosen}/${row.total} chosen · ${row.installed}/${row.total} installed</div><div class="progressbar"><span style="width:${row.progressPct}%"></span></div><div class="roomprogresschips">${chips}</div>${blockers}${row.canPrioritizeInstall?`<div class="roomprioritynote">Install order controls which unfinished spaces reserve shared owned inventory first.</div>`:""}${priorityPreview}</div><div class="roomprogressactions"><button class="btn soft" type="button" data-room-progress="${row.roomId}">Focus room</button>${priorityButton}${blockerButton}</div>${queue}</div>`;
   }).join("");
   list.querySelectorAll("[data-room-progress]").forEach(btn=>btn.addEventListener("click",()=>focusProjectRoom(btn.dataset.roomProgress)));
   list.querySelectorAll("[data-room-shopping]").forEach(btn=>btn.addEventListener("click",()=>focusRoomInventoryBlockers(btn.dataset.roomShopping)));
@@ -5768,6 +5802,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeOwnedDistributionSessions,
     projectStorageContext,
     prioritizedInstallOrderForRoom,
+    roomInstallPriorityImpact,
     projectRoomProgress,
     projectNextActions,
     computeInstallAllocation,

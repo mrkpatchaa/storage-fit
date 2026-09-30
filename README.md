@@ -963,6 +963,8 @@ When a room has waiting install work and its active entries are not already firs
 
 This can intentionally make more of the selected room ready at the expense of another room when both compete for the same owned organizer. The confirmation calls this out explicitly. It does **not** change plans, owned quantities, purchased quantities, or Installed status; it only changes `installOrder`, and the existing per-storage ↑/↓ controls remain available for manual adjustment.
 
+Before the reorder is applied, Room progress now dry-runs the same install allocator against the proposed room-first order. The card shows a compact **Priority preview** such as **+1 Ready · 1 other space would wait**. The confirmation expands that into the exact hierarchy paths that would change from Waiting → Ready and Ready → Waiting. If order changes but the available stock already covers every active space, the preview explicitly reports that no readiness status would change.
+
 This also tightens the existing Home structure progress semantics: a storage counts as planned only when it has a **current usable saved plan** (or is already installed). Historical stale/invalid plans no longer inflate the planned count, and storage rows explicitly show **saved plan needs review** when appropriate.
 
 The overview is fully derived from the existing plan, inventory, and install state. No new persistent room-status data or schema migration is required; the app remains on V28.
