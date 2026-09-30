@@ -965,6 +965,8 @@ This can intentionally make more of the selected room ready at the expense of an
 
 Before the reorder is applied, Room progress now dry-runs the same install allocator against the proposed room-first order. The card shows a compact **Priority preview** such as **+1 Ready · 1 other space would wait**. The confirmation expands that into the exact hierarchy paths that would change from Waiting → Ready and Ready → Waiting. If order changes but the available stock already covers every active space, the preview explicitly reports that no readiness status would change.
 
+The global Install queue’s ↑/↓ controls now use that same dry-run path. If an adjacent move would change any Ready/Waiting allocation, Storage Fit lists the exact spaces that would gain or lose readiness and asks for confirmation before saving the new order. If the move has no readiness effect, it remains a one-click reorder with no extra prompt.
+
 This also tightens the existing Home structure progress semantics: a storage counts as planned only when it has a **current usable saved plan** (or is already installed). Historical stale/invalid plans no longer inflate the planned count, and storage rows explicitly show **saved plan needs review** when appropriate.
 
 The overview is fully derived from the existing plan, inventory, and install state. No new persistent room-status data or schema migration is required; the app remains on V28.
