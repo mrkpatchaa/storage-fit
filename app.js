@@ -990,7 +990,7 @@ function openItemFitModal(){
     if(openBtn)openBtn.disabled=!result.layout.length;
     btn.textContent=result.exact?"Recalculate":"Try again";btn.disabled=false;
   }));
-  distributionBtn.addEventListener("click",()=>{
+  distributionBtn.onclick=()=>{
     if(!unallocatedOwned||!matches.length)return;
     distributionBtn.disabled=true;distributionBtn.textContent="Planning…";
     distributionStatus.textContent="Calculating safe capacity across compatible spaces…";
@@ -1028,7 +1028,7 @@ function openItemFitModal(){
       }
     }));
     distributionBtn.disabled=false;distributionBtn.textContent="Recalculate distribution";
-  });
+  };
   $("itemFitList").querySelectorAll("[data-open-owned-capacity]").forEach(btn=>btn.addEventListener("click",()=>{
     const result=capacityResults.get(btn.dataset.openOwnedCapacity),owned=ownedCapacityResult(unallocatedOwned,result,item);
     if(owned)openCapacityPacking(btn.dataset.openOwnedCapacity,owned);
