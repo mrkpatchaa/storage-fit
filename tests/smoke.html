@@ -906,8 +906,10 @@
       result(comboUnlock.rows.length===0&&comboUnlock.bundle&&comboUnlock.bundle.totalUnits===2&&comboUnlock.bundle.parts.length===2,"stock unlock bundle search finds a mixed-organizer unlock when neither +1 change works alone");
       result(comboUnlock.bundle.parts.map(function(part){return part.id+":"+part.qty}).join(",")==="combo-a:1,combo-b:1"&&comboUnlock.bundle.parts[0].boughtQty===1&&comboUnlock.bundle.parts[1].remainingQty===1,"mixed unlock bundle preserves per-organizer purchased and sourcing context");
 
+      var cappedBundlePlan={id:"capped-bundle-plan",storageId:"capped-bundle-space",layout:[{typeId:"cap-a"},{typeId:"cap-b"},{typeId:"cap-c"}]};
+      var cappedBundleInstall=api.computeInstallAllocation([cappedBundlePlan],{"cap-a":0,"cap-b":0,"cap-c":0},{},["capped-bundle-space"]);
       var cappedBundle=api.stockUnlockAnalysis({
-        install:comboInstall,plans:[comboPlan],ownedById:{"combo-a":0,"combo-b":0},installedPlanIds:{},installOrder:["combo-space"],
+        install:cappedBundleInstall,plans:[cappedBundlePlan],ownedById:{"cap-a":0,"cap-b":0,"cap-c":0},installedPlanIds:{},installOrder:["capped-bundle-space"],
         itemLookup:function(id){return {id:id,name:id}},purchaseRows:[],bundleScenarioLimit:1
       });
       result(cappedBundle.bundleTruncated&&cappedBundle.bundleScenarios===1,"stock unlock bundle search reports when scenario enumeration hits its responsiveness cap");
