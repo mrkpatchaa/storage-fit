@@ -711,6 +711,27 @@
       result(nextActions.actions.map(function(a){return a.kind}).join(",")==="review-plan,recalculate-distribution,continue-distribution,choose-plan,plan-space,receive-purchases,shopping,install-ready","project next actions prioritize safety, unfinished planning, receiving, shopping and installation");
       result(nextActions.actions[0].targetId==="action-stale"&&nextActions.actions[0].targetPath==="Bedroom → Wardrobe → Right drawer"&&nextActions.actions[1].targetPath.indexOf("Sock boxes → Bedroom")===0,"project next actions identify the exact first location for plan and distribution work");
       result(nextActions.actions[4].targetId==="action-s3"&&nextActions.actions[4].targetPath==="Attic → Shelf → Bin","project next actions deep-link planning to the alphabetically first hierarchy path");
+      result(nextActions.actions[4].targets.length===1&&nextActions.actions[4].targets[0].targetId==="action-s3","single-target project actions expose their complete target queue");
+      var multiPlanActions=api.projectNextActions({
+        rooms:actionRooms,furniture:actionFurniture,storages:actionStorages,
+        savedPlans:[actionPlans[1]],chosen:[],installedPlanIds:{},distributionRows:[],
+        procurement:{boughtUnits:0,remainingUnits:0},install:{entries:[]},
+        planHealthLookup:function(){return {status:"current"}}
+      });
+      var planningAction=multiPlanActions.actions.find(function(a){return a.kind==="plan-space"});
+      result(planningAction.targets.length===3&&planningAction.targets.map(function(t){return t.targetPath}).join("|")==="Attic → Shelf → Bin|Bedroom → Wardrobe → Left drawer|Bedroom → Wardrobe → Right drawer","project planning drill-down lists every target in deterministic hierarchy order");
+      var multiReviewPlans=[
+        {id:"review-right",storageId:"action-s1",layout:[]},
+        {id:"review-left",storageId:"action-s4",layout:[]}
+      ];
+      var multiReviewActions=api.projectNextActions({
+        rooms:actionRooms,furniture:actionFurniture,storages:actionStorages,
+        savedPlans:multiReviewPlans,chosen:multiReviewPlans,installedPlanIds:{},distributionRows:[],
+        procurement:{boughtUnits:0,remainingUnits:0},install:{entries:[]},
+        planHealthLookup:function(){return {status:"review"}}
+      });
+      var reviewAction=multiReviewActions.actions[0];
+      result(reviewAction.kind==="review-plan"&&reviewAction.targets.length===2&&reviewAction.targets[0].targetId==="review-left"&&reviewAction.targets[1].targetId==="review-right","project revalidation drill-down exposes every affected saved plan in hierarchy order");
       var invalidActionPlan={id:"action-invalid",storageId:"action-s2",layout:[]};
       var invalidNextActions=api.projectNextActions({
         rooms:actionRooms,furniture:actionFurniture,storages:actionStorages,
