@@ -766,6 +766,51 @@ function createOwnedDistributionSession(item,plan,fingerprint){
     allocations
   };
 }
+function ownedDistributionAllocationSignature(allocation){
+  if(!allocation)return "";
+  const assigned=Math.max(0,Math.floor(Number(allocation.assigned)||0));
+  const source=allocation.source||"empty";
+  const planId=source==="chosen"?String(allocation.planId||""):"";
+  const layout=(allocation.result?.layout||[]).slice(0,assigned).map(p=>[
+    p.typeId||"",round6(Number(p.x)||0),round6(Number(p.y)||0),round6(Number(p.z)||0),
+    round6(Number(p.w)||0),round6(Number(p.d)||0),round6(Number(p.h)||0)
+  ]);
+  return JSON.stringify([String(allocation.storageId||""),source,planId,assigned,layout]);
+}
+function rebaseOwnedDistributionSession(item,plan,fingerprint,previous=null){
+  const session=createOwnedDistributionSession(item,plan,fingerprint);
+  if(!session)return {session:null,carriedAllocations:0,carriedCopies:0,resetAllocations:0};
+  if(!previous)return {session,carriedAllocations:0,carriedCopies:0,resetAllocations:0};
+  const buckets=new Map();
+  let previousProgress=0;
+  for(const allocation of previous.allocations||[]){
+    if(!["opened","done"].includes(allocation.status))continue;
+    previousProgress++;
+    const signature=ownedDistributionAllocationSignature(allocation);
+    if(!signature)continue;
+    if(!buckets.has(signature))buckets.set(signature,[]);
+    buckets.get(signature).push(allocation);
+  }
+  let carriedAllocations=0,carriedCopies=0;
+  for(const allocation of session.allocations||[]){
+    const signature=ownedDistributionAllocationSignature(allocation);
+    const bucket=buckets.get(signature);
+    const prior=bucket?.shift();
+    if(!prior)continue;
+    allocation.status=prior.status;
+    if(prior.updatedAt)allocation.updatedAt=prior.updatedAt;
+    carriedAllocations++;
+    carriedCopies+=Math.max(0,Math.floor(Number(allocation.assigned)||0));
+  }
+  session.createdAt=String(previous.createdAt||session.createdAt);
+  session.recalculatedAt=new Date().toISOString();
+  session.previousSessionId=String(previous.id||"");
+  session.carriedProgress={allocations:carriedAllocations,copies:carriedCopies};
+  return {
+    session,carriedAllocations,carriedCopies,
+    resetAllocations:Math.max(0,previousProgress-carriedAllocations)
+  };
+}
 function ownedDistributionSessionPlan(session){
   if(!session)return null;
   return {
@@ -808,7 +853,7 @@ function ownedDistributionSessionSummaryText(session,stale=false){
   const progress=p.total
     ? " Progress: "+p.done+" done · "+p.opened+" opened · "+p.pending+" pending."
     : "";
-  return (stale?"Out of date — recalculate before opening allocations. ":"")+base+progress;
+  return (stale?"Out of date — recalculate remaining work before opening allocations. ":"")+base+progress;
 }
 
 function ownedDistributionWorkRows(sessions=state.ownedDistributionSessions,options={}){
@@ -1204,8 +1249,8 @@ function openItemFitModal(){
       distributionEl.innerHTML="";
       return;
     }
-    distributionBtn.disabled=!unallocatedOwned||!matches.length;
-    distributionBtn.textContent=unallocatedOwned?"Recalculate distribution":"No unallocated stock";
+    distributionBtn.disabled=false;
+    distributionBtn.textContent=unallocatedOwned?"Recalculate remaining":"Finish distribution";
     distributionStatus.textContent=ownedDistributionSessionSummaryText(session,stale);
     distributionEl.innerHTML=(session.allocations||[]).length?session.allocations.map(allocation=>{
       const view=ownedDistributionAllocationView(allocation,stale);
@@ -1261,14 +1306,16 @@ function openItemFitModal(){
     btn.textContent=result.exact?"Recalculate":"Try again";btn.disabled=false;
   }));
   distributionBtn.onclick=()=>{
-    if(!unallocatedOwned||!matches.length)return;
     const previous=state.ownedDistributionSessions?.[item.id]||null;
-    const progress=ownedDistributionSessionProgress(previous);
-    if(previous&&(progress.opened||progress.done)&&!ownedDistributionSessionIsStale(previous,distributionFingerprint)){
-      if(!confirm("Recalculate this distribution and reset its Opened/Done progress?"))return;
+    if(!previous&&(!unallocatedOwned||!matches.length))return;
+    if(previous&&!unallocatedOwned){
+      persistOwnedDistributionSession(item.id,null);
+      renderDistributionSession(null);
+      distributionStatus.textContent="All owned copies are now committed to active chosen plans. The remaining distribution work session was closed.";
+      return;
     }
     distributionBtn.disabled=true;distributionBtn.textContent="Planning…";
-    distributionStatus.textContent="Calculating safe capacity across compatible spaces…";
+    distributionStatus.textContent=previous?"Recalculating safe remaining work…":"Calculating safe capacity across compatible spaces…";
     const chosenByStorage=new Map(chosenPlans().map(plan=>[plan.storageId,plan]));
     const copyLimit=Math.max(1,Math.min(CAPACITY_COPY_LIMIT,unallocatedOwned));
     const candidates=matches.map(match=>{
@@ -1281,8 +1328,12 @@ function openItemFitModal(){
       });
     }).filter(Boolean);
     const plan=ownedDistributionPlan(unallocatedOwned,candidates);
-    const session=createOwnedDistributionSession(item,plan,distributionFingerprint);
-    persistOwnedDistributionSession(item.id,session);renderDistributionSession(session);
+    const rebased=rebaseOwnedDistributionSession(item,plan,distributionFingerprint,previous);
+    persistOwnedDistributionSession(item.id,rebased.session);renderDistributionSession(rebased.session);
+    if(previous&&(rebased.carriedAllocations||rebased.resetAllocations)){
+      distributionStatus.textContent+=" Recalculation preserved "+rebased.carriedAllocations+" unchanged progress item"+(rebased.carriedAllocations===1?"":"s")+
+        (rebased.resetAllocations?" and reset "+rebased.resetAllocations+" changed item"+(rebased.resetAllocations===1?"":"s")+".":".");
+    }
   };
   $("itemFitList").querySelectorAll("[data-open-owned-capacity]").forEach(btn=>btn.addEventListener("click",()=>{
     const result=capacityResults.get(btn.dataset.openOwnedCapacity),owned=ownedCapacityResult(unallocatedOwned,result,item);
@@ -5209,6 +5260,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     ownedDistributionSummaryText,
     ownedDistributionFingerprint,
     createOwnedDistributionSession,
+    ownedDistributionAllocationSignature,
+    rebaseOwnedDistributionSession,
     ownedDistributionSessionPlan,
     ownedDistributionSessionProgress,
     setOwnedDistributionAllocationStatus,
