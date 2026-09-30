@@ -974,7 +974,20 @@ The action goes through the normal chosen-plan and install-state rules. If it ch
 
 **Open N here** remains available when the packing should be inspected or manually adjusted before committing it.
 
-The dashboard does not create a second inventory system: **Done** is still workflow progress only. Inventory becomes committed only when a plan is chosen, including through **Apply to project**.
+### Apply the full distribution
+
+When a current session has more than one destination, **Apply all N** can commit the whole distribution in one operation.
+
+Before changing the project, Storage Fit prevalidates every destination:
+- every allocation must still produce a valid live layout;
+- each destination storage may appear only once;
+- the total assigned copies may not exceed the organizer's currently unallocated owned stock.
+
+If any destination fails preflight, no distribution plans are applied. If preflight succeeds, Storage Fit creates/chooses each validated plan, using the same lineage/settings and install-state rules as the individual action. A recovery checkpoint is created before the multi-space change.
+
+After the batch is committed, remaining owned stock is recalculated exactly like the individual **Apply to project** flow. If all owned copies are now committed, the distribution session closes.
+
+The dashboard does not create a second inventory system: **Done** is still workflow progress only. Inventory becomes committed only when a plan is chosen, including through **Apply to project** or **Apply all**.
 
 No schema migration is required; the app remains on V28.
 
