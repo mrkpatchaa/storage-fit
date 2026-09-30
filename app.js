@@ -1329,7 +1329,7 @@ function openItemFitModal(){
     distributionStatus.textContent=ownedDistributionSessionSummaryText(session,stale);
     distributionEl.innerHTML=(session.allocations||[]).length?session.allocations.map(allocation=>{
       const view=ownedDistributionAllocationView(allocation,stale);
-      return '<div class="fitdistributioncard '+esc(view.status)+(stale?" stale":"")+'"><div><div class="fitdistributiontitle">'+allocation.assigned+' owned → '+esc(allocation.storagePath)+' <span class="distributionstatus '+esc(view.status)+'">'+view.statusLabel+'</span></div><div class="fitdistributionmeta">'+esc(view.sourceLabel)+' · '+allocation.capacity+' '+esc(view.certaintyLabel)+(stale?" · out of date":"")+'</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-session-open="'+allocation.id+'" '+(view.disabled?"disabled":"")+'>'+view.openLabel+'</button><button class="btn soft" type="button" data-session-done="'+allocation.id+'" '+(view.disabled?"disabled":"")+'>'+view.doneLabel+'</button></div></div>';
+      return '<div class="fitdistributioncard '+esc(view.status)+(stale?" stale":"")+'"><div><div class="fitdistributiontitle">'+allocation.assigned+' owned → '+esc(allocation.storagePath)+' <span class="distributionstatus '+esc(view.status)+'">'+view.statusLabel+'</span></div><div class="fitdistributionmeta">'+esc(view.sourceLabel)+' · '+allocation.capacity+' '+esc(view.certaintyLabel)+(stale?" · out of date":"")+'</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-session-open="'+allocation.id+'" '+(view.disabled?"disabled":"")+'>'+view.openLabel+'</button><button class="btn primary" type="button" data-session-apply="'+allocation.id+'" '+(view.disabled?"disabled":"")+'>'+view.applyLabel+'</button><button class="btn soft" type="button" data-session-done="'+allocation.id+'" '+(view.disabled?"disabled":"")+'>'+view.doneLabel+'</button></div></div>';
     }).join(""):'<div class="fitfindersummary">No safe allocation was stored in this distribution session.</div>';
     if(session.skipped?.length){
       distributionEl.innerHTML+='<div class="fitfindersummary">'+session.skipped.map(x=>esc(x.storagePath)+": "+esc(x.skipReason)).join(" · ")+'</div>';
@@ -1343,6 +1343,12 @@ function openItemFitModal(){
     distributionEl.querySelectorAll("[data-session-open]").forEach(btn=>btn.addEventListener("click",()=>{
       if(stale)return;
       openOwnedDistributionAllocation(item.id,btn.dataset.sessionOpen);
+    }));
+    distributionEl.querySelectorAll("[data-session-apply]").forEach(btn=>btn.addEventListener("click",()=>{
+      if(stale)return;
+      const result=applyOwnedDistributionAllocation(item.id,btn.dataset.sessionApply);
+      if(!result.ok){alert(result.reasons?.[0]||"This allocation could not be applied safely.");return}
+      closeItemFitModal();renderAll();
     }));
   };
   renderDistributionSession(state.ownedDistributionSessions?.[item.id]||null);
@@ -3202,7 +3208,7 @@ function renderDistributionWorkDashboard(){
       :'';
     const allocations=(session.allocations||[]).map(allocation=>{
       const view=ownedDistributionAllocationView(allocation,row.stale);
-      return '<div class="distributionworkallocation '+view.status+(row.stale?" stale":"")+'"><div><div class="fitdistributiontitle">'+allocation.assigned+' owned → '+esc(allocation.storagePath)+' <span class="distributionstatus '+view.status+'">'+view.statusLabel+'</span></div><div class="fitdistributionmeta">'+esc(view.sourceLabel)+' · '+allocation.capacity+' '+esc(view.certaintyLabel)+(row.stale?" · out of date":"")+'</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-distribution-allocation-open="'+allocation.id+'" data-distribution-item="'+row.itemId+'" '+(view.disabled?"disabled":"")+'>'+view.openLabel+'</button><button class="btn soft" type="button" data-distribution-allocation-done="'+allocation.id+'" data-distribution-item="'+row.itemId+'" '+(view.disabled?"disabled":"")+'>'+view.doneLabel+'</button></div></div>';
+      return '<div class="distributionworkallocation '+view.status+(row.stale?" stale":"")+'"><div><div class="fitdistributiontitle">'+allocation.assigned+' owned → '+esc(allocation.storagePath)+' <span class="distributionstatus '+view.status+'">'+view.statusLabel+'</span></div><div class="fitdistributionmeta">'+esc(view.sourceLabel)+' · '+allocation.capacity+' '+esc(view.certaintyLabel)+(row.stale?" · out of date":"")+'</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-distribution-allocation-open="'+allocation.id+'" data-distribution-item="'+row.itemId+'" '+(view.disabled?"disabled":"")+'>'+view.openLabel+'</button><button class="btn primary" type="button" data-distribution-allocation-apply="'+allocation.id+'" data-distribution-item="'+row.itemId+'" '+(view.disabled?"disabled":"")+'>'+view.applyLabel+'</button><button class="btn soft" type="button" data-distribution-allocation-done="'+allocation.id+'" data-distribution-item="'+row.itemId+'" '+(view.disabled?"disabled":"")+'>'+view.doneLabel+'</button></div></div>';
     }).join("");
     return '<div class="distributionworkcard '+row.status+'"><div><div class="installtitle">'+esc(row.item.name||"Item")+
       ' <span class="distributionworkstatus '+row.status+'">'+statusLabel+'</span></div><div class="installmeta">'+esc(meta)+
@@ -3212,6 +3218,11 @@ function renderDistributionWorkDashboard(){
   list.querySelectorAll("[data-distribution-resume]").forEach(btn=>btn.addEventListener("click",()=>resumeOwnedDistributionWork(btn.dataset.distributionResume)));
   list.querySelectorAll("[data-distribution-allocation-open]").forEach(btn=>btn.addEventListener("click",()=>{
     openOwnedDistributionAllocation(btn.dataset.distributionItem,btn.dataset.distributionAllocationOpen);
+  }));
+  list.querySelectorAll("[data-distribution-allocation-apply]").forEach(btn=>btn.addEventListener("click",()=>{
+    const result=applyOwnedDistributionAllocation(btn.dataset.distributionItem,btn.dataset.distributionAllocationApply);
+    if(!result.ok){alert(result.reasons?.[0]||"This allocation could not be applied safely.");return}
+    renderAll();
   }));
   list.querySelectorAll("[data-distribution-allocation-done]").forEach(btn=>btn.addEventListener("click",()=>{
     toggleOwnedDistributionAllocationDone(btn.dataset.distributionItem,btn.dataset.distributionAllocationDone);
