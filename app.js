@@ -710,6 +710,7 @@ function ownedDistributionFingerprint(item,settings,unallocatedOwned,options={})
   const statusLookup=typeof options.planStatusLookup==="function"
     ? options.planStatusLookup
     : plan=>planHealth(plan).status;
+  const itemLookup=typeof options.itemLookup==="function"?options.itemLookup:boxById;
   const settingsSig=[
     !!settings?.clearanceEnabled,round6(Number(settings?.clearance)||0),
     round6(Number(settings?.fitTolerance)||0),settings?.uprightOnly!==false,!!settings?.enableStacking
@@ -717,12 +718,14 @@ function ownedDistributionFingerprint(item,settings,unallocatedOwned,options={})
   const storageSig=(storages||[]).map(S=>{
     const planId=chosenPlanIds?.[S.id]||"";
     const plan=planId?plans.find(p=>p.id===planId&&p.storageId===S.id):null;
+    const planItemRules=plan?[...new Set((plan.layout||[]).map(p=>p.typeId))].sort().map(id=>[id,itemPlanningSignature(itemLookup(id))]):[];
     const planSig=plan?[
       plan.id,
       planSignature(plan.storageId,plan.layout||[]),
       JSON.stringify(plan.settings||null),
       plan.stacking ?? layoutUsesStacking(plan.layout||[]),
-      statusLookup(plan)
+      statusLookup(plan),
+      planItemRules
     ]:null;
     return [S.id,storageStructureSignature(S),planSig];
   }).sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
