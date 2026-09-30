@@ -43,6 +43,7 @@ state.editShowGrid = state.editShowGrid !== false;
 state.enableStacking = !!state.enableStacking;
 state.optimizeGoal = ["fill","compartments","simple","balanced","cost","access"].includes(state.optimizeGoal)?state.optimizeGoal:"fill";
 state.savedPlans = Array.isArray(state.savedPlans)?state.savedPlans:[];
+normalizeOwnedDistributionSessions(state);
 normalizeChosenPlanSelections(state);
 normalizeShoppingBought(state);
 normalizeInstallState(state);
@@ -98,7 +99,7 @@ for(const p of state.savedPlans){
 
 function defaults(){
   return {
-    unit:"cm",clearance:0.5,fitTolerance:0,editSnapStep:0.5,editShowGrid:true,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanIds:{},shoppingBought:{},installedPlanIds:{},installOrder:[],
+    unit:"cm",clearance:0.5,fitTolerance:0,editSnapStep:0.5,editShowGrid:true,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanIds:{},shoppingBought:{},installedPlanIds:{},installOrder:[],ownedDistributionSessions:{},
     rooms:[{id:"room1",name:"Bedroom"}],
     furniture:[{id:"furn1",roomId:"room1",name:"Wardrobe"}],
     selectedRoom:"room1",selectedFurniture:"furn1",
@@ -126,7 +127,7 @@ function loadState(){
           selectedTypes[b.id]=Boolean(old.selectedTypes?.[b.id] || (old.selections?.[b.id]||0)>0 || b.id===old.selectedBox);
         }
         return {
-          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,editSnapStep:old.editSnapStep??defaultEditSnapStep(old.unit||"cm"),editShowGrid:old.editShowGrid!==false,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanIds:old.chosenPlanIds&&typeof old.chosenPlanIds==="object"?old.chosenPlanIds:{},chosenPlanId:old.chosenPlanId||null,shoppingBought:old.shoppingBought&&typeof old.shoppingBought==="object"?old.shoppingBought:{},installedPlanIds:old.installedPlanIds&&typeof old.installedPlanIds==="object"?old.installedPlanIds:{},installOrder:Array.isArray(old.installOrder)?old.installOrder:[],
+          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,editSnapStep:old.editSnapStep??defaultEditSnapStep(old.unit||"cm"),editShowGrid:old.editShowGrid!==false,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanIds:old.chosenPlanIds&&typeof old.chosenPlanIds==="object"?old.chosenPlanIds:{},chosenPlanId:old.chosenPlanId||null,shoppingBought:old.shoppingBought&&typeof old.shoppingBought==="object"?old.shoppingBought:{},installedPlanIds:old.installedPlanIds&&typeof old.installedPlanIds==="object"?old.installedPlanIds:{},installOrder:Array.isArray(old.installOrder)?old.installOrder:[],ownedDistributionSessions:old.ownedDistributionSessions&&typeof old.ownedDistributionSessions==="object"?old.ownedDistributionSessions:{},
           clearanceEnabled:!!old.clearanceEnabled,rooms:Array.isArray(old.rooms)?old.rooms:[],furniture:Array.isArray(old.furniture)?old.furniture:[],
           selectedRoom:old.selectedRoom||"",selectedFurniture:old.selectedFurniture||"",
           storages:old.storages,boxes:old.boxes,
@@ -138,6 +139,42 @@ function loadState(){
   }catch(e){}
   return defaults();
 }
+function normalizeOwnedDistributionSessions(target){
+  const raw=target.ownedDistributionSessions;
+  target.ownedDistributionSessions=raw&&typeof raw==="object"&&!Array.isArray(raw)?raw:{};
+  const itemIds=new Set((target.boxes||[]).map(b=>b.id));
+  for(const [itemId,session] of Object.entries(target.ownedDistributionSessions)){
+    if(!itemIds.has(itemId)||!session||typeof session!=="object"||session.itemId!==itemId||!Array.isArray(session.allocations)){
+      delete target.ownedDistributionSessions[itemId];continue;
+    }
+    session.id=String(session.id||uid("dist"));
+    session.createdAt=String(session.createdAt||new Date().toISOString());
+    session.fingerprint=String(session.fingerprint||"");
+    session.requested=Math.max(0,Math.floor(Number(session.requested)||0));
+    session.assigned=Math.max(0,Math.floor(Number(session.assigned)||0));
+    session.remaining=Math.max(0,Math.floor(Number(session.remaining)||0));
+    session.provenMinimumSpaces=!!session.provenMinimumSpaces;
+    session.usedBounded=!!session.usedBounded;
+    session.boundedCandidates=Math.max(0,Math.floor(Number(session.boundedCandidates)||0));
+    session.skipped=Array.isArray(session.skipped)?session.skipped:[];
+    session.allocations=session.allocations.filter(a=>a&&a.storageId&&a.result&&Array.isArray(a.result.layout)).map(a=>{
+      const available=a.result.layout.length;
+      return {
+        ...a,
+        id:String(a.id||uid("alloc")),
+        assigned:Math.min(available,Math.max(0,Math.floor(Number(a.assigned)||0))),
+        capacity:Math.min(available,Math.max(0,Math.floor(Number(a.capacity)||0))),
+        exact:!!a.exact,
+        status:["pending","opened","done"].includes(a.status)?a.status:"pending"
+      };
+    }).filter(a=>a.assigned>0);
+    session.assigned=session.allocations.reduce((sum,a)=>sum+a.assigned,0);
+    session.remaining=Math.max(0,session.requested-session.assigned);
+    if(session.remaining>0)session.provenMinimumSpaces=false;
+  }
+  return target.ownedDistributionSessions;
+}
+
 function normalizeInstallState(target){
   target.installedPlanIds=target.installedPlanIds&&typeof target.installedPlanIds==="object"&&!Array.isArray(target.installedPlanIds)?target.installedPlanIds:{};
   target.installOrder=Array.isArray(target.installOrder)?target.installOrder.filter(Boolean):[];
@@ -671,6 +708,109 @@ function ownedDistributionSummaryText(plan){
   return text;
 }
 
+function ownedDistributionFingerprint(item,settings,unallocatedOwned,options={}){
+  if(!item)return "";
+  const storages=Array.isArray(options.storages)?options.storages:state.storages;
+  const plans=Array.isArray(options.plans)?options.plans:state.savedPlans;
+  const chosenPlanIds=options.chosenPlanIds&&typeof options.chosenPlanIds==="object"?options.chosenPlanIds:state.chosenPlanIds;
+  const statusLookup=typeof options.planStatusLookup==="function"
+    ? options.planStatusLookup
+    : plan=>planHealth(plan).status;
+  const itemLookup=typeof options.itemLookup==="function"?options.itemLookup:boxById;
+  const settingsSig=[
+    !!settings?.clearanceEnabled,round6(Number(settings?.clearance)||0),
+    round6(Number(settings?.fitTolerance)||0),settings?.uprightOnly!==false,!!settings?.enableStacking
+  ];
+  const storageSig=(storages||[]).map(S=>{
+    const planId=chosenPlanIds?.[S.id]||"";
+    const plan=planId?plans.find(p=>p.id===planId&&p.storageId===S.id):null;
+    const planItemRules=plan?[...new Set((plan.layout||[]).map(p=>p.typeId))].sort().map(id=>[id,itemPlanningSignature(itemLookup(id))]):[];
+    const planSig=plan?[
+      plan.id,
+      planSignature(plan.storageId,plan.layout||[]),
+      JSON.stringify(plan.settings||null),
+      plan.stacking ?? layoutUsesStacking(plan.layout||[]),
+      statusLookup(plan),
+      planItemRules
+    ]:null;
+    return [S.id,storageStructureSignature(S),planSig];
+  }).sort((a,b)=>String(a[0]).localeCompare(String(b[0])));
+  return JSON.stringify([
+    item.id,itemPlanningSignature(item),Math.max(0,Math.floor(Number(unallocatedOwned)||0)),
+    settingsSig,storageSig
+  ]);
+}
+function createOwnedDistributionSession(item,plan,fingerprint){
+  if(!item||!plan)return null;
+  const clone=value=>JSON.parse(JSON.stringify(value));
+  const requested=Math.max(0,Math.floor(Number(plan.requested)||0));
+  const allocations=(plan.allocations||[]).map(a=>{
+    const result=clone(a.result);
+    const available=Array.isArray(result?.layout)?result.layout.length:0;
+    const assigned=Math.min(available,Math.max(0,Math.floor(Number(a.assigned)||0)));
+    const capacity=Math.min(available,Math.max(0,Math.floor(Number(a.capacity)||0)));
+    return {
+      id:uid("alloc"),storageId:a.storageId,storagePath:a.storagePath,source:a.source,planId:a.planId||null,
+      planName:a.planName||"",assigned,capacity,exact:!!a.exact,tightness:a.tightness,
+      status:"pending",result
+    };
+  }).filter(a=>a.assigned>0);
+  const assigned=allocations.reduce((sum,a)=>sum+a.assigned,0);
+  const remaining=Math.max(0,requested-assigned);
+  return {
+    id:uid("dist"),itemId:item.id,itemName:item.name||"Item",createdAt:new Date().toISOString(),
+    fingerprint:String(fingerprint||""),requested,assigned,remaining,
+    provenMinimumSpaces:!!plan.provenMinimumSpaces&&remaining===0,usedBounded:!!plan.usedBounded,
+    boundedCandidates:Math.max(0,Math.floor(Number(plan.boundedCandidates)||0)),
+    skipped:(plan.skipped||[]).map(x=>({storageId:x.storageId,storagePath:x.storagePath,skipReason:x.skipReason})),
+    allocations
+  };
+}
+function ownedDistributionSessionPlan(session){
+  if(!session)return null;
+  return {
+    requested:Math.max(0,Math.floor(Number(session.requested)||0)),
+    assigned:Math.max(0,Math.floor(Number(session.assigned)||0)),
+    remaining:Math.max(0,Math.floor(Number(session.remaining)||0)),
+    spaceCount:Array.isArray(session.allocations)?session.allocations.length:0,
+    allocations:Array.isArray(session.allocations)?session.allocations:[],
+    skipped:Array.isArray(session.skipped)?session.skipped:[],
+    usedBounded:!!session.usedBounded,
+    boundedCandidates:Math.max(0,Math.floor(Number(session.boundedCandidates)||0)),
+    provenMinimumSpaces:!!session.provenMinimumSpaces
+  };
+}
+function ownedDistributionSessionProgress(session){
+  const allocations=Array.isArray(session?.allocations)?session.allocations:[];
+  const progress={pending:0,opened:0,done:0,pendingCopies:0,openedCopies:0,doneCopies:0,total:allocations.length,totalCopies:0};
+  for(const a of allocations){
+    const status=["pending","opened","done"].includes(a.status)?a.status:"pending";
+    const copies=Math.max(0,Math.floor(Number(a.assigned)||0));
+    progress[status]++;progress[status+"Copies"]+=copies;progress.totalCopies+=copies;
+  }
+  return progress;
+}
+function setOwnedDistributionAllocationStatus(session,allocationId,status){
+  if(!session||!["pending","opened","done"].includes(status))return false;
+  const allocation=(session.allocations||[]).find(a=>a.id===allocationId);
+  if(!allocation)return false;
+  allocation.status=status;
+  allocation.updatedAt=new Date().toISOString();
+  return true;
+}
+function ownedDistributionSessionIsStale(session,fingerprint){
+  return !session||!session.fingerprint||session.fingerprint!==String(fingerprint||"");
+}
+function ownedDistributionSessionSummaryText(session,stale=false){
+  if(!session)return "";
+  const base=ownedDistributionSummaryText(ownedDistributionSessionPlan(session));
+  const p=ownedDistributionSessionProgress(session);
+  const progress=p.total
+    ? " Progress: "+p.done+" done · "+p.opened+" opened · "+p.pending+" pending."
+    : "";
+  return (stale?"Out of date — recalculate before opening allocations. ":"")+base+progress;
+}
+
 function stackedExtraItemPlacementInPlan(item,plan,liveStorage,itemLookup=boxById){
   if(!item||!plan||!liveStorage||!item.canBeStacked)return null;
   const stackingEnabled=plan.stacking ?? layoutUsesStacking(plan.layout||[]);
@@ -792,8 +932,13 @@ function openSavedPlanWithExtraItems(planId,itemId,placements){
 function openSavedPlanWithExtraItem(planId,itemId,placement){
   return openSavedPlanWithExtraItems(planId,itemId,placement?[placement]:[]);
 }
+function setItemFitDistributionVisible(visible){
+  const btn=$("itemFitDistributionBtn"),bar=btn?.closest(".fitdistributionbar"),el=$("itemFitDistribution");
+  if(bar)bar.style.display=visible?"flex":"none";
+  if(!visible&&el)el.innerHTML="";
+}
 function openItemPlanRoomModal(){
-  save();
+  save();setItemFitDistributionVisible(false);
   const item=boxById(editingBox);if(!item)return;
   const currentPlans=state.savedPlans.filter(plan=>planHealth(plan).status==="current");
   const rows=itemPlanRoomRows(item,currentPlans,state.storages,state.chosenPlanIds,state.installedPlanIds);
@@ -904,7 +1049,7 @@ function openSavedPlanForItem(planId,itemId){
 }
 
 function openItemUsageModal(){
-  save();
+  save();setItemFitDistributionVisible(false);
   const item=boxById(editingBox);if(!item)return;
   const rows=itemPlanUsageRows(item.id,state.savedPlans,state.chosenPlanIds,state.installedPlanIds);
   const totalCopies=rows.reduce((sum,row)=>sum+row.count,0);
@@ -935,7 +1080,7 @@ function openItemUsageModal(){
 }
 
 function openItemFitModal(){
-  save();
+  save();setItemFitDistributionVisible(true);
   const item=boxById(editingBox);if(!item)return;
   const settings=fitLookupSettings(),matches=compatibleStoragesForItem(item,state.storages,settings);
   const settingBits=[
@@ -952,10 +1097,54 @@ function openItemFitModal(){
     ? `${matches.length} of ${state.storages.length} storage space${state.storages.length===1?"":"s"} can fit one copy. ${ownedNote} Tightest compatible spaces are shown first. This checks storage geometry only, not occupancy inside a saved layout.`
     : `No storage space can fit one copy with the current geometry and fit settings. ${ownedNote} This checks storage geometry only, not occupancy inside a saved layout.`;
   const distributionBtn=$("itemFitDistributionBtn"),distributionStatus=$("itemFitDistributionStatus"),distributionEl=$("itemFitDistribution");
-  distributionBtn.disabled=!unallocatedOwned||!matches.length;
-  distributionBtn.textContent=unallocatedOwned?`Plan ${unallocatedOwned} owned`:"No unallocated stock";
-  distributionStatus.textContent=unallocatedOwned?"Uses chosen-plan remaining capacity where present; unplanned spaces use empty-space capacity.":"";
-  distributionEl.innerHTML="";
+  const distributionFingerprint=ownedDistributionFingerprint(item,settings,unallocatedOwned);
+  const persistDistributionSession=session=>{
+    state.ownedDistributionSessions=state.ownedDistributionSessions||{};
+    if(session)state.ownedDistributionSessions[item.id]=session;else delete state.ownedDistributionSessions[item.id];
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
+  };
+  const renderDistributionSession=session=>{
+    const stale=!!session&&ownedDistributionSessionIsStale(session,distributionFingerprint);
+    if(!session){
+      distributionBtn.disabled=!unallocatedOwned||!matches.length;
+      distributionBtn.textContent=unallocatedOwned?`Plan ${unallocatedOwned} owned`:"No unallocated stock";
+      distributionStatus.textContent=unallocatedOwned?"Uses chosen-plan remaining capacity where present; unplanned spaces use empty-space capacity.":"";
+      distributionEl.innerHTML="";
+      return;
+    }
+    distributionBtn.disabled=!unallocatedOwned||!matches.length;
+    distributionBtn.textContent=unallocatedOwned?"Recalculate distribution":"No unallocated stock";
+    distributionStatus.textContent=ownedDistributionSessionSummaryText(session,stale);
+    distributionEl.innerHTML=(session.allocations||[]).length?session.allocations.map(allocation=>{
+      const source=allocation.source==="chosen"
+        ? "Chosen plan · "+esc(allocation.planName)
+        : "Unplanned space · owned-capacity packing";
+      const certainty=allocation.exact?"exact capacity":"safe lower-bound capacity";
+      const statusLabel=allocation.status==="done"?"Done":allocation.status==="opened"?"Opened":"Pending";
+      return '<div class="fitdistributioncard '+esc(allocation.status||"pending")+(stale?" stale":"")+'"><div><div class="fitdistributiontitle">'+allocation.assigned+' owned → '+esc(allocation.storagePath)+' <span class="distributionstatus '+esc(allocation.status||"pending")+'">'+statusLabel+'</span></div><div class="fitdistributionmeta">'+source+' · '+allocation.capacity+' '+certainty+(stale?" · out of date":"")+'</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-session-open="'+allocation.id+'" '+(stale?"disabled":"")+'>Open '+allocation.assigned+' here</button><button class="btn soft" type="button" data-session-done="'+allocation.id+'" '+(stale?"disabled":"")+'>'+(allocation.status==="done"?"Undo done":"Mark done")+'</button></div></div>';
+    }).join(""):'<div class="fitfindersummary">No safe allocation was stored in this distribution session.</div>';
+    if(session.skipped?.length){
+      distributionEl.innerHTML+='<div class="fitfindersummary">'+session.skipped.map(x=>esc(x.storagePath)+": "+esc(x.skipReason)).join(" · ")+'</div>';
+    }
+    distributionEl.querySelectorAll("[data-session-done]").forEach(btn=>btn.addEventListener("click",()=>{
+      const allocation=(session.allocations||[]).find(a=>a.id===btn.dataset.sessionDone);if(!allocation||stale)return;
+      setOwnedDistributionAllocationStatus(session,allocation.id,allocation.status==="done"?"pending":"done");
+      persistDistributionSession(session);renderDistributionSession(session);
+    }));
+    distributionEl.querySelectorAll("[data-session-open]").forEach(btn=>btn.addEventListener("click",()=>{
+      const allocation=(session.allocations||[]).find(a=>a.id===btn.dataset.sessionOpen);if(!allocation||stale)return;
+      if(allocation.status!=="done")setOwnedDistributionAllocationStatus(session,allocation.id,"opened");
+      persistDistributionSession(session);
+      if(allocation.source==="chosen"){
+        const owned=ownedPackingFromCapacity(allocation.assigned,allocation.result);
+        if(owned.layout.length)openSavedPlanWithExtraItems(allocation.planId,item.id,owned.layout);
+      }else{
+        const owned=ownedCapacityResult(allocation.assigned,allocation.result,item);
+        if(owned)openCapacityPacking(allocation.storageId,owned);
+      }
+    }));
+  };
+  renderDistributionSession(state.ownedDistributionSessions?.[item.id]||null);
   const capacityResults=new Map();
   $("itemFitList").innerHTML=matches.length?matches.map(match=>{
     const S=state.storages.find(s=>s.id===match.storageId),blocked=(S?.obstacles||[]).length,dividers=(S?.dividers||[]).length;
@@ -992,6 +1181,11 @@ function openItemFitModal(){
   }));
   distributionBtn.onclick=()=>{
     if(!unallocatedOwned||!matches.length)return;
+    const previous=state.ownedDistributionSessions?.[item.id]||null;
+    const progress=ownedDistributionSessionProgress(previous);
+    if(previous&&(progress.opened||progress.done)&&!ownedDistributionSessionIsStale(previous,distributionFingerprint)){
+      if(!confirm("Recalculate this distribution and reset its Opened/Done progress?"))return;
+    }
     distributionBtn.disabled=true;distributionBtn.textContent="Planning…";
     distributionStatus.textContent="Calculating safe capacity across compatible spaces…";
     const chosenByStorage=new Map(chosenPlans().map(plan=>[plan.storageId,plan]));
@@ -1006,28 +1200,8 @@ function openItemFitModal(){
       });
     }).filter(Boolean);
     const plan=ownedDistributionPlan(unallocatedOwned,candidates);
-    distributionStatus.textContent=ownedDistributionSummaryText(plan);
-    distributionEl.innerHTML=plan.allocations.length?plan.allocations.map((allocation,index)=>{
-      const source=allocation.source==="chosen"
-        ? "Chosen plan · "+esc(allocation.planName)
-        : "Unplanned space · empty-capacity packing";
-      const certainty=allocation.exact?"exact capacity":"safe lower-bound capacity";
-      return '<div class="fitdistributioncard"><div><div class="fitdistributiontitle">'+allocation.assigned+' owned → '+esc(allocation.storagePath)+'</div><div class="fitdistributionmeta">'+source+' · '+allocation.capacity+' '+certainty+'</div></div><button class="btn soft" type="button" data-open-distribution="'+index+'">Open '+allocation.assigned+' here</button></div>';
-    }).join(""):'<div class="fitfindersummary">No safe capacity was found for the currently unallocated copies.</div>';
-    if(plan.skipped.length){
-      distributionEl.innerHTML+='<div class="fitfindersummary">'+plan.skipped.map(x=>esc(x.storagePath)+": "+esc(x.skipReason)).join(" · ")+'</div>';
-    }
-    distributionEl.querySelectorAll("[data-open-distribution]").forEach(btn=>btn.addEventListener("click",()=>{
-      const allocation=plan.allocations[Number(btn.dataset.openDistribution)];if(!allocation)return;
-      if(allocation.source==="chosen"){
-        const owned=ownedPackingFromCapacity(allocation.assigned,allocation.result);
-        if(owned.layout.length)openSavedPlanWithExtraItems(allocation.planId,item.id,owned.layout);
-      }else{
-        const owned=ownedCapacityResult(allocation.assigned,allocation.result,item);
-        if(owned)openCapacityPacking(allocation.storageId,owned);
-      }
-    }));
-    distributionBtn.disabled=false;distributionBtn.textContent="Recalculate distribution";
+    const session=createOwnedDistributionSession(item,plan,distributionFingerprint);
+    persistDistributionSession(session);renderDistributionSession(session);
   };
   $("itemFitList").querySelectorAll("[data-open-owned-capacity]").forEach(btn=>btn.addEventListener("click",()=>{
     const result=capacityResults.get(btn.dataset.openOwnedCapacity),owned=ownedCapacityResult(unallocatedOwned,result,item);
@@ -1222,6 +1396,16 @@ function validateBackupState(candidate){
   if(candidate.shoppingBought!=null&&(typeof candidate.shoppingBought!=="object"||Array.isArray(candidate.shoppingBought)))return "Shopping progress is malformed.";
   if(candidate.installedPlanIds!=null&&(typeof candidate.installedPlanIds!=="object"||Array.isArray(candidate.installedPlanIds)))return "Installed plan status is malformed.";
   if(candidate.installOrder!=null&&!Array.isArray(candidate.installOrder))return "Install order is malformed.";
+  if(candidate.ownedDistributionSessions!=null&&(typeof candidate.ownedDistributionSessions!=="object"||Array.isArray(candidate.ownedDistributionSessions)))return "Owned distribution sessions are malformed.";
+  for(const [itemId,session] of Object.entries(candidate.ownedDistributionSessions||{})){
+    if(!session||typeof session!=="object"||session.itemId!==itemId||!Array.isArray(session.allocations))return "An owned distribution session is malformed.";
+    for(const allocation of session.allocations){
+      if(!allocation||typeof allocation!=="object"||!allocation.storageId||!["pending","opened","done"].includes(allocation.status||"pending"))return "An owned distribution allocation is malformed.";
+      if(!allocation.result||!Array.isArray(allocation.result.layout))return "An owned distribution allocation has no packing layout.";
+      const available=allocation.result.layout.length,assigned=Math.max(0,Math.floor(Number(allocation.assigned)||0)),capacity=Math.max(0,Math.floor(Number(allocation.capacity)||0));
+      if(assigned>available||capacity>available)return "An owned distribution allocation exceeds its stored packing geometry.";
+    }
+  }
   if(Array.isArray(candidate.installOrder)){
     if(candidate.installOrder.some(id=>typeof id!=="string"))return "Install order contains an invalid storage ID.";
     if(new Set(candidate.installOrder).size!==candidate.installOrder.length)return "Install order contains duplicates.";
@@ -4838,7 +5022,7 @@ $("deleteBox").addEventListener("click",()=>{
   if(usedBySaved){alert("This item is used by a saved plan. Use “Used in plans” to open the affected plans, then remove or replace it before deleting.");return}
   const deletingItem=state.boxes.find(b=>b.id===editingBox);
   createRecoveryCheckpoint(`Before deleting item “${deletingItem?.name||"Item"}”`);
-  state.boxes=state.boxes.filter(x=>x.id!==editingBox);delete state.selectedTypes[editingBox];delete state.itemLimits[editingBox];delete state.shoppingBought[editingBox];
+  state.boxes=state.boxes.filter(x=>x.id!==editingBox);delete state.selectedTypes[editingBox];delete state.itemLimits[editingBox];delete state.shoppingBought[editingBox];delete state.ownedDistributionSessions?.[editingBox];
   editingBox=state.boxes[0]?.id||"";save();renderAll()
 });
 
@@ -4856,6 +5040,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeChosenPlanSelections,
     normalizeShoppingBought,
     normalizeInstallState,
+    normalizeOwnedDistributionSessions,
     computeInstallAllocation,
     repeatStorageNames,
     canonicalPlanLayout,
@@ -4886,6 +5071,14 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     ownedDistributionCandidate,
     ownedDistributionPlan,
     ownedDistributionSummaryText,
+    ownedDistributionFingerprint,
+    createOwnedDistributionSession,
+    ownedDistributionSessionPlan,
+    ownedDistributionSessionProgress,
+    setOwnedDistributionAllocationStatus,
+    ownedDistributionSessionIsStale,
+    ownedDistributionSessionSummaryText,
+    setItemFitDistributionVisible,
     itemPlanRoomRows,
     openSavedPlanWithExtraItems,
     openSavedPlanWithExtraItem,
