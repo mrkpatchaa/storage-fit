@@ -929,3 +929,20 @@ The lookup intentionally answers a structural question: whether the organizer fi
 
 No state migration is required; the app remains on V28.
 
+## Whole-home distribution work dashboard
+
+Persistent owned-stock distribution sessions are also surfaced in a whole-home **Distribution work** dashboard.
+
+The dashboard gathers every organizer with a saved distribution session and shows:
+
+- Pending / Opened / Done allocation progress across all sessions.
+- Completed owned-copy counts versus the copies assigned by each distribution plan.
+- **Out of date** sessions using the same safety fingerprint as the organizer-level **Find spaces** workflow.
+- A direct **Resume** action that selects the organizer and reopens **Find spaces** with the saved session intact.
+- **Review & recalculate** for stale work and **Review** for completed work.
+- **Clear session** for removing workflow progress without changing owned inventory, saved plans, or chosen plans.
+
+Sessions are ordered so stale work appears first, followed by in-progress, not-started, and completed work. The dashboard does not create a second inventory system: marking work Done is still workflow progress only, and stock remains committed exclusively through chosen plans.
+
+No schema migration is required; the app remains on V28.
+
