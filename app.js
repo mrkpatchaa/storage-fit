@@ -1791,22 +1791,18 @@ function projectRoomProgress(options={}){
     const ordered=rows.slice().sort((a,b)=>(statusPriority[a.status]??99)-(statusPriority[b.status]??99)||a.path.localeCompare(b.path));
     const total=rows.length,installed=count("installed"),review=count("review"),choose=count("choose"),plan=count("plan"),ready=count("ready"),waiting=count("waiting"),chosenOnly=count("chosen");
     const currentPlans=rows.filter(row=>row.currentPlan).length,chosenCount=rows.filter(row=>row.chosen).length;
-    const blockerMap=new Map();
-    for(const row of rows.filter(row=>row.status==="waiting")){
-      for(const missing of row.missing||[]){
-        const current=blockerMap.get(missing.id)||{id:missing.id,name:itemName(missing.id),qty:0,storageIds:new Set()};
-        current.qty+=missing.qty;current.storageIds.add(row.storageId);blockerMap.set(missing.id,current);
-      }
-    }
-    const blockers=[...blockerMap.values()].map(item=>({id:item.id,name:item.name,qty:item.qty,storageCount:item.storageIds.size})).sort((a,b)=>a.name.localeCompare(b.name));
-    const missingUnits=blockers.reduce((sum,item)=>sum+item.qty,0);
+    const blockers=rows.filter(row=>row.status==="waiting").flatMap(row=>
+      (row.missing||[]).map(missing=>({
+        storageId:row.storageId,storagePath:row.path,id:missing.id,name:itemName(missing.id),qty:missing.qty
+      }))
+    ).sort((a,b)=>a.storagePath.localeCompare(b.storagePath)||a.name.localeCompare(b.name));
     const complete=total>0&&installed===total;
     return {
       roomId:room.id,roomName:room.name||"Room",total,currentPlans,chosen:chosenCount,installed,review,choose,plan,ready,waiting,chosenOnly,complete,
       progressPct:total?Math.round(installed/total*100):0,
       nextStorageId:ordered.find(row=>row.status!=="installed")?.storageId||ordered[0]?.storageId||"",
       storageIds:rows.map(row=>row.storageId),
-      blockers,missingUnits,
+      blockers,blockedStorages:new Set(blockers.map(item=>item.storageId)).size,
       tone:complete?"good":review?"warn":waiting?"waiting":""
     };
   });
@@ -1851,7 +1847,7 @@ function renderRoomProgressOverview(){
       row.installed?`<span class="roomprogresschip installed">${row.installed} installed</span>`:""
     ].filter(Boolean).join("");
     const blockers=row.blockers.length
-      ?`<div class="roomprogressblockers"><strong>Missing from owned stock:</strong> ${row.blockers.slice(0,3).map(item=>esc(item.name)+" ×"+item.qty).join(" · ")}${row.blockers.length>3?` · +${row.blockers.length-3} more`:""}</div>`:"";
+      ?`<div class="roomprogressblockers"><strong>Current install blockers:</strong> ${row.blockers.slice(0,3).map(item=>esc(item.storagePath.split(" → ").slice(-1)[0])+" — "+esc(item.name)+" ×"+item.qty).join(" · ")}${row.blockers.length>3?` · +${row.blockers.length-3} more`:""}</div>`:"";
     const blockerButton=row.blockers.length?`<button class="btn soft" type="button" data-room-shopping="${row.roomId}">Shopping / receiving</button>`:"";
     return `<div class="roomprogresscard ${row.tone}"><div><div class="roomprogresstitle">${esc(row.roomName)}</div><div class="roomprogressmeta">${row.currentPlans}/${row.total} current plans · ${row.chosen}/${row.total} chosen · ${row.installed}/${row.total} installed</div><div class="progressbar"><span style="width:${row.progressPct}%"></span></div><div class="roomprogresschips">${chips}</div>${blockers}</div><div class="roomprogressactions"><button class="btn soft" type="button" data-room-progress="${row.roomId}">Focus room</button>${blockerButton}</div></div>`;
   }).join("");
