@@ -1892,7 +1892,11 @@ function runProjectNextAction(action){
   }
   if(action.kind==="plan-space"){openCompatibleStorage(action.targetId);return true}
   if(action.kind==="receive-purchases"||action.kind==="shopping")return scrollProjectSection("homeProcurementSection");
-  if(action.kind==="install-ready")return scrollProjectSection("installDashboardSection");
+  if(action.kind==="install-ready"){
+    const card=document.querySelector(`[data-install-card="${action.targetId}"]`);
+    if(card){card.scrollIntoView({behavior:"smooth",block:"center"});return true}
+    return scrollProjectSection("installDashboardSection");
+  }
   if(action.kind==="add-storage"){ $("addStorage")?.click();return true }
   return false;
 }
@@ -3393,7 +3397,7 @@ function renderInstallDashboard(){
     const plan=entry.plan,m=planMetrics(plan),contents=labeledPlacements(plan.layout||[]);
     const missing=entry.missing.map(x=>`${esc(boxById(x.id)?.name||"Item")} ×${x.qty}`).join(" · ");
     const label=entry.status==="installed"?"Installed":entry.status==="ready"?"Ready now":entry.status==="stale"?"Needs plan review":"Waiting for inventory";
-    return `<div class="installcard ${entry.status}">
+    return `<div class="installcard ${entry.status}" data-install-card="${entry.storageId}">`
       <div>
         <div class="installtitle">${esc(m.storagePath)}</div>
         <div class="installmeta">${esc(plan.name)} · ${m.itemCount} organizer${m.itemCount===1?"":"s"}</div>
