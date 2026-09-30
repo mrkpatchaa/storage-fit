@@ -887,6 +887,30 @@
         itemLookup:function(id){return {id:id,name:id}},purchaseRows:[]
       });
       result(cappedUnlockAnalysis.candidateCapped&&cappedUnlockAnalysis.analyzedCandidates===1&&cappedUnlockAnalysis.totalCandidates===2,"stock unlock analysis discloses when scarce organizer types are capped");
+      var doublePlan={id:"double-plan",storageId:"double-space",layout:[{typeId:"double"},{typeId:"double"}]};
+      var doubleInstall=api.computeInstallAllocation([doublePlan],{double:0},{},["double-space"]);
+      var doubleUnlock=api.stockUnlockAnalysis({
+        install:doubleInstall,plans:[doublePlan],ownedById:{double:0},installedPlanIds:{},installOrder:["double-space"],
+        itemLookup:function(id){return {id:id,name:"Double box"}},purchaseRows:[{id:"double",boughtQty:0,remainingQty:2}]
+      });
+      result(doubleUnlock.rows.length===0&&doubleUnlock.bundle&&doubleUnlock.bundle.totalUnits===2&&doubleUnlock.bundle.parts.length===1,"stock unlock bundle search finds a two-copy same-organizer unlock when +1 is insufficient");
+      result(doubleUnlock.bundle.parts[0].id==="double"&&doubleUnlock.bundle.parts[0].qty===2&&doubleUnlock.bundle.gain===1&&doubleUnlock.bundle.bestReady===1,"same-organizer unlock bundle reports the minimum added quantity and Ready gain");
+
+      var comboPlan={id:"combo-plan",storageId:"combo-space",layout:[{typeId:"combo-a"},{typeId:"combo-b"}]};
+      var comboInstall=api.computeInstallAllocation([comboPlan],{"combo-a":0,"combo-b":0},{},["combo-space"]);
+      var comboUnlock=api.stockUnlockAnalysis({
+        install:comboInstall,plans:[comboPlan],ownedById:{"combo-a":0,"combo-b":0},installedPlanIds:{},installOrder:["combo-space"],
+        itemLookup:function(id){return {id:id,name:id==="combo-a"?"Alpha":"Beta"}},
+        purchaseRows:[{id:"combo-a",boughtQty:1,remainingQty:0},{id:"combo-b",boughtQty:0,remainingQty:1}]
+      });
+      result(comboUnlock.rows.length===0&&comboUnlock.bundle&&comboUnlock.bundle.totalUnits===2&&comboUnlock.bundle.parts.length===2,"stock unlock bundle search finds a mixed-organizer unlock when neither +1 change works alone");
+      result(comboUnlock.bundle.parts.map(function(part){return part.id+":"+part.qty}).join(",")==="combo-a:1,combo-b:1"&&comboUnlock.bundle.parts[0].boughtQty===1&&comboUnlock.bundle.parts[1].remainingQty===1,"mixed unlock bundle preserves per-organizer purchased and sourcing context");
+
+      var cappedBundle=api.stockUnlockAnalysis({
+        install:comboInstall,plans:[comboPlan],ownedById:{"combo-a":0,"combo-b":0},installedPlanIds:{},installOrder:["combo-space"],
+        itemLookup:function(id){return {id:id,name:id}},purchaseRows:[],bundleScenarioLimit:1
+      });
+      result(cappedBundle.bundleTruncated&&cappedBundle.bundleScenarios===1,"stock unlock bundle search reports when scenario enumeration hits its responsiveness cap");
 
       var roomProgress=api.projectRoomProgress({
         rooms:actionRooms,
