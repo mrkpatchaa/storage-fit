@@ -1736,8 +1736,29 @@ function restoreBackupState(candidate){
   location.reload();
 }
 
+function projectStorageContext(storageId,options={}){
+  const storages=Array.isArray(options.storages)?options.storages:state.storages;
+  const furniture=Array.isArray(options.furniture)?options.furniture:state.furniture;
+  const rooms=Array.isArray(options.rooms)?options.rooms:state.rooms;
+  const storage=storages.find(s=>s.id===storageId)||null;
+  const furnishing=storage?furniture.find(f=>f.id===storage.furnitureId)||null:null;
+  const room=furnishing?rooms.find(r=>r.id===furnishing.roomId)||null:null;
+  const storageName=String(storage?.name||"Storage");
+  const furnitureName=String(furnishing?.name||"");
+  const roomName=String(room?.name||"");
+  const path=[roomName,furnitureName,storageName].filter(Boolean).join(" → ")||storageName;
+  return {storageId:String(storageId||""),storage,room,furniture:furnishing,roomName,furnitureName,storageName,path,sortKey:path.toLocaleLowerCase()};
+}
+function projectDistributionTarget(row){
+  const allocation=(row?.session?.allocations||[])[0];
+  const path=String(allocation?.storagePath||"");
+  const itemName=String(row?.item?.name||"Organizer");
+  return {path:path?itemName+" → "+path:itemName,sortKey:(path+" "+itemName).toLocaleLowerCase()};
+}
 function projectNextActions(options={}){
   const storages=Array.isArray(options.storages)?options.storages:state.storages;
+  const furniture=Array.isArray(options.furniture)?options.furniture:state.furniture;
+  const rooms=Array.isArray(options.rooms)?options.rooms:state.rooms;
   const savedPlans=Array.isArray(options.savedPlans)?options.savedPlans:state.savedPlans;
   const chosen=Array.isArray(options.chosen)?options.chosen:chosenPlans();
   const installedPlanIds=options.installedPlanIds&&typeof options.installedPlanIds==="object"?options.installedPlanIds:state.installedPlanIds;
@@ -1746,25 +1767,47 @@ function projectNextActions(options={}){
   const install=options.install||currentInstallAllocation();
   const healthLookup=typeof options.planHealthLookup==="function"?options.planHealthLookup:planHealth;
   const actions=[];
-  const push=(priority,kind,title,detail,label,targetId="",tone="")=>actions.push({priority,kind,title,detail,label,targetId,tone});
+  const context=storageId=>projectStorageContext(storageId,{storages,furniture,rooms});
+  const byStoragePath=(a,b)=>context(a.storageId).sortKey.localeCompare(context(b.storageId).sortKey)||String(a.name||"").localeCompare(String(b.name||""));
+  const withPath=(detail,path)=>path?detail+" First: "+path+".":detail;
+  const push=(priority,kind,title,detail,label,targetId="",tone="",targetPath="")=>actions.push({priority,kind,title,detail,label,targetId,tone,targetPath});
 
-  const staleChosen=chosen.filter(plan=>installedPlanIds?.[plan.storageId]!==plan.id&&healthLookup(plan).status!=="current");
-  if(staleChosen.length)push(10,"review-plan",
-    "Review "+staleChosen.length+" chosen plan"+(staleChosen.length===1?"":"s"),
-    "A chosen plan changed and blocks reliable shopping or installation until it is reviewed.",
-    "Open first plan",staleChosen[0].id,"warn");
+  const chosenHealth=chosen.filter(plan=>installedPlanIds?.[plan.storageId]!==plan.id).map(plan=>({plan,health:healthLookup(plan)}));
+  const invalidChosen=chosenHealth.filter(x=>x.health.status==="invalid").map(x=>x.plan).sort(byStoragePath);
+  if(invalidChosen.length){
+    const first=invalidChosen[0],path=context(first.storageId).path;
+    push(10,"repair-plan",
+      "Repair "+invalidChosen.length+" invalid chosen plan"+(invalidChosen.length===1?"":"s"),
+      withPath("The saved layout is no longer valid and must be rebuilt, replaced, or unchosen before reliable execution.",path),
+      "Go to first plan",first.id,"warn",path);
+  }
 
-  const staleDistribution=distributionRows.filter(row=>row.stale);
-  if(staleDistribution.length)push(20,"recalculate-distribution",
-    "Recalculate "+staleDistribution.length+" distribution session"+(staleDistribution.length===1?"":"s"),
-    "Stored allocation work is out of date with the current stock, plans, or storage geometry.",
-    "Recalculate first",staleDistribution[0].itemId,"warn");
+  const reviewChosen=chosenHealth.filter(x=>x.health.status==="review").map(x=>x.plan).sort(byStoragePath);
+  if(reviewChosen.length){
+    const first=reviewChosen[0],path=context(first.storageId).path;
+    push(11,"review-plan",
+      "Revalidate "+reviewChosen.length+" chosen plan"+(reviewChosen.length===1?"":"s"),
+      withPath("The layout still fits, but storage or organizer inputs changed and need acknowledgement.",path),
+      "Go to revalidate",first.id,"warn",path);
+  }
 
-  const activeDistribution=distributionRows.filter(row=>!row.stale&&!row.complete);
-  if(activeDistribution.length)push(30,"continue-distribution",
-    "Continue "+activeDistribution.length+" distribution session"+(activeDistribution.length===1?"":"s"),
-    "Owned-stock allocation work is ready to continue or apply to the project.",
-    "Resume first",activeDistribution[0].itemId,"");
+  const staleDistribution=distributionRows.filter(row=>row.stale).slice().sort((a,b)=>projectDistributionTarget(a).sortKey.localeCompare(projectDistributionTarget(b).sortKey));
+  if(staleDistribution.length){
+    const first=staleDistribution[0],target=projectDistributionTarget(first);
+    push(20,"recalculate-distribution",
+      "Recalculate "+staleDistribution.length+" distribution session"+(staleDistribution.length===1?"":"s"),
+      withPath("Stored allocation work is out of date with the current stock, plans, or storage geometry.",target.path),
+      "Recalculate first",first.itemId,"warn",target.path);
+  }
+
+  const activeDistribution=distributionRows.filter(row=>!row.stale&&!row.complete).slice().sort((a,b)=>projectDistributionTarget(a).sortKey.localeCompare(projectDistributionTarget(b).sortKey));
+  if(activeDistribution.length){
+    const first=activeDistribution[0],target=projectDistributionTarget(first);
+    push(30,"continue-distribution",
+      "Continue "+activeDistribution.length+" distribution session"+(activeDistribution.length===1?"":"s"),
+      withPath("Owned-stock allocation work is ready to continue or apply to the project.",target.path),
+      "Resume first",first.itemId,"",target.path);
+  }
 
   const chosenStorageIds=new Set(chosen.map(plan=>plan.storageId));
   const currentSavedByStorage=new Map();
@@ -1772,20 +1815,23 @@ function projectNextActions(options={}){
     if(chosenStorageIds.has(plan.storageId)||healthLookup(plan).status!=="current")continue;
     if(!currentSavedByStorage.has(plan.storageId))currentSavedByStorage.set(plan.storageId,plan);
   }
-  const chooseable=storages.filter(storage=>!chosenStorageIds.has(storage.id)&&currentSavedByStorage.has(storage.id));
+  const chooseable=storages.filter(storage=>!chosenStorageIds.has(storage.id)&&currentSavedByStorage.has(storage.id)).sort((a,b)=>context(a.id).sortKey.localeCompare(context(b.id).sortKey));
   if(chooseable.length){
-    const firstPlan=currentSavedByStorage.get(chooseable[0].id);
+    const firstStorage=chooseable[0],firstPlan=currentSavedByStorage.get(firstStorage.id),path=context(firstStorage.id).path;
     push(40,"choose-plan",
       "Choose a plan for "+chooseable.length+" storage space"+(chooseable.length===1?"":"s"),
-      "Current saved options exist, but no project plan has been chosen for these spaces.",
-      "Review first options",firstPlan?.id||"","");
+      withPath("Current saved options exist, but no project plan has been chosen for these spaces.",path),
+      "Review first options",firstPlan?.id||"","",path);
   }
 
-  const needsPlanning=storages.filter(storage=>!chosenStorageIds.has(storage.id)&&!currentSavedByStorage.has(storage.id));
-  if(needsPlanning.length)push(50,"plan-space",
-    "Plan "+needsPlanning.length+" storage space"+(needsPlanning.length===1?"":"s"),
-    "These spaces do not yet have a current saved plan that can be chosen.",
-    "Plan next space",needsPlanning[0].id,"");
+  const needsPlanning=storages.filter(storage=>!chosenStorageIds.has(storage.id)&&!currentSavedByStorage.has(storage.id)).sort((a,b)=>context(a.id).sortKey.localeCompare(context(b.id).sortKey));
+  if(needsPlanning.length){
+    const first=needsPlanning[0],path=context(first.id).path;
+    push(50,"plan-space",
+      "Plan "+needsPlanning.length+" storage space"+(needsPlanning.length===1?"":"s"),
+      withPath("These spaces do not yet have a current saved plan that can be chosen.",path),
+      "Plan next space",first.id,"",path);
+  }
 
   if((procurement.boughtUnits||0)>0)push(60,"receive-purchases",
     "Receive "+procurement.boughtUnits+" purchased organizer"+(procurement.boughtUnits===1?"":"s"),
@@ -1797,11 +1843,14 @@ function projectNextActions(options={}){
     "Chosen plans still need inventory before every space can be installed.",
     "Open shopping list","","");
 
-  const readyInstall=(install.entries||[]).filter(entry=>entry.status==="ready");
-  if(readyInstall.length)push(80,"install-ready",
-    "Install "+readyInstall.length+" ready storage space"+(readyInstall.length===1?"":"s"),
-    "These chosen plans can be installed now with the owned inventory currently available.",
-    "Open install queue",readyInstall[0].storageId,"good");
+  const readyInstall=(install.entries||[]).filter(entry=>entry.status==="ready").slice().sort((a,b)=>context(a.storageId).sortKey.localeCompare(context(b.storageId).sortKey));
+  if(readyInstall.length){
+    const first=readyInstall[0],path=context(first.storageId).path;
+    push(80,"install-ready",
+      "Install "+readyInstall.length+" ready storage space"+(readyInstall.length===1?"":"s"),
+      withPath("These chosen plans can be installed now with the owned inventory currently available.",path),
+      "Open install queue",first.storageId,"good",path);
+  }
 
   if(!storages.length)push(90,"add-storage","Add your first storage space","Create a drawer, shelf, cupboard, or other space before planning layouts.","Add storage","","");
   const installedCount=storages.filter(storage=>installedPlanIds?.[storage.id]).length;
@@ -1814,9 +1863,19 @@ function scrollProjectSection(id){
   const el=$(id);if(!el||el.style.display==="none")return false;
   el.scrollIntoView({behavior:"smooth",block:"start"});return true;
 }
+function focusSavedPlanCard(planId,preferRevalidate=false){
+  if(!planId)return false;
+  const selector=preferRevalidate?`[data-revalidate-plan="${planId}"]`:`[data-open-plan="${planId}"]`;
+  const target=document.querySelector(selector)||document.querySelector(`[data-open-plan="${planId}"]`);
+  const card=target?.closest(".savedcard");
+  if(!card)return scrollProjectSection("savedPlansSection");
+  card.scrollIntoView({behavior:"smooth",block:"center"});
+  return true;
+}
 function runProjectNextAction(action){
   if(!action)return false;
-  if(action.kind==="review-plan")return !!(action.targetId&&(openSavedPlan(action.targetId),true));
+  if(action.kind==="review-plan")return focusSavedPlanCard(action.targetId,true);
+  if(action.kind==="repair-plan")return focusSavedPlanCard(action.targetId,false);
   if(action.kind==="recalculate-distribution"||action.kind==="continue-distribution")return resumeOwnedDistributionWork(action.targetId);
   if(action.kind==="choose-plan"){
     const btn=document.querySelector(`[data-choose-plan="${action.targetId}"]`);
@@ -1836,7 +1895,9 @@ function renderProjectNextActions(){
   sec.style.display="block";
   summary.textContent=result.complete?"Project complete":actions.length+" next action"+(actions.length===1?"":"s");
   list.innerHTML=actions.map((action,index)=>
-    '<div class="nextactioncard '+esc(action.tone||"")+'"><div><div class="nextactiontitle">'+esc(action.title)+'</div><div class="nextactiondetail">'+esc(action.detail)+'</div></div>'+
+    '<div class="nextactioncard '+esc(action.tone||"")+'"><div><div class="nextactiontitle">'+esc(action.title)+'</div>'+
+    (action.targetPath?'<div class="nextactionpath">'+esc(action.targetPath)+'</div>':"")+
+    '<div class="nextactiondetail">'+esc(action.detail)+'</div></div>'+
     (action.label?'<button class="btn '+(index===0?"primary":"soft")+'" type="button" data-project-next="'+index+'">'+esc(action.label)+'</button>':'<span class="nextactiondone">✓</span>')+'</div>'
   ).join("");
   list.querySelectorAll("[data-project-next]").forEach(btn=>btn.addEventListener("click",()=>runProjectNextAction(actions[Number(btn.dataset.projectNext)])));
@@ -5499,6 +5560,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeShoppingBought,
     normalizeInstallState,
     normalizeOwnedDistributionSessions,
+    projectStorageContext,
     projectNextActions,
     computeInstallAllocation,
     repeatStorageNames,

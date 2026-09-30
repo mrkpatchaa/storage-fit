@@ -935,16 +935,19 @@ The workspace now starts with a whole-home **Project next actions** coordinator.
 
 The priority order is:
 
-1. chosen plans that need safety review;
-2. stale owned-stock distribution sessions;
-3. current distribution sessions that are still in progress;
-4. storage spaces with current saved options but no chosen plan;
-5. storage spaces that still need a current plan;
-6. purchased organizers waiting to be physically received;
-7. remaining shopping;
-8. chosen storage spaces that are ready to install.
+1. invalid chosen plans that must be repaired, replaced, or unchosen;
+2. chosen plans that still fit but need revalidation;
+3. stale owned-stock distribution sessions;
+4. current distribution sessions that are still in progress;
+5. storage spaces with current saved options but no chosen plan;
+6. storage spaces that still need a current plan;
+7. purchased organizers waiting to be physically received;
+8. remaining shopping;
+9. chosen storage spaces that are ready to install.
 
-Each action routes into the existing source-of-truth workflow: the affected saved plan, distribution session, Build a layout, shopping list, or install queue. The coordinator itself does not choose plans, receive stock, buy items, or mark installations automatically.
+Location-specific actions show the exact **Room → Furniture → Storage space** path for the first target and choose that first target deterministically by hierarchy path instead of incidental array order. Distribution actions also include the organizer name and first assigned destination.
+
+Each action routes into the existing source-of-truth workflow: the affected saved-plan card, distribution session, Build a layout, shopping list, or install queue. **Revalidate** actions now land on the saved-plan card where the Revalidate control actually exists; invalid plans land on the same card so they can be opened, replaced, unchosen, or deleted. The coordinator itself does not choose plans, receive stock, buy items, or mark installations automatically.
 
 When every storage space has an installed chosen plan and no higher-priority work remains, the coordinator shows **Project complete**.
 
