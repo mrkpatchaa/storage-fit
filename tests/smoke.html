@@ -693,6 +693,40 @@
         {id:"action-option",storageId:"action-s2",layout:[]},
         {id:"action-ready",storageId:"action-s4",layout:[]}
       ];
+      var priorityRooms=[{id:"priority-room",name:"Priority"},{id:"other-room",name:"Other"}];
+      var priorityFurniture=[{id:"priority-furn",roomId:"priority-room",name:"Priority unit"},{id:"other-furn",roomId:"other-room",name:"Other unit"}];
+      var priorityStorages=[
+        {id:"installed-space",furnitureId:"other-furn",name:"Installed"},
+        {id:"outside-ready",furnitureId:"other-furn",name:"Outside ready"},
+        {id:"room-waiting",furnitureId:"priority-furn",name:"Room waiting"},
+        {id:"stale-space",furnitureId:"other-furn",name:"Stale"},
+        {id:"room-ready",furnitureId:"priority-furn",name:"Room ready"},
+        {id:"outside-waiting",furnitureId:"other-furn",name:"Outside waiting"}
+      ];
+      var priorityInstall={entries:[
+        {storageId:"installed-space",status:"installed"},
+        {storageId:"outside-ready",status:"ready"},
+        {storageId:"room-waiting",status:"waiting"},
+        {storageId:"stale-space",status:"stale"},
+        {storageId:"room-ready",status:"ready"},
+        {storageId:"outside-waiting",status:"waiting"}
+      ]};
+      var priorityOrder=api.prioritizedInstallOrderForRoom("priority-room",{rooms:priorityRooms,furniture:priorityFurniture,storages:priorityStorages,install:priorityInstall});
+      result(priorityOrder.changed&&priorityOrder.order.join(",")==="installed-space,room-waiting,room-ready,stale-space,outside-ready,outside-waiting","room install priority moves only active ready/waiting entries while preserving installed and stale slots");
+      result(priorityOrder.movedIds.join(",")==="room-waiting,room-ready","room install priority preserves the room\'s existing relative order");
+      var alreadyPrioritized=api.prioritizedInstallOrderForRoom("priority-room",{rooms:priorityRooms,furniture:priorityFurniture,storages:priorityStorages,install:priorityInstall,installOrder:priorityOrder.order});
+      result(!alreadyPrioritized.changed&&alreadyPrioritized.order.join(",")===priorityOrder.order.join(","),"room install priority is a no-op when the room is already first among active entries");
+
+      var stockPlans=[
+        {id:"outside-plan",storageId:"outside-ready",layout:[{typeId:"shared-box"}]},
+        {id:"room-plan",storageId:"room-waiting",layout:[{typeId:"shared-box"}]}
+      ];
+      var stockBefore=api.computeInstallAllocation(stockPlans,{"shared-box":1},{},["outside-ready","room-waiting"]);
+      var stockPriority=api.prioritizedInstallOrderForRoom("priority-room",{rooms:priorityRooms,furniture:priorityFurniture,storages:priorityStorages,install:stockBefore});
+      var stockAfter=api.computeInstallAllocation(stockPlans,{"shared-box":1},{},stockPriority.order);
+      result(stockBefore.entries.find(function(e){return e.storageId==="outside-ready"}).status==="ready"&&stockBefore.entries.find(function(e){return e.storageId==="room-waiting"}).status==="waiting","scarce stock initially follows the existing install order");
+      result(stockAfter.entries.find(function(e){return e.storageId==="room-waiting"}).status==="ready"&&stockAfter.entries.find(function(e){return e.storageId==="outside-ready"}).status==="waiting","prioritizing a room reallocates scarce owned stock without changing stock totals");
+
       var roomProgress=api.projectRoomProgress({
         rooms:actionRooms,
         furniture:actionFurniture,

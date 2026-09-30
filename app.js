@@ -1749,6 +1749,28 @@ function projectStorageContext(storageId,options={}){
   const path=[roomName,furnitureName,storageName].filter(Boolean).join(" → ")||storageName;
   return {storageId:String(storageId||""),storage,room,furniture:furnishing,roomName,furnitureName,storageName,path,sortKey:path.toLocaleLowerCase()};
 }
+function prioritizedInstallOrderForRoom(roomId,options={}){
+  const furniture=Array.isArray(options.furniture)?options.furniture:state.furniture;
+  const storages=Array.isArray(options.storages)?options.storages:state.storages;
+  const install=options.install||currentInstallAllocation();
+  const entries=Array.isArray(install?.entries)?install.entries:[];
+  const entryIds=new Set(entries.map(entry=>entry.storageId));
+  const baseOrder=[],seen=new Set();
+  const requestedOrder=Array.isArray(options.installOrder)?options.installOrder:entries.map(entry=>entry.storageId);
+  for(const id of requestedOrder){if(entryIds.has(id)&&!seen.has(id)){seen.add(id);baseOrder.push(id)}}
+  for(const entry of entries){if(!seen.has(entry.storageId)){seen.add(entry.storageId);baseOrder.push(entry.storageId)}}
+  const roomFurnitureIds=new Set(furniture.filter(item=>item.roomId===roomId).map(item=>item.id));
+  const roomStorageIds=new Set(storages.filter(storage=>roomFurnitureIds.has(storage.furnitureId)).map(storage=>storage.id));
+  const activeIds=new Set(entries.filter(entry=>entry.status==="ready"||entry.status==="waiting").map(entry=>entry.storageId));
+  const roomActive=baseOrder.filter(id=>activeIds.has(id)&&roomStorageIds.has(id));
+  const otherActive=baseOrder.filter(id=>activeIds.has(id)&&!roomStorageIds.has(id));
+  if(!roomActive.length)return {order:baseOrder,changed:false,movedIds:[],activeCount:activeIds.size};
+  const reorderedActive=[...roomActive,...otherActive];
+  let activeIndex=0;
+  const order=baseOrder.map(id=>activeIds.has(id)?reorderedActive[activeIndex++]:id);
+  const changed=order.some((id,index)=>id!==baseOrder[index]);
+  return {order,changed,movedIds:roomActive,activeCount:activeIds.size};
+}
 function projectRoomProgress(options={}){
   const rooms=Array.isArray(options.rooms)?options.rooms:state.rooms;
   const furniture=Array.isArray(options.furniture)?options.furniture:state.furniture;
@@ -1818,6 +1840,7 @@ function projectRoomProgress(options={}){
       }))
     ).sort((a,b)=>a.storagePath.localeCompare(b.storagePath)||a.name.localeCompare(b.name));
     const complete=total>0&&installed===total;
+    const installPriority=prioritizedInstallOrderForRoom(room.id,{furniture,storages,install});
     return {
       roomId:room.id,roomName:room.name||"Room",total,currentPlans,chosen:chosenCount,installed,review,choose,plan,ready,waiting,chosenOnly,complete,
       progressPct:total?Math.round(installed/total*100):0,
@@ -1825,6 +1848,8 @@ function projectRoomProgress(options={}){
       storageIds:rows.map(row=>row.storageId),
       spaces:ordered,
       blockers,blockedStorages:new Set(blockers.map(item=>item.storageId)).size,
+      canPrioritizeInstall:waiting>0&&installPriority.changed,
+      priorityStorageCount:installPriority.movedIds.length,
       tone:complete?"good":review?"warn":waiting?"waiting":""
     };
   });
@@ -1855,6 +1880,17 @@ function focusRoomInventoryBlockers(roomId){
   const row=projectRoomProgress().rooms.find(item=>item.roomId===roomId);if(!row||!row.blockers.length)return false;
   return focusShoppingItem(row.blockers[0].id);
 }
+function prioritizeRoomInstall(roomId){
+  const allocation=currentInstallAllocation(),priority=prioritizedInstallOrderForRoom(roomId,{install:allocation});
+  if(!priority.changed)return false;
+  const room=roomById(roomId),name=room?.name||"this room";
+  if(!confirm(`Prioritize ${name} in the install order?\n\nShared owned inventory will be allocated to this room's ready/waiting spaces first. This may make spaces in other rooms wait instead. Plans, owned quantities, and Installed status will not change.`))return false;
+  state.installOrder=priority.order;
+  localStorage.setItem(KEY,JSON.stringify(state));
+  renderInstallDashboard();
+  renderRoomProgressOverview();
+  return true;
+}
 function runRoomStorageAction(space){
   if(!space?.action)return false;
   if(space.action.kind==="room-shopping")return focusShoppingItem(space.action.targetId);
@@ -1880,15 +1916,17 @@ function renderRoomProgressOverview(){
     const blockers=row.blockers.length
       ?`<div class="roomprogressblockers"><strong>Current install blockers:</strong> ${row.blockers.slice(0,3).map(item=>esc(item.storagePath.split(" → ").slice(-1)[0])+" — "+esc(item.name)+" ×"+item.qty).join(" · ")}${row.blockers.length>3?` · +${row.blockers.length-3} more`:""}</div>`:"";
     const blockerButton=row.blockers.length?`<button class="btn soft" type="button" data-room-shopping="${row.roomId}">Shopping / receiving</button>`:"";
+    const priorityButton=row.canPrioritizeInstall?`<button class="btn soft" type="button" data-room-prioritize="${row.roomId}">Prioritize room</button>`:"";
     const queue=`<details class="roomstoragequeue"><summary>Show all ${row.total} storage space${row.total===1?"":"s"}</summary><div class="roomstoragelist">${row.spaces.map((space,spaceIndex)=>{
       const missing=space.status==="waiting"&&space.missing.length
         ?`<div class="roomstoragemissing">${space.missing.map(item=>esc(item.name)+" ×"+item.qty).join(" · ")}</div>`:"";
       return `<div class="roomstoragerow"><div><div class="roomstoragetitle">${esc(space.displayPath)}</div><div class="roomstoragestatus ${space.status}">${esc(space.status==="review"?(space.healthStatus==="invalid"?"Repair":"Review"):space.status)}</div>${missing}</div><button class="btn soft" type="button" data-room-space="${row.roomId}:${spaceIndex}">${esc(space.action.label)}</button></div>`;
     }).join("")}</div></details>`;
-    return `<div class="roomprogresscard ${row.tone}"><div><div class="roomprogresstitle">${esc(row.roomName)}</div><div class="roomprogressmeta">${row.currentPlans}/${row.total} current plans · ${row.chosen}/${row.total} chosen · ${row.installed}/${row.total} installed</div><div class="progressbar"><span style="width:${row.progressPct}%"></span></div><div class="roomprogresschips">${chips}</div>${blockers}</div><div class="roomprogressactions"><button class="btn soft" type="button" data-room-progress="${row.roomId}">Focus room</button>${blockerButton}</div>${queue}</div>`;
+    return `<div class="roomprogresscard ${row.tone}"><div><div class="roomprogresstitle">${esc(row.roomName)}</div><div class="roomprogressmeta">${row.currentPlans}/${row.total} current plans · ${row.chosen}/${row.total} chosen · ${row.installed}/${row.total} installed</div><div class="progressbar"><span style="width:${row.progressPct}%"></span></div><div class="roomprogresschips">${chips}</div>${blockers}${row.canPrioritizeInstall?`<div class="roomprioritynote">Install order controls which unfinished spaces reserve shared owned inventory first.</div>`:""}</div><div class="roomprogressactions"><button class="btn soft" type="button" data-room-progress="${row.roomId}">Focus room</button>${priorityButton}${blockerButton}</div>${queue}</div>`;
   }).join("");
   list.querySelectorAll("[data-room-progress]").forEach(btn=>btn.addEventListener("click",()=>focusProjectRoom(btn.dataset.roomProgress)));
   list.querySelectorAll("[data-room-shopping]").forEach(btn=>btn.addEventListener("click",()=>focusRoomInventoryBlockers(btn.dataset.roomShopping)));
+  list.querySelectorAll("[data-room-prioritize]").forEach(btn=>btn.addEventListener("click",()=>prioritizeRoomInstall(btn.dataset.roomPrioritize)));
   list.querySelectorAll("[data-room-space]").forEach(btn=>btn.addEventListener("click",()=>{
     const [roomId,indexText]=btn.dataset.roomSpace.split(":"),room=progress.rooms.find(item=>item.roomId===roomId),space=room?.spaces?.[Number(indexText)];
     if(space)runRoomStorageAction(space);
@@ -5729,6 +5767,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeInstallState,
     normalizeOwnedDistributionSessions,
     projectStorageContext,
+    prioritizedInstallOrderForRoom,
     projectRoomProgress,
     projectNextActions,
     computeInstallAllocation,
