@@ -43,6 +43,7 @@ state.editShowGrid = state.editShowGrid !== false;
 state.enableStacking = !!state.enableStacking;
 state.optimizeGoal = ["fill","compartments","simple","balanced","cost","access"].includes(state.optimizeGoal)?state.optimizeGoal:"fill";
 state.savedPlans = Array.isArray(state.savedPlans)?state.savedPlans:[];
+normalizeOwnedDistributionSessions(state);
 normalizeChosenPlanSelections(state);
 normalizeShoppingBought(state);
 normalizeInstallState(state);
@@ -98,7 +99,7 @@ for(const p of state.savedPlans){
 
 function defaults(){
   return {
-    unit:"cm",clearance:0.5,fitTolerance:0,editSnapStep:0.5,editShowGrid:true,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanIds:{},shoppingBought:{},installedPlanIds:{},installOrder:[],
+    unit:"cm",clearance:0.5,fitTolerance:0,editSnapStep:0.5,editShowGrid:true,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanIds:{},shoppingBought:{},installedPlanIds:{},installOrder:[],ownedDistributionSessions:{},
     rooms:[{id:"room1",name:"Bedroom"}],
     furniture:[{id:"furn1",roomId:"room1",name:"Wardrobe"}],
     selectedRoom:"room1",selectedFurniture:"furn1",
@@ -126,7 +127,7 @@ function loadState(){
           selectedTypes[b.id]=Boolean(old.selectedTypes?.[b.id] || (old.selections?.[b.id]||0)>0 || b.id===old.selectedBox);
         }
         return {
-          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,editSnapStep:old.editSnapStep??defaultEditSnapStep(old.unit||"cm"),editShowGrid:old.editShowGrid!==false,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanIds:old.chosenPlanIds&&typeof old.chosenPlanIds==="object"?old.chosenPlanIds:{},chosenPlanId:old.chosenPlanId||null,shoppingBought:old.shoppingBought&&typeof old.shoppingBought==="object"?old.shoppingBought:{},installedPlanIds:old.installedPlanIds&&typeof old.installedPlanIds==="object"?old.installedPlanIds:{},installOrder:Array.isArray(old.installOrder)?old.installOrder:[],
+          unit:old.unit||"cm",clearance:old.clearance??0.5,fitTolerance:old.fitTolerance??0,editSnapStep:old.editSnapStep??defaultEditSnapStep(old.unit||"cm"),editShowGrid:old.editShowGrid!==false,uprightOnly:old.uprightOnly!==false,enableStacking:!!old.enableStacking,optimizeGoal:old.optimizeGoal||"fill",savedPlans:Array.isArray(old.savedPlans)?old.savedPlans:[],chosenPlanIds:old.chosenPlanIds&&typeof old.chosenPlanIds==="object"?old.chosenPlanIds:{},chosenPlanId:old.chosenPlanId||null,shoppingBought:old.shoppingBought&&typeof old.shoppingBought==="object"?old.shoppingBought:{},installedPlanIds:old.installedPlanIds&&typeof old.installedPlanIds==="object"?old.installedPlanIds:{},installOrder:Array.isArray(old.installOrder)?old.installOrder:[],ownedDistributionSessions:old.ownedDistributionSessions&&typeof old.ownedDistributionSessions==="object"?old.ownedDistributionSessions:{},
           clearanceEnabled:!!old.clearanceEnabled,rooms:Array.isArray(old.rooms)?old.rooms:[],furniture:Array.isArray(old.furniture)?old.furniture:[],
           selectedRoom:old.selectedRoom||"",selectedFurniture:old.selectedFurniture||"",
           storages:old.storages,boxes:old.boxes,
@@ -138,6 +139,35 @@ function loadState(){
   }catch(e){}
   return defaults();
 }
+function normalizeOwnedDistributionSessions(target){
+  const raw=target.ownedDistributionSessions;
+  target.ownedDistributionSessions=raw&&typeof raw==="object"&&!Array.isArray(raw)?raw:{};
+  const itemIds=new Set((target.boxes||[]).map(b=>b.id));
+  for(const [itemId,session] of Object.entries(target.ownedDistributionSessions)){
+    if(!itemIds.has(itemId)||!session||typeof session!=="object"||session.itemId!==itemId||!Array.isArray(session.allocations)){
+      delete target.ownedDistributionSessions[itemId];continue;
+    }
+    session.id=String(session.id||uid("dist"));
+    session.createdAt=String(session.createdAt||new Date().toISOString());
+    session.fingerprint=String(session.fingerprint||"");
+    session.requested=Math.max(0,Math.floor(Number(session.requested)||0));
+    session.assigned=Math.max(0,Math.floor(Number(session.assigned)||0));
+    session.remaining=Math.max(0,Math.floor(Number(session.remaining)||0));
+    session.provenMinimumSpaces=!!session.provenMinimumSpaces;
+    session.usedBounded=!!session.usedBounded;
+    session.skipped=Array.isArray(session.skipped)?session.skipped:[];
+    session.allocations=session.allocations.filter(a=>a&&a.storageId&&a.result&&Array.isArray(a.result.layout)).map(a=>({
+      ...a,
+      id:String(a.id||uid("alloc")),
+      assigned:Math.max(0,Math.floor(Number(a.assigned)||0)),
+      capacity:Math.max(0,Math.floor(Number(a.capacity)||0)),
+      exact:!!a.exact,
+      status:["pending","opened","done"].includes(a.status)?a.status:"pending"
+    }));
+  }
+  return target.ownedDistributionSessions;
+}
+
 function normalizeInstallState(target){
   target.installedPlanIds=target.installedPlanIds&&typeof target.installedPlanIds==="object"&&!Array.isArray(target.installedPlanIds)?target.installedPlanIds:{};
   target.installOrder=Array.isArray(target.installOrder)?target.installOrder.filter(Boolean):[];
