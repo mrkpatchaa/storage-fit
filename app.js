@@ -639,7 +639,7 @@ function ownedDistributionPlan(unallocatedOwned,candidates=[]){
   const skipped=(candidates||[]).filter(c=>c?.skipped);
   const ready=(candidates||[]).filter(c=>c&&!c.skipped&&Math.max(0,Math.floor(Number(c.capacity)||0))>0)
     .map(c=>({...c,capacity:Math.max(0,Math.floor(Number(c.capacity)||0))}))
-    .sort((a,b)=>b.capacity-a.capacity||(b.exact?1:0)-(a.exact?1:0)||a.tightness-b.tightness||String(a.storagePath||a.storageName||a.storageId).localeCompare(String(b.storagePath||b.storageName||b.storageId)));
+    .sort((a,b)=>b.capacity-a.capacity||a.tightness-b.tightness||(b.exact?1:0)-(a.exact?1:0)||String(a.storagePath||a.storageName||a.storageId).localeCompare(String(b.storagePath||b.storageName||b.storageId)));
   let remaining=requested;
   const allocations=[];
   for(const candidate of ready){
@@ -655,7 +655,7 @@ function ownedDistributionPlan(unallocatedOwned,candidates=[]){
     totalSafeCapacity:ready.reduce((sum,c)=>sum+c.capacity,0),
     boundedCandidates:ready.filter(c=>!c.exact).length,
     usedBounded:allocations.some(c=>!c.exact),
-    provenMinimumSpaces:remaining===0&&ready.every(c=>c.exact)
+    provenMinimumSpaces:remaining===0&&(allocations.length<=1||ready.every(c=>c.exact))
   };
 }
 function ownedDistributionSummaryText(plan){
@@ -954,7 +954,7 @@ function openItemFitModal(){
   const distributionBtn=$("itemFitDistributionBtn"),distributionStatus=$("itemFitDistributionStatus"),distributionEl=$("itemFitDistribution");
   distributionBtn.disabled=!unallocatedOwned||!matches.length;
   distributionBtn.textContent=unallocatedOwned?`Plan ${unallocatedOwned} owned`:"No unallocated stock";
-  distributionStatus.textContent=unallocatedOwned?"Uses chosen-plan remaining capacity first; unplanned spaces use empty-space capacity.":"";
+  distributionStatus.textContent=unallocatedOwned?"Uses chosen-plan remaining capacity where present; unplanned spaces use empty-space capacity.":"";
   distributionEl.innerHTML="";
   const capacityResults=new Map();
   $("itemFitList").innerHTML=matches.length?matches.map(match=>{
