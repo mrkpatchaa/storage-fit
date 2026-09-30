@@ -863,6 +863,51 @@ function resumeOwnedDistributionWork(itemId){
   return true;
 }
 
+function ownedDistributionAllocationView(allocation,stale=false){
+  const status=["pending","opened","done"].includes(allocation?.status)?allocation.status:"pending";
+  const assigned=Math.max(0,Math.floor(Number(allocation?.assigned)||0));
+  return {
+    status,
+    statusLabel:status==="done"?"Done":status==="opened"?"Opened":"Pending",
+    sourceLabel:allocation?.source==="chosen"
+      ?"Chosen plan · "+(allocation.planName||"Chosen plan")
+      :"Unplanned space · owned-capacity packing",
+    certaintyLabel:allocation?.exact?"exact capacity":"safe lower-bound capacity",
+    openLabel:"Open "+assigned+" here",
+    doneLabel:status==="done"?"Undo done":"Mark done",
+    disabled:!!stale
+  };
+}
+function persistOwnedDistributionSession(itemId,session){
+  if(!itemId)return false;
+  state.ownedDistributionSessions=state.ownedDistributionSessions||{};
+  if(session)state.ownedDistributionSessions[itemId]=session;else delete state.ownedDistributionSessions[itemId];
+  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderDistributionWorkDashboard();
+  return true;
+}
+function currentOwnedDistributionWorkRow(itemId){
+  return ownedDistributionWorkRows().find(row=>row.itemId===itemId)||null;
+}
+function toggleOwnedDistributionAllocationDone(itemId,allocationId){
+  const row=currentOwnedDistributionWorkRow(itemId);if(!row||row.stale)return false;
+  const allocation=(row.session.allocations||[]).find(a=>a.id===allocationId);if(!allocation)return false;
+  setOwnedDistributionAllocationStatus(row.session,allocation.id,allocation.status==="done"?"pending":"done");
+  persistOwnedDistributionSession(itemId,row.session);
+  return true;
+}
+function openOwnedDistributionAllocation(itemId,allocationId){
+  const row=currentOwnedDistributionWorkRow(itemId);if(!row||row.stale)return false;
+  const allocation=(row.session.allocations||[]).find(a=>a.id===allocationId);if(!allocation)return false;
+  if(allocation.status!=="done")setOwnedDistributionAllocationStatus(row.session,allocation.id,"opened");
+  persistOwnedDistributionSession(itemId,row.session);
+  if(allocation.source==="chosen"){
+    const owned=ownedPackingFromCapacity(allocation.assigned,allocation.result);
+    return owned.layout.length?openSavedPlanWithExtraItems(allocation.planId,row.item.id,owned.layout):false;
+  }
+  const owned=ownedCapacityResult(allocation.assigned,allocation.result,row.item);
+  return owned?openCapacityPacking(allocation.storageId,owned):false;
+}
+
 function stackedExtraItemPlacementInPlan(item,plan,liveStorage,itemLookup=boxById){
   if(!item||!plan||!liveStorage||!item.canBeStacked)return null;
   const stackingEnabled=plan.stacking ?? layoutUsesStacking(plan.layout||[]);
@@ -1150,11 +1195,6 @@ function openItemFitModal(){
     : `No storage space can fit one copy with the current geometry and fit settings. ${ownedNote} This checks storage geometry only, not occupancy inside a saved layout.`;
   const distributionBtn=$("itemFitDistributionBtn"),distributionStatus=$("itemFitDistributionStatus"),distributionEl=$("itemFitDistribution");
   const distributionFingerprint=ownedDistributionFingerprint(item,settings,unallocatedOwned);
-  const persistDistributionSession=session=>{
-    state.ownedDistributionSessions=state.ownedDistributionSessions||{};
-    if(session)state.ownedDistributionSessions[item.id]=session;else delete state.ownedDistributionSessions[item.id];
-    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderDistributionWorkDashboard();
-  };
   const renderDistributionSession=session=>{
     const stale=!!session&&ownedDistributionSessionIsStale(session,distributionFingerprint);
     if(!session){
@@ -1168,32 +1208,21 @@ function openItemFitModal(){
     distributionBtn.textContent=unallocatedOwned?"Recalculate distribution":"No unallocated stock";
     distributionStatus.textContent=ownedDistributionSessionSummaryText(session,stale);
     distributionEl.innerHTML=(session.allocations||[]).length?session.allocations.map(allocation=>{
-      const source=allocation.source==="chosen"
-        ? "Chosen plan · "+esc(allocation.planName)
-        : "Unplanned space · owned-capacity packing";
-      const certainty=allocation.exact?"exact capacity":"safe lower-bound capacity";
-      const statusLabel=allocation.status==="done"?"Done":allocation.status==="opened"?"Opened":"Pending";
-      return '<div class="fitdistributioncard '+esc(allocation.status||"pending")+(stale?" stale":"")+'"><div><div class="fitdistributiontitle">'+allocation.assigned+' owned → '+esc(allocation.storagePath)+' <span class="distributionstatus '+esc(allocation.status||"pending")+'">'+statusLabel+'</span></div><div class="fitdistributionmeta">'+source+' · '+allocation.capacity+' '+certainty+(stale?" · out of date":"")+'</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-session-open="'+allocation.id+'" '+(stale?"disabled":"")+'>Open '+allocation.assigned+' here</button><button class="btn soft" type="button" data-session-done="'+allocation.id+'" '+(stale?"disabled":"")+'>'+(allocation.status==="done"?"Undo done":"Mark done")+'</button></div></div>';
+      const view=ownedDistributionAllocationView(allocation,stale);
+      return '<div class="fitdistributioncard '+esc(view.status)+(stale?" stale":"")+'"><div><div class="fitdistributiontitle">'+allocation.assigned+' owned → '+esc(allocation.storagePath)+' <span class="distributionstatus '+esc(view.status)+'">'+view.statusLabel+'</span></div><div class="fitdistributionmeta">'+esc(view.sourceLabel)+' · '+allocation.capacity+' '+esc(view.certaintyLabel)+(stale?" · out of date":"")+'</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-session-open="'+allocation.id+'" '+(view.disabled?"disabled":"")+'>'+view.openLabel+'</button><button class="btn soft" type="button" data-session-done="'+allocation.id+'" '+(view.disabled?"disabled":"")+'>'+view.doneLabel+'</button></div></div>';
     }).join(""):'<div class="fitfindersummary">No safe allocation was stored in this distribution session.</div>';
     if(session.skipped?.length){
       distributionEl.innerHTML+='<div class="fitfindersummary">'+session.skipped.map(x=>esc(x.storagePath)+": "+esc(x.skipReason)).join(" · ")+'</div>';
     }
     distributionEl.querySelectorAll("[data-session-done]").forEach(btn=>btn.addEventListener("click",()=>{
-      const allocation=(session.allocations||[]).find(a=>a.id===btn.dataset.sessionDone);if(!allocation||stale)return;
-      setOwnedDistributionAllocationStatus(session,allocation.id,allocation.status==="done"?"pending":"done");
-      persistDistributionSession(session);renderDistributionSession(session);
+      if(stale)return;
+      if(toggleOwnedDistributionAllocationDone(item.id,btn.dataset.sessionDone)){
+        renderDistributionSession(state.ownedDistributionSessions?.[item.id]||null);
+      }
     }));
     distributionEl.querySelectorAll("[data-session-open]").forEach(btn=>btn.addEventListener("click",()=>{
-      const allocation=(session.allocations||[]).find(a=>a.id===btn.dataset.sessionOpen);if(!allocation||stale)return;
-      if(allocation.status!=="done")setOwnedDistributionAllocationStatus(session,allocation.id,"opened");
-      persistDistributionSession(session);
-      if(allocation.source==="chosen"){
-        const owned=ownedPackingFromCapacity(allocation.assigned,allocation.result);
-        if(owned.layout.length)openSavedPlanWithExtraItems(allocation.planId,item.id,owned.layout);
-      }else{
-        const owned=ownedCapacityResult(allocation.assigned,allocation.result,item);
-        if(owned)openCapacityPacking(allocation.storageId,owned);
-      }
+      if(stale)return;
+      openOwnedDistributionAllocation(item.id,btn.dataset.sessionOpen);
     }));
   };
   renderDistributionSession(state.ownedDistributionSessions?.[item.id]||null);
@@ -1253,7 +1282,7 @@ function openItemFitModal(){
     }).filter(Boolean);
     const plan=ownedDistributionPlan(unallocatedOwned,candidates);
     const session=createOwnedDistributionSession(item,plan,distributionFingerprint);
-    persistDistributionSession(session);renderDistributionSession(session);
+    persistOwnedDistributionSession(item.id,session);renderDistributionSession(session);
   };
   $("itemFitList").querySelectorAll("[data-open-owned-capacity]").forEach(btn=>btn.addEventListener("click",()=>{
     const result=capacityResults.get(btn.dataset.openOwnedCapacity),owned=ownedCapacityResult(unallocatedOwned,result,item);
@@ -3050,12 +3079,22 @@ function renderDistributionWorkDashboard(){
     const note=row.stale
       ?'<div class="installmissing">Inputs changed since this plan was calculated. Resume it to recalculate before opening allocations.</div>'
       :'';
+    const allocations=(session.allocations||[]).map(allocation=>{
+      const view=ownedDistributionAllocationView(allocation,row.stale);
+      return '<div class="distributionworkallocation '+view.status+(row.stale?" stale":"")+'"><div><div class="fitdistributiontitle">'+allocation.assigned+' owned → '+esc(allocation.storagePath)+' <span class="distributionstatus '+view.status+'">'+view.statusLabel+'</span></div><div class="fitdistributionmeta">'+esc(view.sourceLabel)+' · '+allocation.capacity+' '+esc(view.certaintyLabel)+(row.stale?" · out of date":"")+'</div></div><div class="fitmatchactions"><button class="btn soft" type="button" data-distribution-allocation-open="'+allocation.id+'" data-distribution-item="'+row.itemId+'" '+(view.disabled?"disabled":"")+'>'+view.openLabel+'</button><button class="btn soft" type="button" data-distribution-allocation-done="'+allocation.id+'" data-distribution-item="'+row.itemId+'" '+(view.disabled?"disabled":"")+'>'+view.doneLabel+'</button></div></div>';
+    }).join("");
     return '<div class="distributionworkcard '+row.status+'"><div><div class="installtitle">'+esc(row.item.name||"Item")+
       ' <span class="distributionworkstatus '+row.status+'">'+statusLabel+'</span></div><div class="installmeta">'+esc(meta)+
       '</div>'+note+'</div><div class="installactions"><button class="btn primary" type="button" data-distribution-resume="'+row.itemId+'">'+actionLabel+
-      '</button><button class="btn soft" type="button" data-distribution-clear="'+row.itemId+'">Clear session</button></div></div>';
+      '</button><button class="btn soft" type="button" data-distribution-clear="'+row.itemId+'">Clear session</button></div><div class="distributionworkallocations">'+allocations+'</div></div>';
   }).join("");
   list.querySelectorAll("[data-distribution-resume]").forEach(btn=>btn.addEventListener("click",()=>resumeOwnedDistributionWork(btn.dataset.distributionResume)));
+  list.querySelectorAll("[data-distribution-allocation-open]").forEach(btn=>btn.addEventListener("click",()=>{
+    openOwnedDistributionAllocation(btn.dataset.distributionItem,btn.dataset.distributionAllocationOpen);
+  }));
+  list.querySelectorAll("[data-distribution-allocation-done]").forEach(btn=>btn.addEventListener("click",()=>{
+    toggleOwnedDistributionAllocationDone(btn.dataset.distributionItem,btn.dataset.distributionAllocationDone);
+  }));
   list.querySelectorAll("[data-distribution-clear]").forEach(btn=>btn.addEventListener("click",()=>{
     const itemId=btn.dataset.distributionClear,row=ownedDistributionWorkRows().find(x=>x.itemId===itemId);
     if(!row)return;
@@ -5178,6 +5217,10 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     ownedDistributionWorkRows,
     ownedDistributionWorkSummary,
     resumeOwnedDistributionWork,
+    ownedDistributionAllocationView,
+    persistOwnedDistributionSession,
+    toggleOwnedDistributionAllocationDone,
+    openOwnedDistributionAllocation,
     setItemFitDistributionVisible,
     itemPlanRoomRows,
     openSavedPlanWithExtraItems,
