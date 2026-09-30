@@ -1736,11 +1736,116 @@ function restoreBackupState(candidate){
   location.reload();
 }
 
+function projectNextActions(options={}){
+  const storages=Array.isArray(options.storages)?options.storages:state.storages;
+  const savedPlans=Array.isArray(options.savedPlans)?options.savedPlans:state.savedPlans;
+  const chosen=Array.isArray(options.chosen)?options.chosen:chosenPlans();
+  const installedPlanIds=options.installedPlanIds&&typeof options.installedPlanIds==="object"?options.installedPlanIds:state.installedPlanIds;
+  const distributionRows=Array.isArray(options.distributionRows)?options.distributionRows:ownedDistributionWorkRows();
+  const procurement=options.procurement||projectProcurement(chosen);
+  const install=options.install||currentInstallAllocation();
+  const healthLookup=typeof options.planHealthLookup==="function"?options.planHealthLookup:planHealth;
+  const actions=[];
+  const push=(priority,kind,title,detail,label,targetId="",tone="")=>actions.push({priority,kind,title,detail,label,targetId,tone});
+
+  const staleChosen=chosen.filter(plan=>installedPlanIds?.[plan.storageId]!==plan.id&&healthLookup(plan).status!=="current");
+  if(staleChosen.length)push(10,"review-plan",
+    "Review "+staleChosen.length+" chosen plan"+(staleChosen.length===1?"":"s"),
+    "A chosen plan changed and blocks reliable shopping or installation until it is reviewed.",
+    "Open first plan",staleChosen[0].id,"warn");
+
+  const staleDistribution=distributionRows.filter(row=>row.stale);
+  if(staleDistribution.length)push(20,"recalculate-distribution",
+    "Recalculate "+staleDistribution.length+" distribution session"+(staleDistribution.length===1?"":"s"),
+    "Stored allocation work is out of date with the current stock, plans, or storage geometry.",
+    "Recalculate first",staleDistribution[0].itemId,"warn");
+
+  const activeDistribution=distributionRows.filter(row=>!row.stale&&!row.complete);
+  if(activeDistribution.length)push(30,"continue-distribution",
+    "Continue "+activeDistribution.length+" distribution session"+(activeDistribution.length===1?"":"s"),
+    "Owned-stock allocation work is ready to continue or apply to the project.",
+    "Resume first",activeDistribution[0].itemId,"");
+
+  const chosenStorageIds=new Set(chosen.map(plan=>plan.storageId));
+  const currentSavedByStorage=new Map();
+  for(const plan of savedPlans){
+    if(chosenStorageIds.has(plan.storageId)||healthLookup(plan).status!=="current")continue;
+    if(!currentSavedByStorage.has(plan.storageId))currentSavedByStorage.set(plan.storageId,plan);
+  }
+  const chooseable=storages.filter(storage=>!chosenStorageIds.has(storage.id)&&currentSavedByStorage.has(storage.id));
+  if(chooseable.length){
+    const firstPlan=currentSavedByStorage.get(chooseable[0].id);
+    push(40,"choose-plan",
+      "Choose a plan for "+chooseable.length+" storage space"+(chooseable.length===1?"":"s"),
+      "Current saved options exist, but no project plan has been chosen for these spaces.",
+      "Review first options",firstPlan?.id||"","");
+  }
+
+  const needsPlanning=storages.filter(storage=>!chosenStorageIds.has(storage.id)&&!currentSavedByStorage.has(storage.id));
+  if(needsPlanning.length)push(50,"plan-space",
+    "Plan "+needsPlanning.length+" storage space"+(needsPlanning.length===1?"":"s"),
+    "These spaces do not yet have a current saved plan that can be chosen.",
+    "Plan next space",needsPlanning[0].id,"");
+
+  if((procurement.boughtUnits||0)>0)push(60,"receive-purchases",
+    "Receive "+procurement.boughtUnits+" purchased organizer"+(procurement.boughtUnits===1?"":"s"),
+    "They are marked purchased but are not part of owned inventory until you receive them.",
+    "Open shopping list","","");
+
+  if((procurement.remainingUnits||0)>0)push(70,"shopping",
+    "Buy "+procurement.remainingUnits+" organizer"+(procurement.remainingUnits===1?"":"s"),
+    "Chosen plans still need inventory before every space can be installed.",
+    "Open shopping list","","");
+
+  const readyInstall=(install.entries||[]).filter(entry=>entry.status==="ready");
+  if(readyInstall.length)push(80,"install-ready",
+    "Install "+readyInstall.length+" ready storage space"+(readyInstall.length===1?"":"s"),
+    "These chosen plans can be installed now with the owned inventory currently available.",
+    "Open install queue",readyInstall[0].storageId,"good");
+
+  if(!storages.length)push(90,"add-storage","Add your first storage space","Create a drawer, shelf, cupboard, or other space before planning layouts.","Add storage","","");
+  const installedCount=storages.filter(storage=>installedPlanIds?.[storage.id]).length;
+  const complete=storages.length>0&&installedCount===storages.length&&actions.length===0;
+  if(complete)push(100,"complete","Project complete","Every storage space has an installed chosen plan.","","", "good");
+  actions.sort((a,b)=>a.priority-b.priority||a.title.localeCompare(b.title));
+  return {actions,complete,installedCount,storageCount:storages.length};
+}
+function scrollProjectSection(id){
+  const el=$(id);if(!el||el.style.display==="none")return false;
+  el.scrollIntoView({behavior:"smooth",block:"start"});return true;
+}
+function runProjectNextAction(action){
+  if(!action)return false;
+  if(action.kind==="review-plan")return !!(action.targetId&&(openSavedPlan(action.targetId),true));
+  if(action.kind==="recalculate-distribution"||action.kind==="continue-distribution")return resumeOwnedDistributionWork(action.targetId);
+  if(action.kind==="choose-plan"){
+    const btn=document.querySelector(`[data-choose-plan="${action.targetId}"]`);
+    const card=btn?.closest(".savedcard");
+    if(card){card.scrollIntoView({behavior:"smooth",block:"center"});return true}
+    return scrollProjectSection("savedPlansSection");
+  }
+  if(action.kind==="plan-space"){openCompatibleStorage(action.targetId);return true}
+  if(action.kind==="receive-purchases"||action.kind==="shopping")return scrollProjectSection("homeProcurementSection");
+  if(action.kind==="install-ready")return scrollProjectSection("installDashboardSection");
+  if(action.kind==="add-storage"){ $("addStorage")?.click();return true }
+  return false;
+}
+function renderProjectNextActions(){
+  const sec=$("projectNextSection"),list=$("projectNextList"),summary=$("projectNextSummary");if(!sec||!list||!summary)return;
+  const result=projectNextActions(),actions=result.actions;
+  sec.style.display="block";
+  summary.textContent=result.complete?"Project complete":actions.length+" next action"+(actions.length===1?"":"s");
+  list.innerHTML=actions.map((action,index)=>
+    '<div class="nextactioncard '+esc(action.tone||"")+'"><div><div class="nextactiontitle">'+esc(action.title)+'</div><div class="nextactiondetail">'+esc(action.detail)+'</div></div>'+
+    (action.label?'<button class="btn '+(index===0?"primary":"soft")+'" type="button" data-project-next="'+index+'">'+esc(action.label)+'</button>':'<span class="nextactiondone">✓</span>')+'</div>'
+  ).join("");
+  list.querySelectorAll("[data-project-next]").forEach(btn=>btn.addEventListener("click",()=>runProjectNextAction(actions[Number(btn.dataset.projectNext)])));
+}
 function renderAll(){
   $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;$("enableStacking").checked=!!state.enableStacking;
   $("clearanceEnabled").checked=!!state.clearanceEnabled;$("clearance").value=state.clearance??0.5;$("fitTolerance").value=state.fitTolerance??0;
   $("clearanceField").style.display=state.clearanceEnabled?"block":"none";
-  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();renderDividerEditor();loadBoxEditor();renderSavedPlans();renderInstallDashboard();renderDistributionWorkDashboard();renderHomeProcurement();renderBackupStats();renderRecoveryHistory();resetResults();
+  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();renderDividerEditor();loadBoxEditor();renderSavedPlans();renderInstallDashboard();renderDistributionWorkDashboard();renderHomeProcurement();renderProjectNextActions();renderBackupStats();renderRecoveryHistory();resetResults();
 }
 function plannedStorageIds(){return new Set((state.savedPlans||[]).map(p=>p.storageId))}
 function installedStorageIds(){return new Set(Object.keys(state.installedPlanIds||{}))}
@@ -3189,7 +3294,7 @@ function renderInstallDashboard(){
   normalizeInstallState(state);
   const allocation=currentInstallAllocation(),entries=allocation.entries;
   if(!entries.length){
-    sec.style.display="none";$("installQueue").innerHTML="";return;
+    sec.style.display="none";$("installQueue").innerHTML="";renderProjectNextActions();return;
   }
   sec.style.display="block";
   const installed=entries.filter(e=>e.status==="installed").length;
@@ -3238,6 +3343,7 @@ function renderInstallDashboard(){
     state.installedPlanIds[storageId]=entry.plan.id;
     localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();renderHomeProcurement();
   }));
+  renderProjectNextActions();
   $("installQueue").querySelectorAll("[data-install-undo]").forEach(btn=>btn.addEventListener("click",()=>{
     delete state.installedPlanIds[btn.dataset.installUndo];
     localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();renderHomeProcurement();
@@ -3251,7 +3357,7 @@ function renderDistributionWorkDashboard(){
   if(!rows.length){
     sec.style.display="none";
     if(list)list.innerHTML="";
-    return;
+    renderProjectNextActions();return;
   }
   sec.style.display="block";
   const summary=ownedDistributionWorkSummary(rows);
@@ -3309,6 +3415,7 @@ function renderDistributionWorkDashboard(){
   list.querySelectorAll("[data-distribution-allocation-done]").forEach(btn=>btn.addEventListener("click",()=>{
     toggleOwnedDistributionAllocationDone(btn.dataset.distributionItem,btn.dataset.distributionAllocationDone);
   }));
+  renderProjectNextActions();
   list.querySelectorAll("[data-distribution-clear]").forEach(btn=>btn.addEventListener("click",()=>{
     const itemId=btn.dataset.distributionClear,row=ownedDistributionWorkRows().find(x=>x.itemId===itemId);
     if(!row)return;
@@ -3397,7 +3504,7 @@ function renderHomeProcurement(){
   if(!summary.plans.length){
     sec.style.display="none";$("homeProcurementList").innerHTML="";
     $("receivePurchasesBtn").disabled=true;
-    return;
+    renderProjectNextActions();return;
   }
   sec.style.display="block";
   $("homeChosenCount").textContent=summary.plans.length+" chosen storage"+(summary.plans.length===1?"":"s")+(summary.stalePlans.length?" · "+summary.stalePlans.length+" need review":"");
@@ -3436,6 +3543,7 @@ function renderHomeProcurement(){
   $("homeProcurementList").querySelectorAll("[data-bought-inc]").forEach(btn=>btn.addEventListener("click",()=>{
     const row=projectProcurement().rows.find(r=>r.id===btn.dataset.boughtInc);if(row)setShoppingBought(row.id,row.boughtQty+1);
   }));
+  renderProjectNextActions();
   $("homeProcurementList").querySelectorAll("[data-bought-all]").forEach(btn=>btn.addEventListener("click",()=>{
     const row=projectProcurement().rows.find(r=>r.id===btn.dataset.boughtAll);if(row)setShoppingBought(row.id,row.buyQty);
   }));
@@ -5391,6 +5499,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeShoppingBought,
     normalizeInstallState,
     normalizeOwnedDistributionSessions,
+    projectNextActions,
     computeInstallAllocation,
     repeatStorageNames,
     canonicalPlanLayout,
