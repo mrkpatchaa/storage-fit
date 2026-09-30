@@ -959,6 +959,10 @@ Each room card also has an expandable **Show all N storage spaces** queue. The q
 
 The queue reuses the existing saved-plan, planning, shopping, and install workflows. It is not a second task system and stores no completion state of its own.
 
+When a room has waiting install work and its active entries are not already first in the global install order, the card also offers **Prioritize room**. Install order is the allocator’s tie-breaker for shared owned inventory: the action moves that room’s unfinished **Ready/Waiting** entries ahead of other unfinished active entries while preserving the positions of **Installed** and **Needs review** entries.
+
+This can intentionally make more of the selected room ready at the expense of another room when both compete for the same owned organizer. The confirmation calls this out explicitly. It does **not** change plans, owned quantities, purchased quantities, or Installed status; it only changes `installOrder`, and the existing per-storage ↑/↓ controls remain available for manual adjustment.
+
 This also tightens the existing Home structure progress semantics: a storage counts as planned only when it has a **current usable saved plan** (or is already installed). Historical stale/invalid plans no longer inflate the planned count, and storage rows explicitly show **saved plan needs review** when appropriate.
 
 The overview is fully derived from the existing plan, inventory, and install state. No new persistent room-status data or schema migration is required; the app remains on V28.
