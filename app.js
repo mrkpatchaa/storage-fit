@@ -604,6 +604,73 @@ function ownedCapacityResult(unallocatedOwned,result,item){
   };
 }
 
+function ownedDistributionCandidate(item,S,settings,chosenPlan,match={},options={}){
+  if(!item||!S)return null;
+  const copyLimit=Math.max(1,Math.min(CAPACITY_COPY_LIMIT,Math.floor(Number(options.copyLimit)||CAPACITY_COPY_LIMIT)));
+  const nodeLimit=Math.max(100,Math.min(CAPACITY_SEARCH_LIMIT,Math.floor(Number(options.nodeLimit)||CAPACITY_SEARCH_LIMIT)));
+  const tightness=Number.isFinite(Number(match?.freeAfter))?Number(match.freeAfter):Number.POSITIVE_INFINITY;
+  const storagePath=options.storagePath||S.name||"Storage";
+  if(chosenPlan){
+    const healthStatus=options.planStatus||planHealth(chosenPlan).status;
+    if(healthStatus!=="current"){
+      return {
+        storageId:S.id,storageName:S.name||"Storage",storagePath,source:"chosen",planId:chosenPlan.id,
+        planName:chosenPlan.name||"Chosen plan",capacity:0,exact:false,tightness,skipped:true,
+        skipReason:healthStatus==="review"?"chosen plan needs review":"chosen plan is invalid"
+      };
+    }
+    const result=maxAdditionalCopiesInPlan(item,chosenPlan,S,{
+      nodeLimit,copyLimit,itemLookup:options.itemLookup||boxById
+    });
+    return {
+      storageId:S.id,storageName:S.name||"Storage",storagePath,source:"chosen",planId:chosenPlan.id,
+      planName:chosenPlan.name||"Chosen plan",capacity:Array.isArray(result.layout)?result.layout.length:0,
+      exact:!!result.exact,tightness,result,skipped:false
+    };
+  }
+  const result=maxCopiesInStorage(item,S,settings,{nodeLimit,copyLimit,itemLookup:options.itemLookup});
+  return {
+    storageId:S.id,storageName:S.name||"Storage",storagePath,source:"empty",planId:null,planName:"",
+    capacity:Array.isArray(result.layout)?result.layout.length:0,exact:!!result.exact,tightness,result,skipped:false
+  };
+}
+function ownedDistributionPlan(unallocatedOwned,candidates=[]){
+  const requested=Math.max(0,Math.floor(Number(unallocatedOwned)||0));
+  const skipped=(candidates||[]).filter(c=>c?.skipped);
+  const ready=(candidates||[]).filter(c=>c&&!c.skipped&&Math.max(0,Math.floor(Number(c.capacity)||0))>0)
+    .map(c=>({...c,capacity:Math.max(0,Math.floor(Number(c.capacity)||0))}))
+    .sort((a,b)=>b.capacity-a.capacity||a.tightness-b.tightness||(b.exact?1:0)-(a.exact?1:0)||String(a.storagePath||a.storageName||a.storageId).localeCompare(String(b.storagePath||b.storageName||b.storageId)));
+  let remaining=requested;
+  const allocations=[];
+  for(const candidate of ready){
+    if(remaining<=0)break;
+    const assigned=Math.min(remaining,candidate.capacity);
+    if(!assigned)continue;
+    allocations.push({...candidate,assigned});
+    remaining-=assigned;
+  }
+  const assigned=requested-remaining;
+  return {
+    requested,assigned,remaining,spaceCount:allocations.length,allocations,skipped,
+    totalSafeCapacity:ready.reduce((sum,c)=>sum+c.capacity,0),
+    boundedCandidates:ready.filter(c=>!c.exact).length,
+    usedBounded:allocations.some(c=>!c.exact),
+    provenMinimumSpaces:remaining===0&&(allocations.length<=1||ready.every(c=>c.exact))
+  };
+}
+function ownedDistributionSummaryText(plan){
+  if(!plan||!plan.requested)return "No unallocated owned stock to distribute.";
+  const spaces=plan.spaceCount+" space"+(plan.spaceCount===1?"":"s");
+  let text=plan.remaining===0
+    ? (plan.provenMinimumSpaces
+      ? plan.assigned+" owned copies fit in a minimum of "+spaces+"."
+      : plan.assigned+" owned copies are assigned across "+spaces+" using the safe capacity found.")
+    : plan.assigned+" of "+plan.requested+" owned copies are assigned across "+spaces+"; "+plan.remaining+" remain unassigned.";
+  if(plan.usedBounded||plan.boundedCandidates)text+=" Some capacity results are lower bounds, so a tighter distribution may exist.";
+  if(plan.skipped?.length)text+=" "+plan.skipped.length+" storage space"+(plan.skipped.length===1?" was":"s were")+" skipped because the chosen plan needs review.";
+  return text;
+}
+
 function stackedExtraItemPlacementInPlan(item,plan,liveStorage,itemLookup=boxById){
   if(!item||!plan||!liveStorage||!item.canBeStacked)return null;
   const stackingEnabled=plan.stacking ?? layoutUsesStacking(plan.layout||[]);
@@ -884,6 +951,11 @@ function openItemFitModal(){
   $("itemFitSummary").textContent=matches.length
     ? `${matches.length} of ${state.storages.length} storage space${state.storages.length===1?"":"s"} can fit one copy. ${ownedNote} Tightest compatible spaces are shown first. This checks storage geometry only, not occupancy inside a saved layout.`
     : `No storage space can fit one copy with the current geometry and fit settings. ${ownedNote} This checks storage geometry only, not occupancy inside a saved layout.`;
+  const distributionBtn=$("itemFitDistributionBtn"),distributionStatus=$("itemFitDistributionStatus"),distributionEl=$("itemFitDistribution");
+  distributionBtn.disabled=!unallocatedOwned||!matches.length;
+  distributionBtn.textContent=unallocatedOwned?`Plan ${unallocatedOwned} owned`:"No unallocated stock";
+  distributionStatus.textContent=unallocatedOwned?"Uses chosen-plan remaining capacity where present; unplanned spaces use empty-space capacity.":"";
+  distributionEl.innerHTML="";
   const capacityResults=new Map();
   $("itemFitList").innerHTML=matches.length?matches.map(match=>{
     const S=state.storages.find(s=>s.id===match.storageId),blocked=(S?.obstacles||[]).length,dividers=(S?.dividers||[]).length;
@@ -918,6 +990,45 @@ function openItemFitModal(){
     if(openBtn)openBtn.disabled=!result.layout.length;
     btn.textContent=result.exact?"Recalculate":"Try again";btn.disabled=false;
   }));
+  distributionBtn.onclick=()=>{
+    if(!unallocatedOwned||!matches.length)return;
+    distributionBtn.disabled=true;distributionBtn.textContent="Planning…";
+    distributionStatus.textContent="Calculating safe capacity across compatible spaces…";
+    const chosenByStorage=new Map(chosenPlans().map(plan=>[plan.storageId,plan]));
+    const copyLimit=Math.max(1,Math.min(CAPACITY_COPY_LIMIT,unallocatedOwned));
+    const candidates=matches.map(match=>{
+      const S=state.storages.find(s=>s.id===match.storageId);if(!S)return null;
+      const chosen=chosenByStorage.get(S.id)||null;
+      return ownedDistributionCandidate(item,S,settings,chosen,match,{
+        copyLimit,
+        nodeLimit:Math.min(CAPACITY_SEARCH_LIMIT,12000),
+        storagePath:storageBreadcrumb(S)
+      });
+    }).filter(Boolean);
+    const plan=ownedDistributionPlan(unallocatedOwned,candidates);
+    distributionStatus.textContent=ownedDistributionSummaryText(plan);
+    distributionEl.innerHTML=plan.allocations.length?plan.allocations.map((allocation,index)=>{
+      const source=allocation.source==="chosen"
+        ? "Chosen plan · "+esc(allocation.planName)
+        : "Unplanned space · empty-capacity packing";
+      const certainty=allocation.exact?"exact capacity":"safe lower-bound capacity";
+      return '<div class="fitdistributioncard"><div><div class="fitdistributiontitle">'+allocation.assigned+' owned → '+esc(allocation.storagePath)+'</div><div class="fitdistributionmeta">'+source+' · '+allocation.capacity+' '+certainty+'</div></div><button class="btn soft" type="button" data-open-distribution="'+index+'">Open '+allocation.assigned+' here</button></div>';
+    }).join(""):'<div class="fitfindersummary">No safe capacity was found for the currently unallocated copies.</div>';
+    if(plan.skipped.length){
+      distributionEl.innerHTML+='<div class="fitfindersummary">'+plan.skipped.map(x=>esc(x.storagePath)+": "+esc(x.skipReason)).join(" · ")+'</div>';
+    }
+    distributionEl.querySelectorAll("[data-open-distribution]").forEach(btn=>btn.addEventListener("click",()=>{
+      const allocation=plan.allocations[Number(btn.dataset.openDistribution)];if(!allocation)return;
+      if(allocation.source==="chosen"){
+        const owned=ownedPackingFromCapacity(allocation.assigned,allocation.result);
+        if(owned.layout.length)openSavedPlanWithExtraItems(allocation.planId,item.id,owned.layout);
+      }else{
+        const owned=ownedCapacityResult(allocation.assigned,allocation.result,item);
+        if(owned)openCapacityPacking(allocation.storageId,owned);
+      }
+    }));
+    distributionBtn.disabled=false;distributionBtn.textContent="Recalculate distribution";
+  };
   $("itemFitList").querySelectorAll("[data-open-owned-capacity]").forEach(btn=>btn.addEventListener("click",()=>{
     const result=capacityResults.get(btn.dataset.openOwnedCapacity),owned=ownedCapacityResult(unallocatedOwned,result,item);
     if(owned)openCapacityPacking(btn.dataset.openOwnedCapacity,owned);
@@ -4772,6 +4883,9 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     packingStackSummaryText,
     ownedPackingFromCapacity,
     ownedCapacityResult,
+    ownedDistributionCandidate,
+    ownedDistributionPlan,
+    ownedDistributionSummaryText,
     itemPlanRoomRows,
     openSavedPlanWithExtraItems,
     openSavedPlanWithExtraItem,
