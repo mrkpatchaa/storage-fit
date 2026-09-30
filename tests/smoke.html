@@ -719,6 +719,25 @@
         planHealthLookup:function(plan){return {status:plan.id==="action-stale"?"review":"current"}}
       });
       result(installedRoomProgress.rooms.find(function(r){return r.roomId==="room-b"}).installed===1&&installedRoomProgress.totals.installed===1,"room progress treats the installed chosen plan as complete work");
+      var blockerItems=[{id:"sock",name:"Sock boxes"},{id:"label",name:"Labels"}];
+      var blockedRoomProgress=api.projectRoomProgress({
+        rooms:actionRooms,
+        furniture:actionFurniture,
+        storages:actionStorages,
+        items:blockerItems,
+        savedPlans:[actionPlans[1],actionPlans[2]],
+        chosen:[actionPlans[1],actionPlans[2]],
+        installedPlanIds:{},
+        install:{entries:[
+          {storageId:"action-s2",status:"waiting",missing:[{id:"sock",qty:2},{id:"label",qty:1}]},
+          {storageId:"action-s4",status:"waiting",missing:[{id:"sock",qty:1}]}
+        ]},
+        planHealthLookup:function(){return {status:"current"}}
+      });
+      var blockedBedroom=blockedRoomProgress.rooms.find(function(r){return r.roomId==="room-b"});
+      result(blockedBedroom.waiting===2&&blockedBedroom.missingUnits===4&&blockedBedroom.blockers.length===2,"room progress aggregates inventory blockers from waiting install allocations");
+      result(blockedBedroom.blockers[0].name==="Labels"&&blockedBedroom.blockers[0].qty===1&&blockedBedroom.blockers[1].name==="Sock boxes"&&blockedBedroom.blockers[1].qty===3&&blockedBedroom.blockers[1].storageCount===2,"room inventory blockers aggregate quantities and affected storage counts by organizer");
+      result(blockedBedroom.tone==="waiting","room progress highlights inventory-blocked rooms separately from plan-review rooms");
 
       var nextActions=api.projectNextActions({
         rooms:actionRooms,
