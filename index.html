@@ -144,7 +144,7 @@
             <button class="btn soft" id="restoreAllBtn" type="button">Restore backup</button>
             <input id="restoreFileInput" type="file" accept=".json,application/json" hidden>
           </div>
-          <div class="datastatus" id="backupStatus">Backup includes rooms, furniture, storage spaces, blocked zones, custom dividers, items, handling preferences, placement labels, manual-editing preferences, saved-plan validation snapshots, owned inventory, shopping progress, install order/status, product metadata, settings, quantity limits, saved plans, and chosen project plans.</div>
+          <div class="datastatus" id="backupStatus">Backup includes rooms, furniture, storage spaces, blocked zones, custom dividers, items, handling preferences, placement labels, manual-editing preferences, saved-plan validation snapshots, owned inventory, owned-distribution work sessions, shopping progress, install order/status, product metadata, settings, quantity limits, saved plans, and chosen project plans.</div>
           <div class="recoverypanel">
             <div class="recoveryhead">
               <div><strong>Recovery</strong><div class="small">Automatic local checkpoints before destructive changes. Keeps the latest 8.</div></div>
@@ -227,6 +227,15 @@
         </div>
         <div class="installsummary" id="installSummary"></div>
         <div class="installqueue" id="installQueue"></div>
+      </section>
+
+      <section class="card" id="distributionWorkSection" style="display:none">
+        <div class="galleryhead">
+          <div><h2>Distribution work</h2><div class="small">Resume persistent owned-stock allocation sessions across organizers without reopening each item manually.</div></div>
+          <div class="small" id="distributionWorkProgress"></div>
+        </div>
+        <div class="installsummary" id="distributionWorkSummary"></div>
+        <div class="installqueue" id="distributionWorkList"></div>
       </section>
 
       <section class="card" id="homeProcurementSection" style="display:none">
