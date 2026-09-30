@@ -155,6 +155,7 @@ function normalizeOwnedDistributionSessions(target){
     session.remaining=Math.max(0,Math.floor(Number(session.remaining)||0));
     session.provenMinimumSpaces=!!session.provenMinimumSpaces;
     session.usedBounded=!!session.usedBounded;
+    session.boundedCandidates=Math.max(0,Math.floor(Number(session.boundedCandidates)||0));
     session.skipped=Array.isArray(session.skipped)?session.skipped:[];
     session.allocations=session.allocations.filter(a=>a&&a.storageId&&a.result&&Array.isArray(a.result.layout)).map(a=>({
       ...a,
@@ -5056,6 +5057,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     setOwnedDistributionAllocationStatus,
     ownedDistributionSessionIsStale,
     ownedDistributionSessionSummaryText,
+    setItemFitDistributionVisible,
     itemPlanRoomRows,
     openSavedPlanWithExtraItems,
     openSavedPlanWithExtraItem,
