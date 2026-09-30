@@ -811,6 +811,58 @@ function ownedDistributionSessionSummaryText(session,stale=false){
   return (stale?"Out of date — recalculate before opening allocations. ":"")+base+progress;
 }
 
+function ownedDistributionWorkRows(sessions=state.ownedDistributionSessions,options={}){
+  const boxes=Array.isArray(options.boxes)?options.boxes:state.boxes;
+  const settings=options.settings||fitLookupSettings();
+  const stockLookup=typeof options.stockLookup==="function"?options.stockLookup:stockStatusForItem;
+  const fingerprintLookup=typeof options.fingerprintLookup==="function"
+    ?options.fingerprintLookup
+    :(item,unallocatedOwned)=>ownedDistributionFingerprint(item,settings,unallocatedOwned,options.fingerprintOptions||{});
+  const rows=[];
+  for(const [itemId,session] of Object.entries(sessions||{})){
+    const item=boxes.find(b=>b.id===itemId);if(!item||!session)continue;
+    const stock=stockLookup(item)||{};
+    const unallocatedOwned=Math.max(0,Math.floor(Number(stock.unallocatedOwned)||0));
+    const fingerprint=fingerprintLookup(item,unallocatedOwned);
+    const stale=ownedDistributionSessionIsStale(session,fingerprint);
+    const progress=ownedDistributionSessionProgress(session);
+    const complete=progress.total>0&&progress.done===progress.total;
+    const status=stale?"stale":complete?"done":progress.opened?"opened":"pending";
+    rows.push({itemId,item,session,unallocatedOwned,fingerprint,stale,progress,complete,status});
+  }
+  const rank={stale:0,opened:1,pending:2,done:3};
+  rows.sort((a,b)=>(rank[a.status]??9)-(rank[b.status]??9)
+    ||(Date.parse(b.session.createdAt)||0)-(Date.parse(a.session.createdAt)||0)
+    ||String(a.item.name||a.itemId).localeCompare(String(b.item.name||b.itemId)));
+  return rows;
+}
+function ownedDistributionWorkSummary(rows=[]){
+  const summary={
+    sessions:rows.length,staleSessions:0,completeSessions:0,
+    allocations:0,doneAllocations:0,openedAllocations:0,pendingAllocations:0,
+    assignedCopies:0,doneCopies:0
+  };
+  for(const row of rows){
+    const p=row.progress||ownedDistributionSessionProgress(row.session);
+    if(row.stale)summary.staleSessions++;
+    if(row.complete&&!row.stale)summary.completeSessions++;
+    summary.allocations+=p.total||0;
+    summary.doneAllocations+=p.done||0;
+    summary.openedAllocations+=p.opened||0;
+    summary.pendingAllocations+=p.pending||0;
+    summary.assignedCopies+=p.totalCopies||0;
+    summary.doneCopies+=p.doneCopies||0;
+  }
+  return summary;
+}
+function resumeOwnedDistributionWork(itemId){
+  const item=boxById(itemId);if(!item)return false;
+  editingBox=item.id;
+  if($("itemSearch"))$("itemSearch").value="";
+  renderBoxList();loadBoxEditor();openItemFitModal();
+  return true;
+}
+
 function stackedExtraItemPlacementInPlan(item,plan,liveStorage,itemLookup=boxById){
   if(!item||!plan||!liveStorage||!item.canBeStacked)return null;
   const stackingEnabled=plan.stacking ?? layoutUsesStacking(plan.layout||[]);
@@ -1101,7 +1153,7 @@ function openItemFitModal(){
   const persistDistributionSession=session=>{
     state.ownedDistributionSessions=state.ownedDistributionSessions||{};
     if(session)state.ownedDistributionSessions[item.id]=session;else delete state.ownedDistributionSessions[item.id];
-    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderDistributionWorkDashboard();
   };
   const renderDistributionSession=session=>{
     const stale=!!session&&ownedDistributionSessionIsStale(session,distributionFingerprint);
@@ -1471,7 +1523,7 @@ function renderAll(){
   $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;$("enableStacking").checked=!!state.enableStacking;
   $("clearanceEnabled").checked=!!state.clearanceEnabled;$("clearance").value=state.clearance??0.5;$("fitTolerance").value=state.fitTolerance??0;
   $("clearanceField").style.display=state.clearanceEnabled?"block":"none";
-  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();renderDividerEditor();loadBoxEditor();renderSavedPlans();renderInstallDashboard();renderHomeProcurement();renderBackupStats();renderRecoveryHistory();resetResults();
+  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();renderDividerEditor();loadBoxEditor();renderSavedPlans();renderInstallDashboard();renderDistributionWorkDashboard();renderHomeProcurement();renderBackupStats();renderRecoveryHistory();resetResults();
 }
 function plannedStorageIds(){return new Set((state.savedPlans||[]).map(p=>p.storageId))}
 function installedStorageIds(){return new Set(Object.keys(state.installedPlanIds||{}))}
@@ -2965,6 +3017,51 @@ function renderInstallDashboard(){
   $("installQueue").querySelectorAll("[data-install-undo]").forEach(btn=>btn.addEventListener("click",()=>{
     delete state.installedPlanIds[btn.dataset.installUndo];
     localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();renderHomeProcurement();
+  }));
+}
+
+function renderDistributionWorkDashboard(){
+  const sec=$("distributionWorkSection");if(!sec)return;
+  const rows=ownedDistributionWorkRows();
+  const list=$("distributionWorkList");
+  if(!rows.length){
+    sec.style.display="none";
+    if(list)list.innerHTML="";
+    return;
+  }
+  sec.style.display="block";
+  const summary=ownedDistributionWorkSummary(rows);
+  $("distributionWorkProgress").textContent=summary.doneAllocations+"/"+summary.allocations+" allocations done";
+  $("distributionWorkSummary").innerHTML=
+    '<div class="installstat"><div class="k">Sessions</div><div class="v">'+summary.sessions+'</div></div>'+
+    '<div class="installstat"><div class="k">Allocations</div><div class="v">'+summary.doneAllocations+'/'+summary.allocations+'</div><div class="small">done</div></div>'+
+    '<div class="installstat"><div class="k">Owned copies</div><div class="v">'+summary.doneCopies+'/'+summary.assignedCopies+'</div><div class="small">done</div></div>'+
+    '<div class="installstat"><div class="k">Out of date</div><div class="v">'+summary.staleSessions+'</div></div>'+
+    '<div class="installstat"><div class="k">Complete</div><div class="v">'+summary.completeSessions+'</div></div>';
+  list.innerHTML=rows.map(row=>{
+    const p=row.progress,session=row.session;
+    const statusLabel=row.status==="stale"?"Out of date":row.status==="done"?"Complete":row.status==="opened"?"In progress":"Not started";
+    const actionLabel=row.status==="stale"?"Review & recalculate":row.status==="done"?"Review":"Resume";
+    const spaces=(session.allocations||[]).length;
+    const remaining=Math.max(0,Math.floor(Number(session.remaining)||0));
+    const meta=session.assigned+" of "+session.requested+" owned copies assigned across "+spaces+" space"+(spaces===1?"":"s")+
+      " · "+p.done+" done · "+p.opened+" opened · "+p.pending+" pending"+
+      (remaining?" · "+remaining+" unassigned":"");
+    const note=row.stale
+      ?'<div class="installmissing">Inputs changed since this plan was calculated. Resume it to recalculate before opening allocations.</div>'
+      :'';
+    return '<div class="distributionworkcard '+row.status+'"><div><div class="installtitle">'+esc(row.item.name||"Item")+
+      ' <span class="distributionworkstatus '+row.status+'">'+statusLabel+'</span></div><div class="installmeta">'+esc(meta)+
+      '</div>'+note+'</div><div class="installactions"><button class="btn primary" type="button" data-distribution-resume="'+row.itemId+'">'+actionLabel+
+      '</button><button class="btn soft" type="button" data-distribution-clear="'+row.itemId+'">Clear session</button></div></div>';
+  }).join("");
+  list.querySelectorAll("[data-distribution-resume]").forEach(btn=>btn.addEventListener("click",()=>resumeOwnedDistributionWork(btn.dataset.distributionResume)));
+  list.querySelectorAll("[data-distribution-clear]").forEach(btn=>btn.addEventListener("click",()=>{
+    const itemId=btn.dataset.distributionClear,row=ownedDistributionWorkRows().find(x=>x.itemId===itemId);
+    if(!row)return;
+    if(!confirm('Clear the distribution work session for "'+(row.item.name||"this item")+'"? This removes workflow progress only; it does not change inventory or saved plans.'))return;
+    delete state.ownedDistributionSessions[itemId];
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderDistributionWorkDashboard();
   }));
 }
 
@@ -5078,6 +5175,9 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     setOwnedDistributionAllocationStatus,
     ownedDistributionSessionIsStale,
     ownedDistributionSessionSummaryText,
+    ownedDistributionWorkRows,
+    ownedDistributionWorkSummary,
+    resumeOwnedDistributionWork,
     setItemFitDistributionVisible,
     itemPlanRoomRows,
     openSavedPlanWithExtraItems,
