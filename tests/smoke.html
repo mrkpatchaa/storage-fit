@@ -868,6 +868,25 @@
       result(unlockAnalysis.rows[0].boughtQty===1&&unlockAnalysis.rows[0].remainingQty===0,"stock unlock analysis preserves purchased-vs-still-to-source context without changing inventory");
       result(unlockAnalysis.rows[0].gainedReady.length===1&&unlockAnalysis.rows[0].gainedReady[0].storageId==="unlock-b"&&unlockAnalysis.rows[0].gainedReady[0].path==="Utility → Cabinet → B only"&&unlockAnalysis.rows[0].lostReady.length===0,"stock unlock impact compares the suggested hypothetical allocation with the best current-stock allocation");
 
+      var arrivalAnalysis=api.purchasedArrivalAnalysis({
+        rooms:unlockRooms,furniture:unlockFurniture,storages:unlockStorages,
+        install:unlockInstall,plans:unlockPlans,ownedById:unlockOwned,installedPlanIds:{},
+        installOrder:["unlock-big","unlock-a","unlock-b"],
+        purchaseRows:[{id:"b",name:"Beta",boughtQty:1}]
+      });
+      result(arrivalAnalysis.boughtUnits===1&&arrivalAnalysis.beforeReady===1&&arrivalAnalysis.afterReady===1,"purchased arrival preview keeps in-transit stock separate while simulating its receipt against the current install order");
+      result(arrivalAnalysis.gainedReady.length===1&&arrivalAnalysis.gainedReady[0].storageId==="unlock-big"&&arrivalAnalysis.lostReady.length===1&&arrivalAnalysis.lostReady[0].storageId==="unlock-a","purchased arrival preview reveals when an earlier waiting plan would displace a currently Ready space");
+      result(arrivalAnalysis.bestReady===2&&arrivalAnalysis.optimizationGain===1&&arrivalAnalysis.optimizationExact&&arrivalAnalysis.optimizedGainedReady.length===2&&arrivalAnalysis.optimizedLostReady.length===1,"purchased arrival preview finds a better post-receipt install order without applying it");
+
+      var simpleArrivalPlans=[unlockPlans[1],unlockPlans[2]];
+      var simpleArrivalInstall=api.computeInstallAllocation(simpleArrivalPlans,{a:1,b:0},{},["unlock-a","unlock-b"]);
+      var simpleArrival=api.purchasedArrivalAnalysis({
+        rooms:unlockRooms,furniture:unlockFurniture,storages:unlockStorages,
+        install:simpleArrivalInstall,plans:simpleArrivalPlans,ownedById:{a:1,b:0},installedPlanIds:{},
+        installOrder:["unlock-a","unlock-b"],purchaseRows:[{id:"b",name:"Beta",boughtQty:1}]
+      });
+      result(simpleArrival.beforeReady===1&&simpleArrival.afterReady===2&&simpleArrival.arrivalGain===1&&simpleArrival.gainedReady[0].storageId==="unlock-b"&&simpleArrival.optimizationGain===0,"purchased arrival preview reports direct Ready gains when the current queue is already optimal");
+
       var unlockSnapshot=api.installAllocationSnapshot({a:1,b:1},{
         install:unlockInstall,plans:unlockPlans,installedPlanIds:{},installOrder:["unlock-big","unlock-a","unlock-b"]
       });

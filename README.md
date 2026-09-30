@@ -176,6 +176,8 @@ The home shopping list now has an execution state between “need to buy” and 
 
 This distinction prevents in-transit items from being counted as physically available too early. Purchase progress persists across reloads and backups.
 
+When at least one unit is marked purchased, the shopping list also shows a **When purchases arrive** preview before inventory changes. It dry-runs receipt against the current install queue, shows the exact storage spaces that would become Ready or Waiting as earlier plans begin reserving shared stock, and checks whether a different install order could make even more spaces Ready after receipt. The preview never changes owned quantities or install order; **Receive purchases** remains the explicit inventory action, and any better order can be applied afterward with **Find more Ready**.
+
 Project status moves through:
 
 1. items still need to be purchased;
