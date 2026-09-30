@@ -975,6 +975,10 @@ When reordering alone cannot answer the inventory question, **Analyze stock** ru
 
 This analysis is informational only. It never increments owned stock, marks an item purchased, changes install order, or claims that an item must be bought. A purchased organizer still counts as unavailable until it is physically received. Exact/capped search status is shown, and very large item sets are bounded with an explicit candidate-count notice.
 
+If no **+1 organizer** change helps, the analysis now searches small multi-unit bundles as well. It starts at two added units and checks increasing total bundle sizes, so an uncapped exact result can report the **Smallest unlock bundle**. Examples include **+2 of one organizer** or **+1 Alpha +1 Beta** when neither single-unit change works alone.
+
+The bundle search is intentionally bounded for responsiveness: by default it considers up to 8 scarce organizer types, up to 4 added units total, and up to 350 bundle scenarios. When those limits are hit, the UI says **Smallest bundle found** rather than claiming a global minimum, and reports the checked scope. Each bundle component keeps its own already-purchased vs still-to-source context and links back to Shopping / receiving.
+
 This also tightens the existing Home structure progress semantics: a storage counts as planned only when it has a **current usable saved plan** (or is already installed). Historical stale/invalid plans no longer inflate the planned count, and storage rows explicitly show **saved plan needs review** when appropriate.
 
 The overview is fully derived from the existing plan, inventory, and install state. No new persistent room-status data or schema migration is required; the app remains on V28.
