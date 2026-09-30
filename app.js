@@ -1771,29 +1771,59 @@ function prioritizedInstallOrderForRoom(roomId,options={}){
   const changed=order.some((id,index)=>id!==baseOrder[index]);
   return {order,changed,movedIds:roomActive,activeCount:activeIds.size};
 }
+function installOrderImpact(proposedOrder,options={}){
+  const furniture=Array.isArray(options.furniture)?options.furniture:state.furniture;
+  const storages=Array.isArray(options.storages)?options.storages:state.storages;
+  const rooms=Array.isArray(options.rooms)?options.rooms:state.rooms;
+  const install=options.install||currentInstallAllocation();
+  const entries=Array.isArray(install?.entries)?install.entries:[];
+  const entryIds=new Set(entries.map(entry=>entry.storageId));
+  const baseOrder=[],baseSeen=new Set();
+  const requestedBase=Array.isArray(options.installOrder)?options.installOrder:entries.map(entry=>entry.storageId);
+  for(const id of requestedBase){if(entryIds.has(id)&&!baseSeen.has(id)){baseSeen.add(id);baseOrder.push(id)}}
+  for(const entry of entries){if(!baseSeen.has(entry.storageId)){baseSeen.add(entry.storageId);baseOrder.push(entry.storageId)}}
+  const order=[],seen=new Set();
+  for(const id of proposedOrder||[]){if(entryIds.has(id)&&!seen.has(id)){seen.add(id);order.push(id)}}
+  for(const id of baseOrder){if(!seen.has(id)){seen.add(id);order.push(id)}}
+  const changed=order.some((id,index)=>id!==baseOrder[index]);
+  if(!changed)return {changed:false,order:baseOrder,gainedReady:[],lostReady:[],transitions:[]};
+  const plans=Array.isArray(options.plans)?options.plans:entries.filter(entry=>entry.status!=="stale"&&entry.plan).map(entry=>entry.plan);
+  const ownedById=options.ownedById&&typeof options.ownedById==="object"
+    ?options.ownedById:Object.fromEntries(state.boxes.map(item=>[item.id,item.ownedQty||0]));
+  const installedPlanIds=options.installedPlanIds&&typeof options.installedPlanIds==="object"?options.installedPlanIds:state.installedPlanIds;
+  const before=new Map(entries.map(entry=>[entry.storageId,entry.status]));
+  const after=computeInstallAllocation(plans,ownedById,installedPlanIds,order);
+  const transitions=[];
+  for(const entry of after.entries){
+    const from=before.get(entry.storageId),to=entry.status;
+    if(from===to||!((from==="ready"||from==="waiting")&&(to==="ready"||to==="waiting")))continue;
+    const context=projectStorageContext(entry.storageId,{furniture,storages,rooms});
+    transitions.push({storageId:entry.storageId,from,to,path:context.path,roomId:context.room?.id||""});
+  }
+  const gainedReady=transitions.filter(item=>item.from==="waiting"&&item.to==="ready");
+  const lostReady=transitions.filter(item=>item.from==="ready"&&item.to==="waiting");
+  return {changed:true,order,gainedReady,lostReady,transitions};
+}
+function installOrderMoveImpact(storageId,delta,options={}){
+  const install=options.install||currentInstallAllocation();
+  const entries=Array.isArray(install?.entries)?install.entries:[];
+  const entryIds=new Set(entries.map(entry=>entry.storageId));
+  const order=[],seen=new Set();
+  const requested=Array.isArray(options.installOrder)?options.installOrder:entries.map(entry=>entry.storageId);
+  for(const id of requested){if(entryIds.has(id)&&!seen.has(id)){seen.add(id);order.push(id)}}
+  for(const entry of entries){if(!seen.has(entry.storageId)){seen.add(entry.storageId);order.push(entry.storageId)}}
+  const i=order.indexOf(storageId),j=i+delta;
+  if(i<0||j<0||j>=order.length)return {changed:false,order,gainedReady:[],lostReady:[],transitions:[]};
+  [order[i],order[j]]=[order[j],order[i]];
+  return installOrderImpact(order,{...options,install,installOrder:requested});
+}
 function roomInstallPriorityImpact(roomId,options={}){
   const furniture=Array.isArray(options.furniture)?options.furniture:state.furniture;
   const storages=Array.isArray(options.storages)?options.storages:state.storages;
   const install=options.install||currentInstallAllocation();
   const priority=prioritizedInstallOrderForRoom(roomId,{furniture,storages,install,installOrder:options.installOrder});
   if(!priority.changed)return {changed:false,order:priority.order,gainedReady:[],lostReady:[],transitions:[]};
-  const entries=Array.isArray(install?.entries)?install.entries:[];
-  const plans=Array.isArray(options.plans)?options.plans:entries.filter(entry=>entry.status!=="stale"&&entry.plan).map(entry=>entry.plan);
-  const ownedById=options.ownedById&&typeof options.ownedById==="object"
-    ?options.ownedById:Object.fromEntries(state.boxes.map(item=>[item.id,item.ownedQty||0]));
-  const installedPlanIds=options.installedPlanIds&&typeof options.installedPlanIds==="object"?options.installedPlanIds:state.installedPlanIds;
-  const before=new Map(entries.map(entry=>[entry.storageId,entry.status]));
-  const after=computeInstallAllocation(plans,ownedById,installedPlanIds,priority.order);
-  const transitions=[];
-  for(const entry of after.entries){
-    const from=before.get(entry.storageId),to=entry.status;
-    if(from===to||!((from==="ready"||from==="waiting")&&(to==="ready"||to==="waiting")))continue;
-    const context=projectStorageContext(entry.storageId,{furniture,storages,rooms:Array.isArray(options.rooms)?options.rooms:state.rooms});
-    transitions.push({storageId:entry.storageId,from,to,path:context.path,roomId:context.room?.id||""});
-  }
-  const gainedReady=transitions.filter(item=>item.from==="waiting"&&item.to==="ready");
-  const lostReady=transitions.filter(item=>item.from==="ready"&&item.to==="waiting");
-  return {changed:true,order:priority.order,gainedReady,lostReady,transitions};
+  return installOrderImpact(priority.order,{...options,furniture,storages,install});
 }
 function projectRoomProgress(options={}){
   const rooms=Array.isArray(options.rooms)?options.rooms:state.rooms;
@@ -3585,10 +3615,21 @@ function currentInstallAllocation(){
 }
 function moveInstallStorage(storageId,delta){
   normalizeInstallState(state);
-  const order=state.installOrder,i=order.indexOf(storageId),j=i+delta;
-  if(i<0||j<0||j>=order.length)return;
-  [order[i],order[j]]=[order[j],order[i]];
+  const allocation=currentInstallAllocation();
+  const impact=installOrderMoveImpact(storageId,delta,{install:allocation,installOrder:state.installOrder});
+  if(!impact.changed)return false;
+  if(impact.transitions.length){
+    const gains=impact.gainedReady.length
+      ?"Would become Ready:\n"+impact.gainedReady.map(item=>"• "+item.path).join("\n")
+      :"No waiting spaces would become Ready.";
+    const losses=impact.lostReady.length
+      ?"Would become Waiting:\n"+impact.lostReady.map(item=>"• "+item.path).join("\n")
+      :"No currently Ready spaces would become Waiting.";
+    if(!confirm(`Change install order?\n\n${gains}\n\n${losses}\n\nThis only changes which unfinished spaces reserve shared owned inventory first.`))return false;
+  }
+  state.installOrder=impact.order;
   localStorage.setItem(KEY,JSON.stringify(state));renderInstallDashboard();
+  return true;
 }
 function renderInstallDashboard(){
   const sec=$("installDashboardSection");if(!sec)return;
@@ -5802,6 +5843,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     normalizeOwnedDistributionSessions,
     projectStorageContext,
     prioritizedInstallOrderForRoom,
+    installOrderImpact,
+    installOrderMoveImpact,
     roomInstallPriorityImpact,
     projectRoomProgress,
     projectNextActions,
