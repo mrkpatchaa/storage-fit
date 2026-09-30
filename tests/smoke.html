@@ -587,6 +587,11 @@
       result(fp1===fp2,"owned distribution fingerprint is stable across storage ordering");
       result(fp1!==api.ownedDistributionFingerprint(distItem,distSettings,6,{storages:sessionStorages,plans:[sessionPlan],chosenPlanIds:{sA:"session-plan"},planStatusLookup:function(){return "current";}}),"owned distribution fingerprint changes when unallocated stock changes");
       result(fp1!==api.ownedDistributionFingerprint(distItem,{...distSettings,fitTolerance:1},7,{storages:sessionStorages,plans:[sessionPlan],chosenPlanIds:{sA:"session-plan"},planStatusLookup:function(){return "current";}}),"owned distribution fingerprint changes when fit settings change");
+      var supportRuleA={id:"fixed",name:"Fixed",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:false,canSupportStack:true,maxStackLevel:null};
+      var supportRuleB={...supportRuleA,canSupportStack:false};
+      var supportFpA=api.ownedDistributionFingerprint(distItem,distSettings,7,{storages:sessionStorages,plans:[sessionPlan],chosenPlanIds:{sA:"session-plan"},planStatusLookup:function(){return "current";},itemLookup:function(id){return id==="fixed"?supportRuleA:distItem;}});
+      var supportFpB=api.ownedDistributionFingerprint(distItem,distSettings,7,{storages:sessionStorages,plans:[sessionPlan],chosenPlanIds:{sA:"session-plan"},planStatusLookup:function(){return "current";},itemLookup:function(id){return id==="fixed"?supportRuleB:distItem;}});
+      result(supportFpA!==supportFpB,"owned distribution fingerprint changes when a chosen-plan support organizer changes handling rules");
       var changedSessionPlan={...sessionPlan,layout:[...sessionPlan.layout,{typeId:"fixed",x:10,y:0,z:0,w:10,d:10,h:5}]};
       result(fp1!==api.ownedDistributionFingerprint(distItem,distSettings,7,{storages:sessionStorages,plans:[changedSessionPlan],chosenPlanIds:{sA:"session-plan"},planStatusLookup:function(){return "current";}}),"owned distribution fingerprint changes when the chosen-plan layout changes");
       var sessionSourcePlan=api.ownedDistributionPlan(7,[
