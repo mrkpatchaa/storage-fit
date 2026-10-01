@@ -1528,45 +1528,75 @@ function openFitAuditModal(){
     settings.uprightOnly?"all items forced upright":"item orientation rules"
   ];
   $("fitAuditSubtitle").textContent=`${audit.totals.items} organizer${audit.totals.items===1?"":"s"} × ${audit.totals.storages} storage space${audit.totals.storages===1?"":"s"} · ${settingBits.join(" · ")}`;
-  $("fitAuditSummary").textContent=audit.totals.pairs
-    ? `${audit.totals.fitPairs} of ${audit.totals.pairs} organizer-space pairs fit now. ${audit.totals.nearPairs} more have actionable simulated remedies. ${audit.totals.missPairs} remain hard misses under the current geometry and handling rules.`
-    :"Add at least one organizer and one storage space to run the audit.";
+
+  const roomSelect=$("fitAuditRoom"),search=$("fitAuditSearch"),focus=$("fitAuditFocus"),clear=$("fitAuditClear");
+  const roomsWithStorage=(state.rooms||[]).map(room=>{
+    const storageIds=state.storages.filter(S=>projectStorageContext(S.id).room?.id===room.id).map(S=>S.id);
+    return storageIds.length?{id:room.id,name:room.name||"Room",storageIds}:null;
+  }).filter(Boolean);
+  roomSelect.innerHTML='<option value="">All rooms</option>'+roomsWithStorage.map(room=>`<option value="${room.id}">${esc(room.name)} · ${room.storageIds.length}</option>`).join("");
+  search.value="";roomSelect.value="";focus.value="all";
+
   const storageById=new Map(state.storages.map(S=>[S.id,S]));
-  const head=`<thead><tr><th class="fitaudititemcol">Organizer</th>${audit.storages.map(col=>{
-    const S=storageById.get(col.id);
-    return `<th title="${esc(S?storageBreadcrumb(S):col.name)}"><span>${esc(col.name)}</span><small>${esc(S?projectStorageContext(S.id).roomName||"":"")}</small></th>`;
-  }).join("")}</tr></thead>`;
-  const body=`<tbody>${audit.rows.map(row=>`<tr><th class="fitaudititemcol"><div class="fitaudititem"><strong>${esc(row.itemName)}</strong><small>${fmt(row.w)} × ${fmt(row.d)} × ${fmt(row.h)} ${esc(state.unit)} · ${row.fitCount} fit · ${row.nearCount} near</small><button class="btn soft" type="button" data-audit-item="${row.itemId}">Find spaces</button></div></th>${row.cells.map(cell=>{
-    if(cell.status==="fit"){
-      return `<td><button class="fitauditcell fit" type="button" data-audit-storage="${cell.storageId}" title="Open storage"><strong>Fits</strong><span>${fmt(cell.fit.tightestMargin)} ${esc(state.unit)} margin</span><small>limiting ${esc(cell.fit.tightestAxis)}</small></button></td>`;
-    }
-    if(cell.status==="near"){
-      const remedy=cell.remedies[0],text=fitRemedyText(remedy,state.unit);
-      return `<td><button class="fitauditcell near" type="button" data-audit-storage="${cell.storageId}" title="Open storage"><strong>Near miss</strong><span>${esc(text)}</span><small>${cell.remedies.length} simulated fix${cell.remedies.length===1?"":"es"}</small></button></td>`;
-    }
-    const failure=cell.failure;
-    let detail="Current rules prevent a fit";
-    if(failure?.reason==="constraints")detail="Blocked by modeled geometry";
-    else if(failure){
-      const parts=[
-        failure.widthDeficit>1e-9?`W +${fmt(failure.widthDeficit)}`:"",
-        failure.depthDeficit>1e-9?`D +${fmt(failure.depthDeficit)}`:"",
-        failure.heightDeficit>1e-9?`H +${fmt(failure.heightDeficit)}`:""
-      ].filter(Boolean);
-      if(parts.length)detail=parts.join(" / ")+" "+state.unit;
-    }
-    return `<td><button class="fitauditcell miss" type="button" data-audit-storage="${cell.storageId}" title="Open storage"><strong>Doesn't fit</strong><span>${esc(detail)}</span><small>open space to review</small></button></td>`;
-  }).join("")}</tr>`).join("")}</tbody>`;
-  $("fitAuditTable").innerHTML=audit.rows.length&&audit.storages.length?head+body:'<tbody><tr><td class="empty">Nothing to audit yet.</td></tr></tbody>';
-  $("fitAuditTable").querySelectorAll("[data-audit-item]").forEach(btn=>btn.addEventListener("click",()=>{
-    const item=boxById(btn.dataset.auditItem);if(!item)return;
-    closeFitAuditModal();editingBox=item.id;
-    if($("itemSearch"))$("itemSearch").value="";
-    renderBoxList();loadBoxEditor();openItemFitModal();
-  }));
-  $("fitAuditTable").querySelectorAll("[data-audit-storage]").forEach(btn=>btn.addEventListener("click",()=>{
-    const storageId=btn.dataset.auditStorage;closeFitAuditModal();openCompatibleStorage(storageId);
-  }));
+  const renderAuditView=()=>{
+    const room=roomsWithStorage.find(row=>row.id===roomSelect.value)||null;
+    const view=projectFitAuditView(audit,{
+      query:search.value,
+      storageIds:room?room.storageIds:null,
+      focus:focus.value
+    });
+    const scope=room?` in ${room.name}`:"";
+    $("fitAuditSummary").textContent=view.totals.pairs
+      ? `${view.totals.fitPairs} of ${view.totals.pairs} visible organizer-space pairs fit now${scope}. ${view.totals.nearPairs} have actionable simulated remedies. ${view.totals.missPairs} are hard misses under the current geometry and handling rules.`
+      : `No organizer-space pairs match the current audit filters${scope}.`;
+    $("fitAuditFilterMeta").textContent=`Showing ${view.totals.items} organizer${view.totals.items===1?"":"s"} × ${view.totals.storages} storage space${view.totals.storages===1?"":"s"} · ${view.totals.pairs} pair${view.totals.pairs===1?"":"s"}`;
+
+    const head=`<thead><tr><th class="fitaudititemcol">Organizer</th>${view.storages.map(col=>{
+      const S=storageById.get(col.id);
+      return `<th title="${esc(S?storageBreadcrumb(S):col.name)}"><span>${esc(col.name)}</span><small>${esc(S?projectStorageContext(S.id).roomName||"":"")}</small></th>`;
+    }).join("")}</tr></thead>`;
+    const body=`<tbody>${view.rows.map(row=>`<tr><th class="fitaudititemcol"><div class="fitaudititem"><strong>${esc(row.itemName)}</strong><small>${fmt(row.w)} × ${fmt(row.d)} × ${fmt(row.h)} ${esc(state.unit)} · ${row.fitCount} fit · ${row.nearCount} near · ${row.missCount} miss</small><button class="btn soft" type="button" data-audit-item="${row.itemId}">Find spaces</button></div></th>${row.cells.map(cell=>{
+      if(cell.status==="fit"){
+        return `<td><button class="fitauditcell fit" type="button" data-audit-storage="${cell.storageId}" title="Open storage"><strong>Fits</strong><span>${fmt(cell.fit.tightestMargin)} ${esc(state.unit)} margin</span><small>limiting ${esc(cell.fit.tightestAxis)}</small></button></td>`;
+      }
+      if(cell.status==="near"){
+        const remedy=cell.remedies[0],text=fitRemedyText(remedy,state.unit);
+        return `<td><button class="fitauditcell near" type="button" data-audit-storage="${cell.storageId}" title="Open storage"><strong>Near miss</strong><span>${esc(text)}</span><small>${cell.remedies.length} simulated fix${cell.remedies.length===1?"":"es"}</small></button></td>`;
+      }
+      const failure=cell.failure;
+      let detail="Current rules prevent a fit";
+      if(failure?.reason==="constraints")detail="Blocked by modeled geometry";
+      else if(failure){
+        const parts=[
+          failure.widthDeficit>1e-9?`W +${fmt(failure.widthDeficit)}`:"",
+          failure.depthDeficit>1e-9?`D +${fmt(failure.depthDeficit)}`:"",
+          failure.heightDeficit>1e-9?`H +${fmt(failure.heightDeficit)}`:""
+        ].filter(Boolean);
+        if(parts.length)detail=parts.join(" / ")+" "+state.unit;
+      }
+      return `<td><button class="fitauditcell miss" type="button" data-audit-storage="${cell.storageId}" title="Open storage"><strong>Doesn't fit</strong><span>${esc(detail)}</span><small>open space to review</small></button></td>`;
+    }).join("")}</tr>`).join("")}</tbody>`;
+    $("fitAuditTable").innerHTML=view.rows.length&&view.storages.length?head+body:'<tbody><tr><td class="empty">Nothing matches these audit filters.</td></tr></tbody>';
+
+    $("fitAuditTable").querySelectorAll("[data-audit-item]").forEach(btn=>btn.addEventListener("click",()=>{
+      const item=boxById(btn.dataset.auditItem);if(!item)return;
+      closeFitAuditModal();editingBox=item.id;
+      if($("itemSearch"))$("itemSearch").value="";
+      renderBoxList();loadBoxEditor();openItemFitModal();
+    }));
+    $("fitAuditTable").querySelectorAll("[data-audit-storage]").forEach(btn=>btn.addEventListener("click",()=>{
+      const storageId=btn.dataset.auditStorage;closeFitAuditModal();openCompatibleStorage(storageId);
+    }));
+  };
+
+  search.oninput=renderAuditView;
+  roomSelect.onchange=renderAuditView;
+  focus.onchange=renderAuditView;
+  clear.onclick=()=>{
+    search.value="";roomSelect.value="";focus.value="all";renderAuditView();search.focus();
+  };
+  renderAuditView();
+
   fitAuditModalOpen=true;
   $("fitAuditModal").classList.add("open");
   $("fitAuditModal").setAttribute("aria-hidden","false");
@@ -5386,6 +5416,41 @@ function projectFitAudit(items,storages,settings={}){
   });
   return {storages:storageRows,rows,totals};
 }
+function projectFitAuditView(audit,options={}){
+  const query=String(options.query||"").trim().toLowerCase();
+  const focus=["all","no-fit","near","miss"].includes(options.focus)?options.focus:"all";
+  const restrictStorages=Array.isArray(options.storageIds);
+  const allowed=restrictStorages?new Set(options.storageIds.map(String)):null;
+  const storageIndexes=[];
+  (audit?.storages||[]).forEach((storage,index)=>{
+    if(!restrictStorages||allowed.has(String(storage.id)))storageIndexes.push(index);
+  });
+  const storages=storageIndexes.map(index=>audit.storages[index]);
+  const rows=(audit?.rows||[]).map(row=>{
+    const cells=storageIndexes.map(index=>row.cells?.[index]).filter(Boolean);
+    const fitCount=cells.filter(cell=>cell.status==="fit").length;
+    const nearCount=cells.filter(cell=>cell.status==="near").length;
+    const missCount=cells.filter(cell=>cell.status==="miss").length;
+    return {...row,cells,fitCount,nearCount,missCount};
+  }).filter(row=>{
+    if(!row.cells.length)return false;
+    if(query&&!String(row.itemName||"").toLowerCase().includes(query))return false;
+    if(focus==="no-fit")return row.fitCount===0;
+    if(focus==="near")return row.nearCount>0;
+    if(focus==="miss")return row.missCount>0;
+    return true;
+  });
+  const totals={pairs:0,fitPairs:0,nearPairs:0,missPairs:0,items:rows.length,storages:storages.length};
+  for(const row of rows){
+    for(const cell of row.cells){
+      totals.pairs++;
+      if(cell.status==="fit")totals.fitPairs++;
+      else if(cell.status==="near")totals.nearPairs++;
+      else if(cell.status==="miss")totals.missPairs++;
+    }
+  }
+  return {storages,rows,totals,focus,query};
+}
 function countSignature(layout){
   const c={};for(const p of layout)c[p.typeId]=(c[p.typeId]||0)+1;
   return Object.keys(c).sort().map(k=>`${k}:${c[k]}`).join("|");
@@ -6761,6 +6826,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     fitFailuresForItem,
     fitRemediesForFailure,
     projectFitAudit,
+    projectFitAuditView,
     maxFloorCopiesInStorage,
     maxCopiesInStorage,
     openCapacityPacking,
