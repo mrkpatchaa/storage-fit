@@ -3201,6 +3201,57 @@ function schemaValue(v){
   if(typeof v==="object")return v.value??v.maxValue??v.name??null;
   return null;
 }
+function schemaDimensionUnit(value,fallback="cm"){
+  const raw=String(value||fallback).trim().toLowerCase();
+  if(raw==="mmt"||raw==="mm"||raw.includes("millimet"))return "mm";
+  if(raw==="cmt"||raw==="cm"||raw.includes("centimet"))return "cm";
+  if(raw==="mtr"||raw==="m"||raw==="meter"||raw==="metre")return "m";
+  if(raw==="inh"||raw==="in"||raw==='"'||raw.includes("inch"))return "in";
+  return fallback;
+}
+function schemaDimensionDeclaredUnit(value){
+  if(!value||typeof value!=="object")return "";
+  return value.unitCode||value.unitText||"";
+}
+function schemaDimensionValue(value,fallbackUnit="cm"){
+  if(value==null)return null;
+  let raw=value,unit=fallbackUnit;
+  if(typeof value==="object"){
+    raw=value.value??value.maxValue??value.minValue??value.name??null;
+    unit=value.unitCode??value.unitText??fallbackUnit;
+  }
+  if(raw==null)return null;
+  if(typeof raw==="string"){
+    const m=raw.trim().match(/^(\d+(?:[.,]\d+)?)\s*(mm|cm|m|in|inch|inches|")?$/i);
+    if(m){raw=m[1];if(m[2])unit=m[2]}
+  }
+  const number=Number(String(raw).replace(",","."));
+  if(!Number.isFinite(number)||number<=0)return null;
+  return normalizeProductDimensions([number,1,1],schemaDimensionUnit(unit,fallbackUnit))?.[0]??null;
+}
+function schemaDimensionAxis(name){
+  const normalized=String(name||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z]+/g," ").trim().replace(/^product\s+/,"");
+  if(["width","largeur","breite","ancho","larghezza"].includes(normalized))return "w";
+  if(["depth","profondeur","tiefe","profundidad","fondo","profondita"].includes(normalized))return "d";
+  if(["height","hauteur","hohe","altura","alto","altezza"].includes(normalized))return "h";
+  return "";
+}
+function schemaProductDimensions(product){
+  if(!product||typeof product!=="object")return null;
+  const fallbackUnit=schemaDimensionDeclaredUnit(product.width)||schemaDimensionDeclaredUnit(product.depth)||schemaDimensionDeclaredUnit(product.height)||"cm";
+  const values={
+    w:schemaDimensionValue(product.width,fallbackUnit),
+    d:schemaDimensionValue(product.depth,fallbackUnit),
+    h:schemaDimensionValue(product.height,fallbackUnit)
+  };
+  const props=Array.isArray(product.additionalProperty)?product.additionalProperty:(product.additionalProperty?[product.additionalProperty]:[]);
+  for(const prop of props){
+    if(!prop||typeof prop!=="object")continue;
+    const axis=schemaDimensionAxis(prop.name||prop.propertyID||"");
+    if(axis&&!values[axis])values[axis]=schemaDimensionValue(prop,fallbackUnit);
+  }
+  return values.w>0&&values.d>0&&values.h>0?[values.w,values.d,values.h]:null;
+}
 function parseHtmlProduct(html,url){
   const doc=new DOMParser().parseFromString(html,"text/html");
   const out={url};
@@ -3215,13 +3266,8 @@ function parseHtmlProduct(html,url){
     if(offers){out.price=Number(offers.price)||0;out.currency=offers.priceCurrency||""}
     const image=Array.isArray(product.image)?product.image[0]:product.image;
     if(typeof image==="string")out.image=image;
-    const w=schemaValue(product.width),d=schemaValue(product.depth),h=schemaValue(product.height);
-    if(w&&d&&h){
-      const unit=(product.width?.unitCode||product.width?.unitText||product.depth?.unitCode||"cm").toString().toLowerCase();
-      const mapped=unit.includes("mmt")?"mm":unit.includes("cmt")?"cm":unit.includes("inch")?"in":unit;
-      const dims=normalizeProductDimensions([w,d,h],mapped);
-      if(dims)[out.w,out.d,out.h]=dims;
-    }
+    const dims=schemaProductDimensions(product);
+    if(dims)[out.w,out.d,out.h]=dims;
   }
   out.name=out.name||doc.querySelector('meta[property="og:title"]')?.content||doc.querySelector("h1")?.textContent?.trim()||doc.title||"";
   out.image=out.image||doc.querySelector('meta[property="og:image"]')?.content||"";
@@ -6989,6 +7035,10 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     parseDimensionString,
     parseLabeledDimensions,
     parseReaderDimensions,
+    schemaDimensionValue,
+    schemaDimensionAxis,
+    schemaProductDimensions,
+    parseHtmlProduct,
     canonicalProductUrl,
     normalizedSku,
     retailerName,
