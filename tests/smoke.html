@@ -364,6 +364,38 @@
       result(dimensionalFailure&&dimensionalFailure.reason==="dimensions"&&dimensionalFailure.widthDeficit===1&&dimensionalFailure.maxDeficit===1,"fit failure reports the closest allowed orientation and exact dimension shortfall");
       var failureRows=api.fitFailuresForItem(failureItem,[{id:"small",name:"Small",w:8,d:12,h:6,obstacles:[],dividers:[]},fullyBlocked],reverseFitSettings);
       result(failureRows.length===2&&failureRows[0].storageId==="rfb"&&failureRows[1].storageId==="small","fit failure list ranks dimensionally fitting constraint conflicts ahead of larger dimensional misses");
+      var toleranceRemedies=api.fitRemediesForFailure(
+        {id:"remedy-tolerance",name:"Tolerance item",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false},
+        {id:"remedy-tolerance-space",name:"Tolerance space",w:11,d:11,h:6,obstacles:[],dividers:[]},
+        {clearanceEnabled:false,clearance:0,fitTolerance:1,uprightOnly:true}
+      );
+      var toleranceRemedy=toleranceRemedies.find(function(x){return x.kind==="fitTolerance"});
+      result(toleranceRemedy&&Math.abs(toleranceRemedy.value-0.5)<0.01,"fit remedies calculate the maximum horizontal tolerance that would still fit");
+      var clearanceRemedies=api.fitRemediesForFailure(
+        {id:"remedy-clearance",name:"Clearance item",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false},
+        {id:"remedy-clearance-space",name:"Clearance space",w:12,d:12,h:7,obstacles:[],dividers:[]},
+        {clearanceEnabled:true,clearance:1.5,fitTolerance:0,uprightOnly:true}
+      );
+      var clearanceRemedy=clearanceRemedies.find(function(x){return x.kind==="clearance"});
+      result(clearanceRemedy&&Math.abs(clearanceRemedy.value-1)<0.01,"fit remedies calculate the maximum wall clearance that would still fit");
+      var rotationRemedies=api.fitRemediesForFailure(
+        {id:"remedy-rotate",name:"Rotate item",w:12,d:8,h:5,uprightOnly:true,floorRotationLocked:true},
+        {id:"remedy-rotate-space",name:"Rotate space",w:9,d:13,h:6,obstacles:[],dividers:[]},
+        {clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true}
+      );
+      result(rotationRemedies.some(function(x){return x.kind==="floorRotation"}),"fit remedies detect when unlocking 90 degree floor rotation is sufficient");
+      var tippingRemedies=api.fitRemediesForFailure(
+        {id:"remedy-tip",name:"Tip item",w:12,d:10,h:5,uprightOnly:true,floorRotationLocked:false},
+        {id:"remedy-tip-space",name:"Tip space",w:11,d:6,h:13,obstacles:[],dividers:[]},
+        {clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true}
+      );
+      result(tippingRemedies.some(function(x){return x.kind==="tipping"}),"fit remedies detect when safely tipping onto another face would make the organizer fit");
+      var constraintRemedies=api.fitRemediesForFailure(
+        failureItem,
+        {id:"remedy-blocked",name:"Blocked remedy",w:12,d:12,h:6,obstacles:[{id:"blocker",name:"Rear block",x:0,y:0,w:12,d:12,h:6}],dividers:[]},
+        reverseFitSettings
+      );
+      result(constraintRemedies.some(function(x){return x.kind==="constraint"&&x.label==="Rear block"}),"fit remedies identify a specific modeled constraint whose correction would make the item fit");
       var dividedFit={id:"rfd",name:"Divided",w:20,d:10,h:6,obstacles:[],dividers:[{id:"d",orientation:"vertical",position:10,thickness:1,h:6}]};
       var squareFitItem={id:"sq",name:"Square bin",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false};
       result(api.itemFitInStorage(squareFitItem,dividedFit,reverseFitSettings)===null,"reverse fit lookup respects full-height dividers");
