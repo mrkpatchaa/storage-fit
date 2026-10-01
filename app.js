@@ -1360,7 +1360,7 @@ function openItemUsageModal(){
 function openItemFitModal(){
   save();setItemFitDistributionVisible(true);
   const item=boxById(editingBox);if(!item)return;
-  const settings=fitLookupSettings(),matches=compatibleStoragesForItem(item,state.storages,settings);
+  const settings=fitLookupSettings(),matches=compatibleStoragesForItem(item,state.storages,settings),failures=fitFailuresForItem(item,state.storages,settings);
   const settingBits=[
     settings.clearanceEnabled?`${fmt(settings.clearance)} ${state.unit} wall clearance`:"no wall clearance",
     settings.fitTolerance>0?`${fmt(settings.fitTolerance)} ${state.unit} fit tolerance`:"no fit tolerance",
@@ -1372,8 +1372,8 @@ function openItemFitModal(){
   const stock=stockStatusForItem(item),unallocatedOwned=stock.unallocatedOwned;
   const ownedNote=unallocatedOwned?`${unallocatedOwned} owned cop${unallocatedOwned===1?"y is":"ies are"} currently unallocated.`:"No owned copies are currently unallocated.";
   $("itemFitSummary").textContent=matches.length
-    ? `${matches.length} of ${state.storages.length} storage space${state.storages.length===1?"":"s"} can fit one copy. ${ownedNote} Tightest compatible spaces are shown first. This checks storage geometry only, not occupancy inside a saved layout.`
-    : `No storage space can fit one copy with the current geometry and fit settings. ${ownedNote} This checks storage geometry only, not occupancy inside a saved layout.`;
+    ? `${matches.length} of ${state.storages.length} storage space${state.storages.length===1?"":"s"} can fit one copy. ${failures.length?failures.length+" non-match"+(failures.length===1?" is":"es are")+" explained below. ":""}${ownedNote} Tightest compatible spaces are shown first. This checks storage geometry only, not occupancy inside a saved layout.`
+    : `No storage space can fit one copy with the current geometry and fit settings. ${failures.length?failures.length+" near-miss explanation"+(failures.length===1?" is":"s are")+" shown below. ":""}${ownedNote} This checks storage geometry only, not occupancy inside a saved layout.`;
   const distributionBtn=$("itemFitDistributionBtn"),distributionStatus=$("itemFitDistributionStatus"),distributionEl=$("itemFitDistribution");
   const distributionFingerprint=ownedDistributionFingerprint(item,settings,unallocatedOwned);
   const renderDistributionSession=session=>{
@@ -1428,7 +1428,7 @@ function openItemFitModal(){
   };
   renderDistributionSession(state.ownedDistributionSessions?.[item.id]||null);
   const capacityResults=new Map();
-  $("itemFitList").innerHTML=matches.length?matches.map(match=>{
+  const matchHtml=matches.length?matches.map(match=>{
     const S=state.storages.find(s=>s.id===match.storageId),blocked=(S?.obstacles||[]).length,dividers=(S?.dividers||[]).length;
     const constraints=[blocked?`${blocked} blocked zone${blocked===1?"":"s"}`:"",dividers?`${dividers} divider${dividers===1?"":"s"}`:""].filter(Boolean).join(" · ");
     return `<div class="fitmatch">
@@ -1438,7 +1438,22 @@ function openItemFitModal(){
       <div class="fitcapacity" data-fit-capacity="${match.storageId}">Capacity not calculated yet.</div></div>
       <div class="fitmatchactions"><button class="btn soft" type="button" data-fit-capacity-btn="${match.storageId}">Calculate capacity</button><button class="btn soft" type="button" data-open-owned-capacity="${match.storageId}" disabled>${unallocatedOwned?"Open owned":"No unallocated stock"}</button><button class="btn soft" type="button" data-open-capacity-layout="${match.storageId}" disabled>Open packing</button><button class="btn soft" type="button" data-open-fit-storage="${match.storageId}">Open space</button></div>
     </div>`;
-  }).join(""):'<div class="empty">Try reducing wall clearance / fit tolerance, allowing the item to rotate or tip, or add a larger storage space.</div>';
+  }).join(""):'<div class="empty">No compatible space with the current settings.</div>';
+  const failureHtml=failures.length?`<details class="fitfailures" ${matches.length?"":"open"}><summary>Why ${failures.length} other space${failures.length===1?" doesn't":"s don't"} fit</summary><div class="fitfailurelist">${failures.map(failure=>{
+    const S=state.storages.find(s=>s.id===failure.storageId);
+    const path=esc(S?storageBreadcrumb(S):failure.storageName);
+    if(failure.reason==="constraints"){
+      const blockers=[failure.blockedCount?`${failure.blockedCount} blocked zone${failure.blockedCount===1?"":"s"}`:"",failure.dividerCount?`${failure.dividerCount} divider${failure.dividerCount===1?"":"s"}`:""].filter(Boolean).join(" · ");
+      return `<div class="fitfailure"><div><div class="fitmatchtitle">${path}</div><div class="fitfailurewhy"><strong>Dimensions fit, but no valid floor position remains.</strong>${blockers?` ${esc(blockers)} block the allowed placement.`:" Current geometry rules block the allowed placement."}</div><div class="fitfailuremeta">Usable ${fmt(failure.W)} × ${fmt(failure.D)} × ${fmt(failure.H)} ${esc(state.unit)} · allowed orientation ${fmt(failure.w)} × ${fmt(failure.d)} × ${fmt(failure.h)}</div></div><button class="btn soft" type="button" data-open-fit-storage="${failure.storageId}">Open space</button></div>`;
+    }
+    const shortfalls=[
+      failure.widthDeficit>1e-9?`W +${fmt(failure.widthDeficit)}`:"",
+      failure.depthDeficit>1e-9?`D +${fmt(failure.depthDeficit)}`:"",
+      failure.heightDeficit>1e-9?`H +${fmt(failure.heightDeficit)}`:""
+    ].filter(Boolean).join(" / ");
+    return `<div class="fitfailure"><div><div class="fitmatchtitle">${path}</div><div class="fitfailurewhy"><strong>Short by ${esc(shortfalls||"current fit allowance")} ${esc(state.unit)}</strong> in the closest allowed orientation.</div><div class="fitfailuremeta">Usable ${fmt(failure.W)} × ${fmt(failure.D)} × ${fmt(failure.H)} ${esc(state.unit)} · closest orientation ${fmt(failure.w)} × ${fmt(failure.d)} × ${fmt(failure.h)} · includes current fit tolerance</div></div><button class="btn soft" type="button" data-open-fit-storage="${failure.storageId}">Open space</button></div>`;
+  }).join("")}</div></details>`:"";
+  $("itemFitList").innerHTML=matchHtml+failureHtml;
   $("itemFitList").querySelectorAll("[data-fit-capacity-btn]").forEach(btn=>btn.addEventListener("click",()=>{
     const storageId=btn.dataset.fitCapacityBtn,S=state.storages.find(s=>s.id===storageId),out=$("itemFitList").querySelector(`[data-fit-capacity="${storageId}"]`);
     if(!S||!out)return;
@@ -5123,6 +5138,22 @@ function fitDimensionMargins(w,d,h,W,D,H,gap=0){
     totalMargin:widthMargin+depthMargin+heightMargin
   };
 }
+function fitDimensionDeficits(w,d,h,W,D,H,gap=0){
+  const g=Math.max(0,Number(gap)||0);
+  const widthDeficit=Math.max(0,(Number(w)||0)+2*g-(Number(W)||0));
+  const depthDeficit=Math.max(0,(Number(d)||0)+2*g-(Number(D)||0));
+  const heightDeficit=Math.max(0,(Number(h)||0)-(Number(H)||0));
+  const ranked=[
+    {axis:"width",deficit:widthDeficit},
+    {axis:"depth",deficit:depthDeficit},
+    {axis:"height",deficit:heightDeficit}
+  ].sort((a,b)=>b.deficit-a.deficit||a.axis.localeCompare(b.axis));
+  return {
+    widthDeficit,depthDeficit,heightDeficit,
+    maxDeficit:ranked[0].deficit,primaryAxis:ranked[0].axis,
+    totalDeficit:widthDeficit+depthDeficit+heightDeficit
+  };
+}
 function itemFitInStorage(item,S,settings={}){
   if(!item||!S)return null;
   const c=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
@@ -5153,6 +5184,48 @@ function compatibleStoragesForItem(item,storages,settings={}){
     const fit=itemFitInStorage(item,S,settings);
     return fit?{storageId:S.id,storageName:S.name||"Storage",...fit}:null;
   }).filter(Boolean).sort((a,b)=>a.tightestMargin-b.tightestMargin||a.totalMargin-b.totalMargin||a.freeAfter-b.freeAfter||a.storageName.localeCompare(b.storageName));
+}
+function fitFailureInStorage(item,S,settings={}){
+  if(!item||!S||itemFitInStorage(item,S,settings))return null;
+  const c=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
+  const W=Math.max(0,(Number(S.w)||0)-2*c),D=Math.max(0,(Number(S.d)||0)-2*c),H=Math.max(0,(Number(S.h)||0)-2*c);
+  const gap=Math.max(0,Number(settings.fitTolerance)||0),forceUpright=settings.uprightOnly!==false;
+  let closest=null,dimensionallyFits=null;
+  for(const o of orientations(item,forceUpright)){
+    const deficits=fitDimensionDeficits(o[0],o[1],o[2],W,D,H,gap);
+    const candidate={w:o[0],d:o[1],h:o[2],...deficits};
+    if(deficits.maxDeficit<=1e-9){
+      const margins=fitDimensionMargins(o[0],o[1],o[2],W,D,H,gap);
+      if(!dimensionallyFits||margins.tightestMargin>dimensionallyFits.tightestMargin+1e-9){
+        dimensionallyFits={...candidate,...margins};
+      }
+      continue;
+    }
+    if(!closest||candidate.maxDeficit<closest.maxDeficit-1e-9||
+      (Math.abs(candidate.maxDeficit-closest.maxDeficit)<=1e-9&&candidate.totalDeficit<closest.totalDeficit-1e-9)){
+      closest=candidate;
+    }
+  }
+  const blockedCount=(S.obstacles||[]).length,dividerCount=(S.dividers||[]).length;
+  if(dimensionallyFits){
+    return {
+      storageId:S.id,storageName:S.name||"Storage",reason:"constraints",
+      W,D,H,clearance:c,fitTolerance:gap,blockedCount,dividerCount,
+      w:dimensionallyFits.w,d:dimensionallyFits.d,h:dimensionallyFits.h,
+      maxDeficit:0,totalDeficit:0
+    };
+  }
+  return {
+    storageId:S.id,storageName:S.name||"Storage",reason:"dimensions",
+    W,D,H,clearance:c,fitTolerance:gap,blockedCount,dividerCount,
+    ...(closest||{w:Number(item.w)||0,d:Number(item.d)||0,h:Number(item.h)||0,...fitDimensionDeficits(item.w,item.d,item.h,W,D,H,gap)})
+  };
+}
+function fitFailuresForItem(item,storages,settings={}){
+  return (storages||[]).map(S=>fitFailureInStorage(item,S,settings)).filter(Boolean).sort((a,b)=>{
+    const ar=a.reason==="constraints"?0:a.maxDeficit,br=b.reason==="constraints"?0:b.maxDeficit;
+    return ar-br||a.totalDeficit-b.totalDeficit||a.storageName.localeCompare(b.storageName);
+  });
 }
 
 function countSignature(layout){
@@ -6520,7 +6593,10 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     defaultConstraintMeasure,
     mirrorStorageConstraintsData,
     fitDimensionMargins,
+    fitDimensionDeficits,
     itemFitInStorage,
+    fitFailureInStorage,
+    fitFailuresForItem,
     maxFloorCopiesInStorage,
     maxCopiesInStorage,
     openCapacityPacking,
