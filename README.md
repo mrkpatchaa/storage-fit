@@ -176,6 +176,7 @@ The home shopping list now has an execution state between “need to buy” and 
 - Each organizer row has a receipt quantity field plus **Receive ×N** and **Receive all ×N**, so a delivery of any size can be recorded in one action. Partial receipts increase Owned only by the received amount and keep the rest marked Purchased/in transit.
 - Purchased rows include a **Preview receipt impact** disclosure. It follows the quantity currently entered in that row, compares it with **Receive all** when useful, and lists the exact storage spaces that would become Ready or Waiting. The preview is read-only and updates immediately as the receipt quantity changes and after every real partial receipt.
 - When two or more organizer types are in transit, **Receive a mixed delivery** lets you enter the quantities that physically arrived across multiple rows, preview their combined Ready/Waiting impact, and commit the entire delivery once. Batch quantities are temporary UI state and default to zero.
+- The top-level **When purchases arrive** simulation uses the same receipt limits as the real actions. It separates purchased units from receivable units and calls out anything blocked by the 999-unit owned-inventory safety cap instead of treating impossible stock as available.
 - Every receipt path—single row, mixed delivery, or receive-all—creates a local recovery checkpoint before mutating purchased/owned inventory.
 
 This distinction prevents in-transit items from being counted as physically available too early. Purchase progress persists across reloads and backups.

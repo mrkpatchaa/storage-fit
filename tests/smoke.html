@@ -934,9 +934,23 @@
         installOrder:["unlock-big","unlock-a","unlock-b"],
         purchaseRows:[{id:"b",name:"Beta",boughtQty:1}]
       });
-      result(arrivalAnalysis.boughtUnits===1&&arrivalAnalysis.beforeReady===1&&arrivalAnalysis.afterReady===1,"purchased arrival preview keeps in-transit stock separate while simulating its receipt against the current install order");
+      result(arrivalAnalysis.boughtUnits===1&&arrivalAnalysis.receivableUnits===1&&arrivalAnalysis.blockedUnits===0&&arrivalAnalysis.beforeReady===1&&arrivalAnalysis.afterReady===1,"purchased arrival preview keeps in-transit stock separate while simulating its receipt against the current install order");
       result(arrivalAnalysis.gainedReady.length===1&&arrivalAnalysis.gainedReady[0].storageId==="unlock-big"&&arrivalAnalysis.lostReady.length===1&&arrivalAnalysis.lostReady[0].storageId==="unlock-a","purchased arrival preview reveals when an earlier waiting plan would displace a currently Ready space");
       result(arrivalAnalysis.bestReady===2&&arrivalAnalysis.optimizationGain===1&&arrivalAnalysis.optimizationExact&&arrivalAnalysis.optimizedGainedReady.length===2&&arrivalAnalysis.optimizedLostReady.length===1,"purchased arrival preview finds a better post-receipt install order without applying it");
+
+      var cappedArrival=api.purchasedArrivalAnalysis({
+        install:unlockInstall,plans:unlockPlans,ownedById:{a:1,b:999},installedPlanIds:{},
+        installOrder:["unlock-big","unlock-a","unlock-b"],
+        purchaseRows:[{id:"b",name:"Beta",boughtQty:3}]
+      });
+      result(cappedArrival.boughtUnits===3&&cappedArrival.receivableUnits===0&&cappedArrival.blockedUnits===3&&cappedArrival.purchased[0].requestedQty===3&&cappedArrival.purchased[0].qty===0,"all-arrivals preview does not simulate purchased units that the inventory safety cap would reject");
+      result(cappedArrival.beforeReady===cappedArrival.afterReady&&cappedArrival.gainedReady.length===0&&cappedArrival.lostReady.length===0&&cappedArrival.optimizationGain===0,"fully blocked arrivals leave readiness unchanged instead of overpromising an impossible receipt");
+      var partlyCappedArrival=api.purchasedArrivalAnalysis({
+        install:unlockInstall,plans:unlockPlans,ownedById:{a:1,b:998},installedPlanIds:{},
+        installOrder:["unlock-big","unlock-a","unlock-b"],
+        purchaseRows:[{id:"b",name:"Beta",boughtQty:3}]
+      });
+      result(partlyCappedArrival.boughtUnits===3&&partlyCappedArrival.receivableUnits===1&&partlyCappedArrival.blockedUnits===2&&partlyCappedArrival.purchased[0].qty===1,"all-arrivals preview reports purchased, receivable and blocked quantities separately when only part of an order can enter inventory");
 
       var simpleArrivalPlans=[unlockPlans[1],unlockPlans[2]];
       var simpleArrivalInstall=api.computeInstallAllocation(simpleArrivalPlans,{a:1,b:0},{},["unlock-a","unlock-b"]);

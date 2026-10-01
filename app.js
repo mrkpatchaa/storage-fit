@@ -2082,22 +2082,36 @@ function purchasedArrivalAnalysis(options={}){
   const installOrder=Array.isArray(options.installOrder)?options.installOrder:entries.map(entry=>entry.storageId);
   const purchaseRows=Array.isArray(options.purchaseRows)?options.purchaseRows:projectProcurement(plans).rows;
   const itemLookup=typeof options.itemLookup==="function"?options.itemLookup:boxById;
-  const purchased=purchaseRows.map(row=>({
-    id:row.id,
-    name:row.name||itemLookup(row.id)?.name||"Deleted item",
-    qty:Math.max(0,Math.floor(Number(row.boughtQty)||0))
-  })).filter(row=>row.qty>0);
-  const boughtUnits=purchased.reduce((sum,row)=>sum+row.qty,0);
+  const purchased=purchaseRows.map(row=>{
+    const requestedQty=Math.max(0,Math.floor(Number(row.boughtQty)||0));
+    const receipt=purchaseReceiptResult(ownedById[row.id],requestedQty,requestedQty);
+    return {
+      id:row.id,
+      name:row.name||itemLookup(row.id)?.name||"Deleted item",
+      requestedQty,qty:receipt.received,blockedQty:Math.max(0,requestedQty-receipt.received),
+      ownedQty:receipt.ownedQty
+    };
+  }).filter(row=>row.requestedQty>0);
+  const boughtUnits=purchased.reduce((sum,row)=>sum+row.requestedQty,0);
+  const receivableUnits=purchased.reduce((sum,row)=>sum+row.qty,0);
+  const blockedUnits=Math.max(0,boughtUnits-receivableUnits);
   const beforeReady=entries.filter(entry=>entry.status==="ready").length;
   if(!boughtUnits){
     return {
-      boughtUnits:0,purchased:[],beforeReady,afterReady:beforeReady,arrivalGain:0,
+      boughtUnits:0,receivableUnits:0,blockedUnits:0,purchased:[],beforeReady,afterReady:beforeReady,arrivalGain:0,
+      gainedReady:[],lostReady:[],bestReady:beforeReady,optimizationGain:0,
+      optimizationExact:true,optimizedGainedReady:[],optimizedLostReady:[],optimizedOrder:installOrder
+    };
+  }
+  if(!receivableUnits){
+    return {
+      boughtUnits,receivableUnits:0,blockedUnits,purchased,beforeReady,afterReady:beforeReady,arrivalGain:0,
       gainedReady:[],lostReady:[],bestReady:beforeReady,optimizationGain:0,
       optimizationExact:true,optimizedGainedReady:[],optimizedLostReady:[],optimizedOrder:installOrder
     };
   }
   const hypotheticalOwned={...ownedById};
-  for(const row of purchased)hypotheticalOwned[row.id]=(hypotheticalOwned[row.id]||0)+row.qty;
+  for(const row of purchased){if(row.qty>0)hypotheticalOwned[row.id]=row.ownedQty}
   const afterCurrent=installAllocationSnapshot(hypotheticalOwned,{install,plans,installedPlanIds,installOrder});
   const currentImpact=installScenarioTransitions(install,afterCurrent,options);
   const afterReady=afterCurrent.entries.filter(entry=>entry.status==="ready").length;
@@ -2110,7 +2124,7 @@ function purchasedArrivalAnalysis(options={}){
   });
   const optimizedImpact=installScenarioTransitions(afterCurrent,optimized,options);
   return {
-    boughtUnits,purchased,beforeReady,afterReady,arrivalGain:afterReady-beforeReady,
+    boughtUnits,receivableUnits,blockedUnits,purchased,beforeReady,afterReady,arrivalGain:afterReady-beforeReady,
     gainedReady:currentImpact.gainedReady,lostReady:currentImpact.lostReady,
     bestReady:suggestion.bestReady,optimizationGain:Math.max(0,suggestion.bestReady-afterReady),
     optimizationExact:suggestion.exact,optimizedGainedReady:optimizedImpact.gainedReady,
@@ -4422,7 +4436,10 @@ function renderPurchaseArrivalPreview(summary=projectProcurement()){
   const panel=$("purchaseArrivalPreview");if(!panel)return;
   if(!summary?.boughtUnits){panel.style.display="none";panel.innerHTML="";return}
   const analysis=purchasedArrivalAnalysis({purchaseRows:summary.rows});
-  const arriving=analysis.purchased.map(row=>`${esc(row.name)} ×${row.qty}`).join(" · ");
+  const arriving=analysis.purchased.map(row=>`${esc(row.name)} ×${row.requestedQty}${row.blockedQty?` (receivable ×${row.qty})`:""}`).join(" · ");
+  const blockedNote=analysis.blockedUnits
+    ?`<div class="purchasearrivalquiet"><strong>${analysis.blockedUnits} purchased organizer${analysis.blockedUnits===1?" is":"s are"} not receivable</strong> because owned inventory is already at the 999-unit safety cap for those item types.</div>`
+    :"";
   const delta=analysis.afterReady-analysis.beforeReady;
   const deltaText=delta>0?`+${delta} Ready`:delta<0?`${delta} Ready`:"same Ready count";
   const currentChanges=purchaseArrivalTransitionHtml("Would become Ready",analysis.gainedReady)+
@@ -4432,7 +4449,7 @@ function renderPurchaseArrivalPreview(summary=projectProcurement()){
     ?`<div class="purchasearrivalopt"><strong>Reorder opportunity after receipt: +${analysis.optimizationGain} more Ready</strong><div>Best after arrival: ${analysis.bestReady} Ready · ${analysis.optimizationExact?"exact":"bounded"} order search.</div>${purchaseArrivalTransitionHtml("Would become Ready after reordering",analysis.optimizedGainedReady)}${purchaseArrivalTransitionHtml("Would become Waiting after reordering",analysis.optimizedLostReady,true)}<div class="purchasearrivalquiet">Receiving does not change install order automatically; use Find more Ready afterward if you want the better allocation.</div></div>`
     :`<div class="purchasearrivalquiet">Current queue already reaches the best Ready count found after these arrivals${analysis.optimizationExact?".":" in the bounded order search."}</div>`;
   panel.style.display="block";
-  panel.innerHTML=`<div class="purchasearrivalhead"><strong>When purchases arrive</strong><span>${analysis.boughtUnits} purchased organizer${analysis.boughtUnits===1?"":"s"}</span></div><div class="purchasearrivalmeta">Current queue: ${analysis.beforeReady} → ${analysis.afterReady} Ready · ${deltaText}. Earlier waiting plans can start reserving shared stock once their missing items arrive.</div><div class="purchasearrivalitems"><strong>Arriving:</strong> ${arriving}</div><details><summary>Show arrival impact</summary><div class="purchasearrivalbody">${currentDetail}${optimize}</div></details>`;
+  panel.innerHTML=`<div class="purchasearrivalhead"><strong>When purchases arrive</strong><span>${analysis.boughtUnits} purchased organizer${analysis.boughtUnits===1?"":"s"} · ${analysis.receivableUnits} receivable</span></div><div class="purchasearrivalmeta">Current queue: ${analysis.beforeReady} → ${analysis.afterReady} Ready · ${deltaText}. Earlier waiting plans can start reserving shared stock once their missing items arrive.</div><div class="purchasearrivalitems"><strong>Arriving:</strong> ${arriving}</div>${blockedNote}<details><summary>Show arrival impact</summary><div class="purchasearrivalbody">${currentDetail}${optimize}</div></details>`;
 }
 function renderHomeProcurement(){
   renderBoxStockSummary();renderBoxList();renderItemPicker();
