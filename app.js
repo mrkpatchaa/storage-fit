@@ -1442,16 +1442,18 @@ function openItemFitModal(){
   const failureHtml=failures.length?`<details class="fitfailures" ${matches.length?"":"open"}><summary>Why ${failures.length} other space${failures.length===1?" doesn't":"s don't"} fit</summary><div class="fitfailurelist">${failures.map(failure=>{
     const S=state.storages.find(s=>s.id===failure.storageId);
     const path=esc(S?storageBreadcrumb(S):failure.storageName);
+    const remedies=S?fitRemediesForFailure(item,S,settings):[];
+    const remedyHtml=remedies.length?`<div class="fitremedies"><strong>Would fit if:</strong>${remedies.map(remedy=>`<span>${esc(fitRemedyText(remedy,state.unit))}</span>`).join("")}<small>Simulation only. Only reduce measurement buffers or change orientation/constraints when the physical item and furniture make that safe.</small></div>`:"";
     if(failure.reason==="constraints"){
       const blockers=[failure.blockedCount?`${failure.blockedCount} blocked zone${failure.blockedCount===1?"":"s"}`:"",failure.dividerCount?`${failure.dividerCount} divider${failure.dividerCount===1?"":"s"}`:""].filter(Boolean).join(" · ");
-      return `<div class="fitfailure"><div><div class="fitmatchtitle">${path}</div><div class="fitfailurewhy"><strong>Dimensions fit, but no valid floor position remains.</strong>${blockers?` ${esc(blockers)} block the allowed placement.`:" Current geometry rules block the allowed placement."}</div><div class="fitfailuremeta">Usable ${fmt(failure.W)} × ${fmt(failure.D)} × ${fmt(failure.H)} ${esc(state.unit)} · allowed orientation ${fmt(failure.w)} × ${fmt(failure.d)} × ${fmt(failure.h)}</div></div><button class="btn soft" type="button" data-open-fit-storage="${failure.storageId}">Open space</button></div>`;
+      return `<div class="fitfailure"><div><div class="fitmatchtitle">${path}</div><div class="fitfailurewhy"><strong>Dimensions fit, but no valid floor position remains.</strong>${blockers?` ${esc(blockers)} block the allowed placement.`:" Current geometry rules block the allowed placement."}</div><div class="fitfailuremeta">Usable ${fmt(failure.W)} × ${fmt(failure.D)} × ${fmt(failure.H)} ${esc(state.unit)} · allowed orientation ${fmt(failure.w)} × ${fmt(failure.d)} × ${fmt(failure.h)}</div>${remedyHtml}</div><button class="btn soft" type="button" data-open-fit-storage="${failure.storageId}">Open space</button></div>`;
     }
     const shortfalls=[
       failure.widthDeficit>1e-9?`W +${fmt(failure.widthDeficit)}`:"",
       failure.depthDeficit>1e-9?`D +${fmt(failure.depthDeficit)}`:"",
       failure.heightDeficit>1e-9?`H +${fmt(failure.heightDeficit)}`:""
     ].filter(Boolean).join(" / ");
-    return `<div class="fitfailure"><div><div class="fitmatchtitle">${path}</div><div class="fitfailurewhy"><strong>Short by ${esc(shortfalls||"current fit allowance")} ${esc(state.unit)}</strong> in the closest allowed orientation.</div><div class="fitfailuremeta">Usable ${fmt(failure.W)} × ${fmt(failure.D)} × ${fmt(failure.H)} ${esc(state.unit)} · closest orientation ${fmt(failure.w)} × ${fmt(failure.d)} × ${fmt(failure.h)} · includes current fit tolerance</div></div><button class="btn soft" type="button" data-open-fit-storage="${failure.storageId}">Open space</button></div>`;
+    return `<div class="fitfailure"><div><div class="fitmatchtitle">${path}</div><div class="fitfailurewhy"><strong>Short by ${esc(shortfalls||"current fit allowance")} ${esc(state.unit)}</strong> in the closest allowed orientation.</div><div class="fitfailuremeta">Usable ${fmt(failure.W)} × ${fmt(failure.D)} × ${fmt(failure.H)} ${esc(state.unit)} · closest orientation ${fmt(failure.w)} × ${fmt(failure.d)} × ${fmt(failure.h)} · includes current fit tolerance</div>${remedyHtml}</div><button class="btn soft" type="button" data-open-fit-storage="${failure.storageId}">Open space</button></div>`;
   }).join("")}</div></details>`:"";
   $("itemFitList").innerHTML=matchHtml+failureHtml;
   $("itemFitList").querySelectorAll("[data-fit-capacity-btn]").forEach(btn=>btn.addEventListener("click",()=>{
@@ -5228,6 +5230,71 @@ function fitFailuresForItem(item,storages,settings={}){
   });
 }
 
+function maxFittingRemedyValue(item,S,settings,key,current){
+  const upper=Math.max(0,Number(current)||0);
+  const withValue=value=>key==="clearance"
+    ?{...settings,clearanceEnabled:value>0,clearance:value}
+    :{...settings,[key]:value};
+  if(!itemFitInStorage(item,S,withValue(0)))return null;
+  let lo=0,hi=upper;
+  for(let i=0;i<24;i++){
+    const mid=(lo+hi)/2;
+    if(itemFitInStorage(item,S,withValue(mid)))lo=mid;else hi=mid;
+  }
+  return round6(lo);
+}
+function fitRemediesForFailure(item,S,settings={}){
+  if(!item||!S||itemFitInStorage(item,S,settings))return [];
+  const remedies=[];
+  const gap=Math.max(0,Number(settings.fitTolerance)||0);
+  if(gap>0){
+    const value=maxFittingRemedyValue(item,S,settings,"fitTolerance",gap);
+    if(value!==null&&value<gap-1e-6)remedies.push({kind:"fitTolerance",value,current:gap});
+  }
+  const clearance=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
+  if(clearance>0){
+    const value=maxFittingRemedyValue(item,S,settings,"clearance",clearance);
+    if(value!==null&&value<clearance-1e-6)remedies.push({kind:"clearance",value,current:clearance});
+  }
+  if(item.floorRotationLocked){
+    const unlocked={...item,floorRotationLocked:false};
+    if(itemFitInStorage(unlocked,S,settings))remedies.push({kind:"floorRotation"});
+  }
+  if(settings.uprightOnly!==false||item.uprightOnly!==false){
+    const tippingItem={...item,uprightOnly:false};
+    const tippingSettings={...settings,uprightOnly:false};
+    if(itemFitInStorage(tippingItem,S,tippingSettings))remedies.push({kind:"tipping"});
+  }
+  let singleConstraintFix=false;
+  for(const obstacle of S.obstacles||[]){
+    const candidate={...S,obstacles:(S.obstacles||[]).filter(o=>o!==obstacle)};
+    if(itemFitInStorage(item,candidate,settings)){
+      remedies.push({kind:"constraint",constraintType:"blocked zone",label:obstacle.name||"Blocked zone"});
+      singleConstraintFix=true;
+    }
+  }
+  for(const divider of S.dividers||[]){
+    const candidate={...S,dividers:(S.dividers||[]).filter(d=>d!==divider)};
+    if(itemFitInStorage(item,candidate,settings)){
+      remedies.push({kind:"constraint",constraintType:"divider",label:divider.name||"Divider"});
+      singleConstraintFix=true;
+    }
+  }
+  if(!singleConstraintFix&&((S.obstacles||[]).length||(S.dividers||[]).length)){
+    const clearConstraints={...S,obstacles:[],dividers:[]};
+    if(itemFitInStorage(item,clearConstraints,settings))remedies.push({kind:"constraints"});
+  }
+  return remedies;
+}
+function fitRemedyText(remedy,unit){
+  if(remedy.kind==="fitTolerance")return `Fit tolerance is ≤ ${fmt(remedy.value)} ${unit} (currently ${fmt(remedy.current)} ${unit})`;
+  if(remedy.kind==="clearance")return `Wall clearance is ≤ ${fmt(remedy.value)} ${unit} (currently ${fmt(remedy.current)} ${unit})`;
+  if(remedy.kind==="floorRotation")return "90° floor rotation is allowed for this organizer";
+  if(remedy.kind==="tipping")return "this organizer is allowed to tip onto another face";
+  if(remedy.kind==="constraint")return `modeled ${remedy.constraintType} “${remedy.label}” is removed or corrected`;
+  if(remedy.kind==="constraints")return "the modeled blocked zones/dividers are corrected";
+  return "";
+}
 function countSignature(layout){
   const c={};for(const p of layout)c[p.typeId]=(c[p.typeId]||0)+1;
   return Object.keys(c).sort().map(k=>`${k}:${c[k]}`).join("|");
@@ -6597,6 +6664,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     itemFitInStorage,
     fitFailureInStorage,
     fitFailuresForItem,
+    fitRemediesForFailure,
     maxFloorCopiesInStorage,
     maxCopiesInStorage,
     openCapacityPacking,
