@@ -868,6 +868,7 @@
       result(unlockAnalysis.rows[0].boughtQty===1&&unlockAnalysis.rows[0].remainingQty===0,"stock unlock analysis preserves purchased-vs-still-to-source context without changing inventory");
       result(unlockAnalysis.rows[0].gainedReady.length===1&&unlockAnalysis.rows[0].gainedReady[0].storageId==="unlock-b"&&unlockAnalysis.rows[0].gainedReady[0].path==="Utility → Cabinet → B only"&&unlockAnalysis.rows[0].lostReady.length===0,"stock unlock impact compares the suggested hypothetical allocation with the best current-stock allocation");
 
+      result(api.clampPurchaseReceiptQuantity(8,3)===3&&api.clampPurchaseReceiptQuantity(8,99)===8&&api.clampPurchaseReceiptQuantity(8,0)===1&&api.clampPurchaseReceiptQuantity(0,3)===0,"custom receipt quantity stays within one and the marked purchased amount");
       var partialReceipt=api.purchaseReceiptResult(2,5,1);
       result(partialReceipt.received===1&&partialReceipt.ownedQty===3&&partialReceipt.boughtQty===4,"partial purchase receipt moves only the requested in-transit unit into owned inventory");
       var fullReceipt=api.purchaseReceiptResult(2,5,99);
@@ -883,6 +884,13 @@
       });
       result(oneReceiptImpact.qty===1&&oneReceiptImpact.beforeReady===1&&oneReceiptImpact.afterReady===1&&oneReceiptImpact.readyDelta===0,"single-unit receipt impact previews the exact partial receipt without changing the Ready count");
       result(oneReceiptImpact.gainedReady.length===1&&oneReceiptImpact.gainedReady[0].storageId==="unlock-big"&&oneReceiptImpact.lostReady.length===1&&oneReceiptImpact.lostReady[0].storageId==="unlock-a","single-unit receipt impact exposes Ready-to-Waiting displacement under the current queue");
+      var customReceiptImpact=api.purchasedReceiptImpact("b",2,{
+        rooms:unlockRooms,furniture:unlockFurniture,storages:unlockStorages,
+        install:unlockInstall,plans:unlockPlans,ownedById:unlockOwned,installedPlanIds:{},
+        installOrder:["unlock-big","unlock-a","unlock-b"],
+        purchaseRows:[{id:"b",name:"Beta",boughtQty:3}]
+      });
+      result(customReceiptImpact.qty===2&&customReceiptImpact.afterReady===2&&customReceiptImpact.readyDelta===1,"receipt impact accepts an arbitrary partial quantity below the purchased total");
       var allReceiptImpact=api.purchasedReceiptImpact("b",2,{
         rooms:unlockRooms,furniture:unlockFurniture,storages:unlockStorages,
         install:unlockInstall,plans:unlockPlans,ownedById:unlockOwned,installedPlanIds:{},
