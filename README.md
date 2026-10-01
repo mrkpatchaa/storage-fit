@@ -57,7 +57,7 @@ A plan export is different from a full backup:
 
 ## Smart product import
 
-Product import runs in the browser. It first tries the public product page and can fall back to the public r.jina.ai reader when direct cross-origin access is blocked. Retailer markup and access policies can change, so imported dimensions should always be reviewed before purchasing.
+Product import runs in the browser. It first tries the public product page. If that request is blocked **or succeeds without usable width/depth/height**, Storage Fit also tries the public r.jina.ai reader and merges any missing measurements into the preview. This matters for retailer pages that return a partial JavaScript shell with a title/reference but omit the measurement section from the fetched HTML. Complete direct-page imports still use a single request. Retailer markup and access policies can change, so imported dimensions should always be reviewed before purchasing.
 
 ## Deployment
 
