@@ -409,6 +409,16 @@
       result(fitAudit.totals.pairs===3&&fitAudit.totals.fitPairs===1&&fitAudit.totals.nearPairs===1&&fitAudit.totals.missPairs===1,"project fit audit counts current fits, actionable near misses and hard misses");
       result(fitAudit.rows.length===1&&fitAudit.rows[0].fitCount===1&&fitAudit.rows[0].nearCount===1&&fitAudit.rows[0].missCount===1,"project fit audit summarizes each organizer across all storage spaces");
       result(fitAudit.rows[0].cells[0].status==="fit"&&fitAudit.rows[0].cells[1].status==="near"&&fitAudit.rows[0].cells[2].status==="miss","project fit audit preserves per-storage fit status in matrix order");
+      var auditViewNear=api.projectFitAuditView(fitAudit,{storageIds:["audit-near","audit-miss"],focus:"near"});
+      result(auditViewNear.storages.length===2&&auditViewNear.rows.length===1&&auditViewNear.rows[0].fitCount===0&&auditViewNear.rows[0].nearCount===1&&auditViewNear.rows[0].missCount===1,"fit audit view recomputes organizer counts after storage-scope filtering");
+      result(auditViewNear.totals.pairs===2&&auditViewNear.totals.fitPairs===0&&auditViewNear.totals.nearPairs===1&&auditViewNear.totals.missPairs===1,"fit audit view recomputes visible pair totals after storage filtering");
+      var auditViewNoFit=api.projectFitAuditView(fitAudit,{storageIds:["audit-near","audit-miss"],focus:"no-fit"});
+      result(auditViewNoFit.rows.length===1&&auditViewNoFit.rows[0].fitCount===0,"fit audit no-current-fit focus uses only the visible storage scope");
+      var auditViewFitScope=api.projectFitAuditView(fitAudit,{storageIds:["audit-fit"],focus:"no-fit"});
+      result(auditViewFitScope.rows.length===0&&auditViewFitScope.totals.pairs===0,"fit audit no-current-fit focus excludes organizers that fit in the visible scope");
+      var auditSearch=api.projectFitAuditView(fitAudit,{query:"audit bin",focus:"all"});
+      var auditSearchMiss=api.projectFitAuditView(fitAudit,{query:"not present",focus:"all"});
+      result(auditSearch.rows.length===1&&auditSearchMiss.rows.length===0,"fit audit organizer search is case-insensitive and filters rows without changing the base audit");
       var dividedFit={id:"rfd",name:"Divided",w:20,d:10,h:6,obstacles:[],dividers:[{id:"d",orientation:"vertical",position:10,thickness:1,h:6}]};
       var squareFitItem={id:"sq",name:"Square bin",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false};
       result(api.itemFitInStorage(squareFitItem,dividedFit,reverseFitSettings)===null,"reverse fit lookup respects full-height dividers");

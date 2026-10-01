@@ -316,6 +316,18 @@
           <div class="modalbody">
             <section class="card">
               <div class="fitfindersummary" id="fitAuditSummary"></div>
+              <div class="fitauditcontrols">
+                <input class="picker" id="fitAuditSearch" type="search" placeholder="Search organizers">
+                <select class="picker" id="fitAuditRoom"><option value="">All rooms</option></select>
+                <select class="picker" id="fitAuditFocus">
+                  <option value="all">All organizers</option>
+                  <option value="no-fit">No current fit</option>
+                  <option value="near">Has near miss</option>
+                  <option value="miss">Has hard miss</option>
+                </select>
+                <button class="btn soft" id="fitAuditClear" type="button">Clear filters</button>
+              </div>
+              <div class="fitauditfiltermeta" id="fitAuditFilterMeta"></div>
               <div class="fitauditlegend"><span class="fit">Fits</span><span class="near">Near miss</span><span class="miss">Doesn't fit</span></div>
               <div class="fitauditscroll"><table class="fitaudittable" id="fitAuditTable"></table></div>
             </section>
