@@ -4248,6 +4248,48 @@ function purchaseReceiptResult(ownedQty,boughtQty,requestedQty=boughtQty){
   const received=Math.min(bought,requested,Math.max(0,999-owned));
   return {ownedQty:owned+received,boughtQty:bought-received,received};
 }
+function clampDeliveryReceiptQuantity(boughtQty,value){
+  const bought=Math.max(0,Math.floor(Number(boughtQty)||0));
+  return Math.max(0,Math.min(bought,Math.floor(Number(value)||0)));
+}
+function normalizeDeliveryReceiptSelection(purchaseRows,selections={}){
+  const selected=[];
+  for(const row of purchaseRows||[]){
+    const requested=clampDeliveryReceiptQuantity(row.boughtQty,selections?.[row.id]);
+    if(requested>0)selected.push({id:row.id,name:row.name||"Item",boughtQty:Math.max(0,Math.floor(Number(row.boughtQty)||0)),requested});
+  }
+  return selected;
+}
+function purchasedDeliveryImpact(selections={},options={}){
+  const install=options.install||currentInstallAllocation();
+  const entries=Array.isArray(install?.entries)?install.entries:[];
+  const plans=Array.isArray(options.plans)?options.plans:entries.filter(entry=>entry.status!=="stale"&&entry.plan).map(entry=>entry.plan);
+  const ownedById=options.ownedById&&typeof options.ownedById==="object"
+    ?{...options.ownedById}:Object.fromEntries(state.boxes.map(item=>[item.id,item.ownedQty||0]));
+  const installedPlanIds=options.installedPlanIds&&typeof options.installedPlanIds==="object"?options.installedPlanIds:state.installedPlanIds;
+  const installOrder=Array.isArray(options.installOrder)?options.installOrder:entries.map(entry=>entry.storageId);
+  const purchaseRows=Array.isArray(options.purchaseRows)?options.purchaseRows:projectProcurement(plans).rows;
+  const selected=normalizeDeliveryReceiptSelection(purchaseRows,selections);
+  const beforeReady=entries.filter(entry=>entry.status==="ready").length;
+  const hypotheticalOwned={...ownedById},received=[];
+  for(const row of selected){
+    const result=purchaseReceiptResult(hypotheticalOwned[row.id],row.boughtQty,row.requested);
+    if(!result.received)continue;
+    hypotheticalOwned[row.id]=result.ownedQty;
+    received.push({...row,qty:result.received});
+  }
+  const totalUnits=received.reduce((sum,row)=>sum+row.qty,0);
+  if(!totalUnits){
+    return {totalUnits:0,selected:[],beforeReady,afterReady:beforeReady,readyDelta:0,gainedReady:[],lostReady:[],transitions:[]};
+  }
+  const after=installAllocationSnapshot(hypotheticalOwned,{install,plans,installedPlanIds,installOrder});
+  const impact=installScenarioTransitions(install,after,options);
+  const afterReady=after.entries.filter(entry=>entry.status==="ready").length;
+  return {
+    totalUnits,selected:received,beforeReady,afterReady,readyDelta:afterReady-beforeReady,
+    gainedReady:impact.gainedReady,lostReady:impact.lostReady,transitions:impact.transitions
+  };
+}
 function purchasedReceiptImpact(itemId,requestedQty=1,options={}){
   const install=options.install||currentInstallAllocation();
   const entries=Array.isArray(install?.entries)?install.entries:[];
@@ -4272,13 +4314,15 @@ function purchasedReceiptImpact(itemId,requestedQty=1,options={}){
     gainedReady:impact.gainedReady,lostReady:impact.lostReady,transitions:impact.transitions
   };
 }
-function receivePurchasedItem(itemId,requestedQty=null,{persist=true}={}){
+function receivePurchasedItem(itemId,requestedQty=null,options={}){
+  const persist=options.persist!==false,checkpoint=options.checkpoint??persist;
   const row=projectProcurement().rows.find(r=>r.id===itemId);
   const item=boxById(itemId);
   if(!row||!item||row.boughtQty<=0)return 0;
   const requested=requestedQty==null?row.boughtQty:requestedQty;
   const result=purchaseReceiptResult(item.ownedQty,row.boughtQty,requested);
   if(!result.received)return 0;
+  if(checkpoint)createRecoveryCheckpoint(`Before receiving ${result.received} × ${item.name||row.name||"item"}`);
   item.ownedQty=result.ownedQty;
   state.shoppingBought=state.shoppingBought||{};
   if(result.boughtQty>0)state.shoppingBought[itemId]=result.boughtQty;
@@ -4326,6 +4370,54 @@ function syncReceiptQuantityControl(input,row,options={}){
   }
   return qty;
 }
+function deliveryImpactHtml(impact){
+  if(!impact.totalUnits)return '<div class="purchasearrivalquiet">Enter quantities for the organizer types that arrived in this delivery.</div>';
+  const items=impact.selected.map(row=>`${esc(row.name)} ×${row.qty}`).join(" · ");
+  const changes=purchaseArrivalTransitionHtml("Would become Ready",impact.gainedReady)+
+    purchaseArrivalTransitionHtml("Would become Waiting",impact.lostReady,true);
+  return `<div class="deliverybatchimpacthead"><strong>${impact.totalUnits} organizer${impact.totalUnits===1?"":"s"} selected</strong><span>${impact.beforeReady} → ${impact.afterReady} Ready · ${receiptImpactDeltaText(impact)}</span></div><div class="purchasearrivalitems"><strong>Receiving:</strong> ${items}</div>${changes||'<div class="purchasearrivalquiet">No chosen storage changes readiness under the current install queue.</div>'}`;
+}
+function readDeliveryBatchSelection(panel){
+  const selections={};
+  panel?.querySelectorAll("[data-delivery-qty]").forEach(input=>{selections[input.dataset.deliveryQty]=input.value});
+  return selections;
+}
+function renderDeliveryBatch(summary=projectProcurement()){
+  const panel=$("deliveryBatchPanel");if(!panel)return;
+  const purchasedRows=(summary?.rows||[]).filter(row=>row.boughtQty>0);
+  if(purchasedRows.length<2){panel.style.display="none";panel.innerHTML="";return}
+  panel.style.display="block";
+  panel.innerHTML=`<details><summary>Receive a mixed delivery</summary><div class="deliverybatchbody"><div class="purchasearrivalquiet">Enter only the quantities physically present in this delivery. Nothing changes until you press Receive selected delivery.</div><div class="deliverybatchrows">${purchasedRows.map(row=>`<label class="deliverybatchrow"><span><strong>${esc(row.name)}</strong><small>Purchased ×${row.boughtQty}</small></span><input type="number" min="0" max="${row.boughtQty}" step="1" value="0" inputmode="numeric" data-delivery-qty="${row.id}" aria-label="Quantity of ${esc(row.name)} in this delivery"></label>`).join("")}</div><div class="deliverybatchimpact" data-delivery-impact></div><div class="deliverybatchactions"><button class="btn soft" type="button" data-delivery-clear>Clear</button><button class="btn primary" type="button" data-delivery-receive disabled>Receive selected delivery</button></div></div></details>`;
+  const install=currentInstallAllocation(),options={purchaseRows:summary.rows,install};
+  const sync=()=>{
+    panel.querySelectorAll("[data-delivery-qty]").forEach(input=>{
+      const row=purchasedRows.find(item=>item.id===input.dataset.deliveryQty);
+      if(row&&input.value!=="")input.value=clampDeliveryReceiptQuantity(row.boughtQty,input.value);
+    });
+    const impact=purchasedDeliveryImpact(readDeliveryBatchSelection(panel),options);
+    const impactEl=panel.querySelector("[data-delivery-impact]");if(impactEl)impactEl.innerHTML=deliveryImpactHtml(impact);
+    const receive=panel.querySelector("[data-delivery-receive]");
+    if(receive){receive.disabled=!impact.totalUnits;receive.textContent=impact.totalUnits?`Receive ${impact.totalUnits} selected`:"Receive selected delivery"}
+    return impact;
+  };
+  panel.querySelectorAll("[data-delivery-qty]").forEach(input=>{
+    input.addEventListener("input",()=>{if(input.value!=="")sync()});
+    input.addEventListener("change",sync);
+  });
+  panel.querySelector("[data-delivery-clear]")?.addEventListener("click",()=>{
+    panel.querySelectorAll("[data-delivery-qty]").forEach(input=>{input.value=0});sync();
+  });
+  panel.querySelector("[data-delivery-receive]")?.addEventListener("click",()=>{
+    const impact=sync();if(!impact.totalUnits)return;
+    createRecoveryCheckpoint(`Before receiving mixed delivery · ${impact.totalUnits} organizer${impact.totalUnits===1?"":"s"}`);
+    let received=0;
+    for(const row of impact.selected)received+=receivePurchasedItem(row.id,row.qty,{persist:false,checkpoint:false});
+    if(received){
+      localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderInstallUnlockAnalysis();renderAll();
+    }
+  });
+  sync();
+}
 function renderPurchaseArrivalPreview(summary=projectProcurement()){
   const panel=$("purchaseArrivalPreview");if(!panel)return;
   if(!summary?.boughtUnits){panel.style.display="none";panel.innerHTML="";return}
@@ -4349,7 +4441,7 @@ function renderHomeProcurement(){
   if(!summary.plans.length){
     sec.style.display="none";$("homeProcurementList").innerHTML="";
     $("receivePurchasesBtn").disabled=true;
-    renderPurchaseArrivalPreview(summary);
+    renderPurchaseArrivalPreview(summary);renderDeliveryBatch(summary);
     renderProjectNextActions();return;
   }
   sec.style.display="block";
@@ -4370,6 +4462,7 @@ function renderHomeProcurement(){
     const health=planHealth(plan);return `<span class="projectplan">${esc(m.storagePath)} · ${esc(plan.name)}${health.status!=="current"?" · needs review":""}</span>`;
   }).join("");
   renderPurchaseArrivalPreview(summary);
+  renderDeliveryBatch(summary);
   const receiptImpactOptions={purchaseRows:summary.rows,install:currentInstallAllocation()};
 
   $("homeProcurementList").innerHTML=summary.rows.map(r=>`<div class="homeshoprow" data-home-shop-item="${r.id}">
@@ -4415,8 +4508,9 @@ function renderHomeProcurement(){
 function receiveMarkedPurchases(){
   const rows=projectProcurement().rows.filter(row=>row.boughtQty>0);
   if(!rows.length)return 0;
+  createRecoveryCheckpoint(`Before receiving all purchases · ${rows.reduce((sum,row)=>sum+row.boughtQty,0)} organizer${rows.reduce((sum,row)=>sum+row.boughtQty,0)===1?"":"s"}`);
   let received=0;
-  for(const row of rows)received+=receivePurchasedItem(row.id,null,{persist:false});
+  for(const row of rows)received+=receivePurchasedItem(row.id,null,{persist:false,checkpoint:false});
   if(received){
     localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderInstallUnlockAnalysis();
   }
@@ -6439,8 +6533,11 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     ensureHomeHierarchy,
     purchaseBreakdown,
     clampPurchaseReceiptQuantity,
+    clampDeliveryReceiptQuantity,
+    normalizeDeliveryReceiptSelection,
     purchaseReceiptResult,
     purchasedReceiptImpact,
+    purchasedDeliveryImpact,
     savedPlanSourceSnapshot,
     planLineageMetadata,
     planLineageInfo,

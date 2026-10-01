@@ -869,6 +869,9 @@
       result(unlockAnalysis.rows[0].gainedReady.length===1&&unlockAnalysis.rows[0].gainedReady[0].storageId==="unlock-b"&&unlockAnalysis.rows[0].gainedReady[0].path==="Utility → Cabinet → B only"&&unlockAnalysis.rows[0].lostReady.length===0,"stock unlock impact compares the suggested hypothetical allocation with the best current-stock allocation");
 
       result(api.clampPurchaseReceiptQuantity(8,3)===3&&api.clampPurchaseReceiptQuantity(8,99)===8&&api.clampPurchaseReceiptQuantity(8,0)===1&&api.clampPurchaseReceiptQuantity(0,3)===0,"custom receipt quantity stays within one and the marked purchased amount");
+      result(api.clampDeliveryReceiptQuantity(8,3)===3&&api.clampDeliveryReceiptQuantity(8,99)===8&&api.clampDeliveryReceiptQuantity(8,-2)===0,"mixed delivery quantities allow zero and stay within the purchased amount");
+      var normalizedDelivery=api.normalizeDeliveryReceiptSelection([{id:"a",name:"Alpha",boughtQty:2},{id:"b",name:"Beta",boughtQty:3}],{a:1,b:99});
+      result(normalizedDelivery.length===2&&normalizedDelivery[0].requested===1&&normalizedDelivery[1].requested===3,"mixed delivery selection independently clamps each organizer quantity");
       var partialReceipt=api.purchaseReceiptResult(2,5,1);
       result(partialReceipt.received===1&&partialReceipt.ownedQty===3&&partialReceipt.boughtQty===4,"partial purchase receipt moves only the requested in-transit unit into owned inventory");
       var fullReceipt=api.purchaseReceiptResult(2,5,99);
@@ -908,6 +911,22 @@
         installOrder:["unlock-big","unlock-a","unlock-b"],purchaseRows:[{id:"b",boughtQty:2}]
       });
       result(cappedReceiptImpact.qty===0&&cappedReceiptImpact.readyDelta===0&&cappedReceiptImpact.transitions.length===0,"receipt impact obeys the same owned-inventory safety cap as the real receipt action");
+
+      var mixedDeliveryImpact=api.purchasedDeliveryImpact({a:1,b:2},{
+        rooms:unlockRooms,furniture:unlockFurniture,storages:unlockStorages,
+        install:api.computeInstallAllocation(unlockPlans,{a:0,b:0},{},["unlock-big","unlock-a","unlock-b"]),
+        plans:unlockPlans,ownedById:{a:0,b:0},installedPlanIds:{},
+        installOrder:["unlock-big","unlock-a","unlock-b"],
+        purchaseRows:[{id:"a",name:"Alpha",boughtQty:1},{id:"b",name:"Beta",boughtQty:2}]
+      });
+      result(mixedDeliveryImpact.totalUnits===3&&mixedDeliveryImpact.selected.length===2&&mixedDeliveryImpact.beforeReady===0&&mixedDeliveryImpact.afterReady===2,"mixed delivery preview combines several purchased organizer types into one inventory scenario");
+      result(mixedDeliveryImpact.gainedReady.length===2&&mixedDeliveryImpact.lostReady.length===0,"mixed delivery preview reports the exact Ready transitions caused by the combined receipt");
+      var cappedMixedDelivery=api.purchasedDeliveryImpact({a:2,b:2},{
+        install:unlockInstall,plans:unlockPlans,ownedById:{a:999,b:0},installedPlanIds:{},
+        installOrder:["unlock-big","unlock-a","unlock-b"],
+        purchaseRows:[{id:"a",name:"Alpha",boughtQty:2},{id:"b",name:"Beta",boughtQty:2}]
+      });
+      result(cappedMixedDelivery.totalUnits===2&&cappedMixedDelivery.selected.length===1&&cappedMixedDelivery.selected[0].id==="b","mixed delivery preview drops organizer units that the owned-inventory cap cannot receive");
 
       var arrivalAnalysis=api.purchasedArrivalAnalysis({
         rooms:unlockRooms,furniture:unlockFurniture,storages:unlockStorages,
