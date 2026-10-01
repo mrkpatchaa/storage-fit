@@ -3133,20 +3133,55 @@ function parseLabeledDimensions(str){
     .replace(/\*\*/g,"")
     .replace(/\s+/g," ");
 
-  function find(label){
-    const re=new RegExp(`\\b${label}\\s*[:\\-]?\\s*(\\d+(?:[.,]\\d+)?)\\s*(mm|cm|m|in|")\\b`,"i");
-    const m=s.match(re);
-    return m?{value:m[1],unit:m[2]}:null;
+  function findAll(label){
+    const re=new RegExp(`\\b${label}\\s*[:\\-]?\\s*(\\d+(?:[.,]\\d+)?)\\s*(mm|cm|m|in|")\\b`,"gi");
+    return [...s.matchAll(re)].map(m=>({
+      value:m[1],unit:m[2],
+      index:m.index??0,end:(m.index??0)+m[0].length
+    }));
   }
 
-  const w=find("(?:Width|Largeur)"), d=find("(?:Depth|Profondeur)"), h=find("(?:Height|Hauteur)");
-  if(!w||!d||!h)return null;
+  const widths=findAll("(?:Width|Largeur|Breite|Ancho|Larghezza)");
+  const depths=findAll("(?:Depth|Profondeur|Tiefe|Profundidad|Fondo|Profondità)");
+  const heights=findAll("(?:Height|Hauteur|Höhe|Altura|Alto|Altezza)");
+  if(!widths.length||!depths.length||!heights.length)return null;
 
-  const wc=normalizeProductDimensions([w.value,1,1],w.unit)?.[0];
-  const dc=normalizeProductDimensions([d.value,1,1],d.unit)?.[0];
-  const hc=normalizeProductDimensions([h.value,1,1],h.unit)?.[0];
+  let best=null;
+  for(const w of widths)for(const d of depths)for(const h of heights){
+    const start=Math.min(w.index,d.index,h.index),end=Math.max(w.end,d.end,h.end);
+    const span=end-start;
+    if(!best||span<best.span||(span===best.span&&start<best.start))best={w,d,h,span,start};
+  }
+  if(!best)return null;
+  const wc=normalizeProductDimensions([best.w.value,1,1],best.w.unit)?.[0];
+  const dc=normalizeProductDimensions([best.d.value,1,1],best.d.unit)?.[0];
+  const hc=normalizeProductDimensions([best.h.value,1,1],best.h.unit)?.[0];
   if(!(wc>0&&dc>0&&hc>0))return null;
   return [wc,dc,hc];
+}
+function parseReaderDimensions(markdown,title=""){
+  const txt=String(markdown||"");
+  const sections=[];
+  let current={heading:"",lines:[]};
+  for(const line of txt.split(/\r?\n/)){
+    const heading=line.match(/^#{1,6}\s+(.+?)\s*$/);
+    if(heading){
+      if(current.heading||current.lines.length)sections.push(current);
+      current={heading:heading[1].trim(),lines:[]};
+    }else current.lines.push(line);
+  }
+  if(current.heading||current.lines.length)sections.push(current);
+
+  const measurementHeading=/(?:measurements?|product\s+(?:dimensions?|measurements?)|dimensions?(?:\s+du\s+produit)?|mesures?|abmessungen|maße|medidas|misure|size)/i;
+  const packageHeading=/(?:package|packaging|parcel|colis|emballage|paket|verpackung|paquete|embalaje|imballaggio)/i;
+  for(const section of sections){
+    if(!measurementHeading.test(section.heading)||packageHeading.test(section.heading))continue;
+    const body=section.lines.join("\n").slice(0,6000);
+    const dims=parseLabeledDimensions(body)||parseDimensionString(`${section.heading}\n${body}`);
+    if(dims)return dims;
+  }
+  return parseLabeledDimensions(txt.slice(0,20000))
+    || parseDimensionString(`${title}\n${txt.slice(0,20000)}`);
 }
 function deepFindProduct(node){
   if(!node)return null;
@@ -3211,8 +3246,7 @@ function parseReaderProduct(markdown,url){
   const txt=String(markdown||"");
   const title=(txt.match(/^#\s+(.+)$/m)||[])[1]||(txt.match(/^Title:\s*(.+)$/mi)||[])[1]||"";
   out.name=title.trim()||info.name||"";
-  const dims=parseLabeledDimensions(txt.slice(0,20000))
-    || parseDimensionString(`${title}\n${txt.slice(0,20000)}`);
+  const dims=parseReaderDimensions(txt,title);
   if(dims)[out.w,out.d,out.h]=dims;
   const sku=(txt.match(/\b(\d{3})\.(\d{3})\.(\d{2})\b/)||txt.match(/\b(\d{3})\s(\d{3})\s(\d{2})\b/));
   out.sku=sku?`${sku[1]}.${sku[2]}.${sku[3]}`:(info.sku||"");
@@ -6954,6 +6988,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
   window.StorageFitTest={
     parseDimensionString,
     parseLabeledDimensions,
+    parseReaderDimensions,
     canonicalProductUrl,
     normalizedSku,
     retailerName,
