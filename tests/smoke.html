@@ -345,10 +345,14 @@
       var corners=api.constraintTemplateZones("corner-posts",templateStorage,{width:4,depth:3,height:12},constraintIds);
       result(corners.length===4&&corners.some(function(x){return x.x===96&&x.y===47})&&corners.every(function(x){return x.w===4&&x.d===3&&x.h===12}),"corner template creates four symmetric editable notches");
       result(api.constraintTemplateZones("unknown",templateStorage,{},constraintIds).length===0,"unknown constraint template produces no geometry");
+      var fitMargins=api.fitDimensionMargins(9,8,5,10,10,6,0.5);
+      result(fitMargins.widthMargin===0&&fitMargins.depthMargin===1&&fitMargins.heightMargin===1&&fitMargins.tightestMargin===0&&fitMargins.tightestAxis==="width","fit margin reports dimensional spare after horizontal fit tolerance");
       var reverseFitItem={id:"rf",name:"Long tray",w:20,d:10,h:5,uprightOnly:true,floorRotationLocked:false};
       var reverseFitSettings={clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:true};
       var rotatedFit=api.itemFitInStorage(reverseFitItem,{id:"rfs",name:"Narrow shelf",w:12,d:21,h:6,obstacles:[],dividers:[]},reverseFitSettings);
       result(!!rotatedFit&&rotatedFit.w===10&&rotatedFit.d===20,"reverse fit lookup rotates an upright item when the original footprint does not fit");
+      var forgivingFit=api.itemFitInStorage({id:"fit-rot",name:"Fit Rot",w:8,d:6,h:4,uprightOnly:false,floorRotationLocked:false},{id:"fit-rot-s",name:"Fit Rot Storage",w:10,d:7,h:9,obstacles:[],dividers:[]},{clearanceEnabled:false,clearance:0,fitTolerance:0,uprightOnly:false});
+      result(forgivingFit&&forgivingFit.w===8&&forgivingFit.d===4&&forgivingFit.h===6&&forgivingFit.tightestMargin===2,"reverse fit lookup chooses the valid orientation with the largest tightest dimensional margin");
       var fullyBlocked={id:"rfb",name:"Blocked",w:30,d:30,h:6,obstacles:[{id:"o",x:0,y:0,w:30,d:30,h:6}],dividers:[]};
       result(api.itemFitInStorage(reverseFitItem,fullyBlocked,reverseFitSettings)===null,"reverse fit lookup respects full-height blocked zones");
       var dividedFit={id:"rfd",name:"Divided",w:20,d:10,h:6,obstacles:[],dividers:[{id:"d",orientation:"vertical",position:10,thickness:1,h:6}]};
