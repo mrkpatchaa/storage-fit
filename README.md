@@ -174,6 +174,7 @@ The home shopping list now has an execution state between “need to buy” and 
 - **Left** is what still needs to be purchased.
 - **Receive purchases** moves all currently marked purchased units into the item's owned inventory in one action.
 - Each organizer row can also **Receive 1** or **Receive all ×N**, so deliveries can be recorded as they physically arrive instead of waiting for every order. Partial receipts increase Owned only by the received amount and keep the rest marked Purchased/in transit.
+- Purchased rows include a **Preview receipt impact** disclosure. It independently simulates **Receive 1** and **Receive all** against the current install queue and lists the exact storage spaces that would become Ready or Waiting. The preview is read-only and updates after every real partial receipt.
 
 This distinction prevents in-transit items from being counted as physically available too early. Purchase progress persists across reloads and backups.
 

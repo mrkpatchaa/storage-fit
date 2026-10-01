@@ -4243,6 +4243,29 @@ function purchaseReceiptResult(ownedQty,boughtQty,requestedQty=boughtQty){
   const received=Math.min(bought,requested,Math.max(0,999-owned));
   return {ownedQty:owned+received,boughtQty:bought-received,received};
 }
+function purchasedReceiptImpact(itemId,requestedQty=1,options={}){
+  const install=options.install||currentInstallAllocation();
+  const entries=Array.isArray(install?.entries)?install.entries:[];
+  const plans=Array.isArray(options.plans)?options.plans:entries.filter(entry=>entry.status!=="stale"&&entry.plan).map(entry=>entry.plan);
+  const ownedById=options.ownedById&&typeof options.ownedById==="object"
+    ?{...options.ownedById}:Object.fromEntries(state.boxes.map(item=>[item.id,item.ownedQty||0]));
+  const installedPlanIds=options.installedPlanIds&&typeof options.installedPlanIds==="object"?options.installedPlanIds:state.installedPlanIds;
+  const installOrder=Array.isArray(options.installOrder)?options.installOrder:entries.map(entry=>entry.storageId);
+  const purchaseRows=Array.isArray(options.purchaseRows)?options.purchaseRows:projectProcurement(plans).rows;
+  const row=purchaseRows.find(item=>item.id===itemId);
+  const available=Math.max(0,Math.floor(Number(row?.boughtQty)||0));
+  const qty=Math.min(available,Math.max(0,Math.floor(Number(requestedQty)||0)));
+  const beforeReady=entries.filter(entry=>entry.status==="ready").length;
+  if(!qty)return {itemId,qty:0,available,beforeReady,afterReady:beforeReady,readyDelta:0,gainedReady:[],lostReady:[],transitions:[]};
+  const hypotheticalOwned={...ownedById,[itemId]:(ownedById[itemId]||0)+qty};
+  const after=installAllocationSnapshot(hypotheticalOwned,{install,plans,installedPlanIds,installOrder});
+  const impact=installScenarioTransitions(install,after,options);
+  const afterReady=after.entries.filter(entry=>entry.status==="ready").length;
+  return {
+    itemId,qty,available,beforeReady,afterReady,readyDelta:afterReady-beforeReady,
+    gainedReady:impact.gainedReady,lostReady:impact.lostReady,transitions:impact.transitions
+  };
+}
 function receivePurchasedItem(itemId,requestedQty=null,{persist=true}={}){
   const row=projectProcurement().rows.find(r=>r.id===itemId);
   const item=boxById(itemId);
@@ -4262,6 +4285,22 @@ function receivePurchasedItem(itemId,requestedQty=null,{persist=true}={}){
 function purchaseArrivalTransitionHtml(title,rows,warn=false){
   if(!rows?.length)return "";
   return `<div class="purchasearrivalgroup${warn?" warn":""}"><strong>${title}</strong>${rows.map(item=>`<span>${esc(item.path)}</span>`).join("")}</div>`;
+}
+function receiptImpactDeltaText(impact){
+  if(impact.readyDelta>0)return `+${impact.readyDelta} Ready`;
+  if(impact.readyDelta<0)return `${impact.readyDelta} Ready`;
+  return "same Ready count";
+}
+function receiptImpactScenarioHtml(label,impact){
+  const changes=purchaseArrivalTransitionHtml("Would become Ready",impact.gainedReady)+
+    purchaseArrivalTransitionHtml("Would become Waiting",impact.lostReady,true);
+  return `<div class="receiptimpactscenario"><div class="receiptimpacttitle"><strong>${label}</strong><span>${impact.beforeReady} → ${impact.afterReady} Ready · ${receiptImpactDeltaText(impact)}</span></div>${changes||'<div class="purchasearrivalquiet">No chosen storage changes readiness under the current queue.</div>'}</div>`;
+}
+function purchaseReceiptImpactHtml(row,options={}){
+  if(!row?.boughtQty)return "";
+  const one=purchasedReceiptImpact(row.id,1,options);
+  const all=row.boughtQty>1?purchasedReceiptImpact(row.id,row.boughtQty,options):null;
+  return `<details class="receiptimpact"><summary>Preview receipt impact</summary><div class="receiptimpactbody">${receiptImpactScenarioHtml("Receive 1",one)}${all?receiptImpactScenarioHtml(`Receive all ×${row.boughtQty}`,all):""}<div class="purchasearrivalquiet">Preview only. Receiving still updates owned inventory only when you press a Receive button.</div></div></details>`;
 }
 function renderPurchaseArrivalPreview(summary=projectProcurement()){
   const panel=$("purchaseArrivalPreview");if(!panel)return;
@@ -4307,6 +4346,7 @@ function renderHomeProcurement(){
     const health=planHealth(plan);return `<span class="projectplan">${esc(m.storagePath)} · ${esc(plan.name)}${health.status!=="current"?" · needs review":""}</span>`;
   }).join("");
   renderPurchaseArrivalPreview(summary);
+  const receiptImpactOptions={purchaseRows:summary.rows,install:currentInstallAllocation()};
 
   $("homeProcurementList").innerHTML=summary.rows.map(r=>`<div class="homeshoprow" data-home-shop-item="${r.id}">
     <div><div class="shopname">${esc(r.name)}</div><div class="shopsub">${r.sku?esc(r.sku)+" · ":""}used in ${r.storageCount} storage${r.storageCount===1?"":"s"}</div></div>
@@ -4319,6 +4359,7 @@ function renderHomeProcurement(){
     <div class="shopnum"><strong>Left ×${r.remainingQty}</strong></div>
     <div class="shopnum shopsubtotal">${r.remainingQty&&r.price>0?money(r.remainingSubtotal,r.currency):r.remainingQty?"—":"✓"}</div>
     <div class="shopaction">${r.remainingQty&&r.url?`<a class="shoplink" href="${esc(r.url)}" target="_blank" rel="noopener">Product ↗</a>`:""}${r.buyQty&&r.boughtQty!==r.buyQty?` <button class="btn soft" type="button" data-bought-all="${r.id}">All bought</button>`:""}${r.boughtQty?` <button class="btn soft" type="button" data-receive-one="${r.id}">Receive 1</button>${r.boughtQty>1?` <button class="btn soft" type="button" data-receive-all="${r.id}">Receive all ×${r.boughtQty}</button>`:""}`:""}</div>
+    ${r.boughtQty?`<div class="receiptimpactcell">${purchaseReceiptImpactHtml(r,receiptImpactOptions)}</div>`:""}
   </div>`).join("") || '<div class="empty">No items in the chosen plans.</div>';
 
   $("homeProcurementList").querySelectorAll("[data-bought-dec]").forEach(btn=>btn.addEventListener("click",()=>{
@@ -6365,6 +6406,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     ensureHomeHierarchy,
     purchaseBreakdown,
     purchaseReceiptResult,
+    purchasedReceiptImpact,
     savedPlanSourceSnapshot,
     planLineageMetadata,
     planLineageInfo,
