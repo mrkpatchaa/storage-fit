@@ -308,6 +308,32 @@ function cloneFurnitureDefinition(sourceFurniture,childStorages,{roomId=null,nam
     storages:(childStorages||[]).map(s=>cloneStorageDefinition(s,{furnitureId,idFactory}))
   };
 }
+function storageStructureCopyTargets(source,options={}){
+  if(!source)return {eligible:[],matchingFresh:[],protected:[]};
+  const storages=Array.isArray(options.storages)?options.storages:state.storages;
+  const savedPlans=Array.isArray(options.savedPlans)?options.savedPlans:state.savedPlans;
+  const chosenPlanIds=options.chosenPlanIds||state.chosenPlanIds||{};
+  const installedPlanIds=options.installedPlanIds||state.installedPlanIds||{};
+  const sourceSignature=storageStructureSignature(source);
+  const eligible=[],matchingFresh=[],protected=[];
+  for(const target of storages||[]){
+    if(!target||target.id===source.id||target.furnitureId!==source.furnitureId)continue;
+    const hasWork=(savedPlans||[]).some(plan=>plan.storageId===target.id)||!!chosenPlanIds[target.id]||!!installedPlanIds[target.id];
+    if(hasWork){protected.push(target);continue}
+    if(storageStructureSignature(target)===sourceSignature)matchingFresh.push(target);
+    else eligible.push(target);
+  }
+  return {eligible,matchingFresh,protected};
+}
+function copyStorageStructureData(source,target,{idFactory=uid}={}){
+  if(!source||!target)return null;
+  return cloneStorageDefinition(source,{
+    id:target.id,
+    furnitureId:target.furnitureId,
+    name:target.name,
+    idFactory
+  });
+}
 function syncHierarchyToStorage(storageId){
   const s=state.storages.find(x=>x.id===storageId);if(!s)return;
   const f=furnitureById(s.furnitureId);if(!f)return;
@@ -2693,6 +2719,7 @@ function renderHierarchy(){
   renderRoomProgressOverview();
 }
 function renderStorageList(){
+  updateStorageStructureCopyButton();
   const el=$("storageList"),filtered=state.storages.filter(s=>s.furnitureId===state.selectedFurniture);
   if(!filtered.length){el.innerHTML='<div class="empty">No storage spaces in this furniture yet.</div>';return}
   const progress=projectRoomProgress(),statusById=new Map(progress.storages.map(row=>[row.storageId,row]));
@@ -2810,10 +2837,27 @@ function renderItemPicker(){
     save();renderItemPicker();resetResults();
   }));
 }
+function updateStorageStructureCopyButton(){
+  const btn=$("copyStorageStructure");if(!btn)return;
+  const source=state.storages.find(x=>x.id===editingStorage);
+  if(!source){btn.disabled=true;btn.textContent="Copy saved structure…";btn.title="Select a storage space first.";return}
+  const targets=storageStructureCopyTargets(source);
+  btn.disabled=targets.eligible.length===0;
+  btn.textContent=targets.eligible.length
+    ? `Copy saved structure to ${targets.eligible.length}`
+    : "Copy saved structure…";
+  const notes=[];
+  if(targets.matchingFresh.length)notes.push(`${targets.matchingFresh.length} fresh sibling${targets.matchingFresh.length===1?" already matches":"s already match"}`);
+  if(targets.protected.length)notes.push(`${targets.protected.length} sibling${targets.protected.length===1?" is":"s are"} protected by saved/chosen/installed work`);
+  btn.title=targets.eligible.length
+    ? `Copy dimensions, blocked zones and dividers to ${targets.eligible.length} fresh sibling${targets.eligible.length===1?"":"s"}. ${notes.join(" · ")}`.trim()
+    : (notes.join(" · ")||"No fresh sibling storage needs this structure.");
+}
 function loadStorageEditor(){
   const s=state.storages.find(x=>x.id===editingStorage);
   $("storageName").value=s?.name||"";$("sw").value=s?.w??"";$("sd").value=s?.d??"";$("sh").value=s?.h??"";
   if(s&&$("storageFurniture"))$("storageFurniture").value=s.furnitureId||state.selectedFurniture;
+  updateStorageStructureCopyButton();
 }
 function defaultConstraintMeasure(unit=state.unit){
   return unit==="mm"?10:unit==="in"?0.4:1;
@@ -6723,6 +6767,40 @@ $("repeatStorage").addEventListener("click",()=>{
   editingStorage=clones[0]?.id||source.id;state.selectedStorage=editingStorage;syncHierarchyToStorage(editingStorage);
   localStorage.setItem(KEY,JSON.stringify(state));renderAll();
 });
+$("copyStorageStructure").addEventListener("click",()=>{
+  const source=state.storages.find(s=>s.id===editingStorage);if(!source)return;
+  const visibleDimensions=[
+    Number($("sw").value)||0,
+    Number($("sd").value)||0,
+    Number($("sh").value)||0
+  ];
+  const savedDimensions=[Number(source.w)||0,Number(source.d)||0,Number(source.h)||0];
+  if(visibleDimensions.some((value,index)=>Math.abs(value-savedDimensions[index])>1e-9)){
+    alert("Save this storage first so the copied dimensions match what you see.");
+    return;
+  }
+  const targets=storageStructureCopyTargets(source);
+  if(!targets.eligible.length){updateStorageStructureCopyButton();return}
+  const targetNames=targets.eligible.map(target=>`• ${storageBreadcrumb(target)}`).join("\n");
+  const protectedNote=targets.protected.length
+    ? `\n\n${targets.protected.length} sibling${targets.protected.length===1?" is":"s are"} protected because saved/chosen/installed work exists and will not be changed.`
+    :"";
+  const matchingNote=targets.matchingFresh.length
+    ? `\n\n${targets.matchingFresh.length} fresh sibling${targets.matchingFresh.length===1?" already matches":"s already match"} and will be left alone.`
+    :"";
+  const ok=confirm(
+    `Copy the saved structure from “${source.name}” to ${targets.eligible.length} fresh sibling${targets.eligible.length===1?"":"s"}?\n\n`+
+    `This replaces their width, depth, height, blocked zones and dividers. Names and locations stay unchanged.\n\n${targetNames}${matchingNote}${protectedNote}`
+  );
+  if(!ok)return;
+  createRecoveryCheckpoint(`Before copying storage structure from “${source.name}”`);
+  const byId=new Map(targets.eligible.map(target=>[target.id,copyStorageStructureData(source,target)]));
+  state.storages=state.storages.map(target=>byId.get(target.id)||target);
+  save();renderAll();
+  const btn=$("copyStorageStructure"),count=targets.eligible.length;
+  btn.textContent=`Copied to ${count} ✓`;
+  setTimeout(updateStorageStructureCopyButton,1200);
+});
 $("addObstacle").addEventListener("click",()=>{
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
   s.obstacles=s.obstacles||[];
@@ -6960,6 +7038,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     physicalObstaclesForStorage,
     storageStructureSignature,
     matchingSiblingStorages,
+    storageStructureCopyTargets,
+    copyStorageStructureData,
     cloneStorageDefinition,
     cloneFurnitureDefinition,
     nextCopyName,

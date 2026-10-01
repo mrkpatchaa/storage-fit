@@ -227,7 +227,7 @@ For any selected storage space:
 - Repeated names are numbered automatically: `Drawer` → `Drawer 2`, `Drawer 3`, etc.
 - Existing numeric suffixes continue naturally and preserve padding: `Drawer 07` → `Drawer 08`.
 
-Dimensions and blocked zones are copied. Every blocked zone receives a new internal ID, so editing a clone never mutates the source.
+Dimensions, blocked zones, and custom dividers are copied. Every copied constraint receives a new internal ID, so editing a clone never mutates the source.
 
 ### Furniture
 
@@ -241,6 +241,28 @@ Structural clones intentionally start fresh:
 - no installed status is copied.
 
 This makes it fast to model repeated wardrobes, kitchen cabinets, drawer units, or matching bedside furniture without falsely marking the new structure as already planned or installed.
+
+### Correct drifted fresh copies
+
+If repeated compartments were copied and one definition is later corrected, **Copy saved structure to N** can push the selected storage's saved physical definition to drifted fresh siblings in the same furniture.
+
+It copies:
+- width, depth, and height;
+- blocked zones;
+- custom dividers.
+
+It preserves each target's:
+- storage ID;
+- name;
+- furniture/location.
+
+The action deliberately skips two groups:
+- fresh siblings that already match the source exactly;
+- any sibling that has saved plans, a chosen plan, or Installed state.
+
+Protected siblings are never overwritten automatically, even if their geometry differs. A recovery checkpoint is created before the batch update, and the button refuses to copy unsaved dimension edits from the form: save the source storage first so the propagated structure is explicit.
+
+This closes the loop for repeated furniture: **Duplicate / Repeat…** creates fresh copies, structure sync corrects safe drift before planning, and **Apply to matching** can then propagate a finished layout once the compartments are structurally identical.
 
 
 ## Propagate one layout to matching compartments
