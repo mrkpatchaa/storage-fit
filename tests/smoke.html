@@ -125,7 +125,7 @@
           {"@type":"PropertyValue",name:"Depth",value:"76 cm"},
           {"@type":"PropertyValue",name:"Height",value:"30 cm"}
         ]
-      })+'<\\/script></head><body></body></html>';
+      })+'<\/script></head><body></body></html>';
       var jsonLdProduct=api.parseHtmlProduct(jsonLdHtml,"https://example.com/bin");
       result(jsonLdProduct.w===38&&jsonLdProduct.d===76&&jsonLdProduct.h===30&&jsonLdProduct.name==="Structured bin","HTML product parsing consumes JSON-LD additionalProperty dimensions before text scraping");
       var mergedSock=api.mergeProductInfo(inferredSock,sockReaderProduct);
