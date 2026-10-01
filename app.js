@@ -36,6 +36,7 @@ let galleryWasCapped = false;
 let detailModalOpen = false;
 let compareModalOpen = false;
 let itemFitModalOpen = false;
+let fitAuditModalOpen = false;
 let planFamilyModalOpen = false;
 let comparePlanIds = new Set();
 let pendingImport = null;
@@ -372,6 +373,12 @@ function closeItemFitModal(){
   $("itemFitModal").classList.remove("open");
   $("itemFitModal").setAttribute("aria-hidden","true");
   document.body.classList.remove("modal-open");
+}
+function closeFitAuditModal(){
+  fitAuditModalOpen=false;
+  $("fitAuditModal").classList.remove("open");
+  $("fitAuditModal").setAttribute("aria-hidden","true");
+  if(!detailModalOpen&&!compareModalOpen&&!itemFitModalOpen&&!planFamilyModalOpen)document.body.classList.remove("modal-open");
 }
 function openCapacityPacking(storageId,result){
   const S=state.storages.find(s=>s.id===storageId);
@@ -1509,6 +1516,60 @@ function openItemFitModal(){
   itemFitModalOpen=true;
   $("itemFitModal").classList.add("open");
   $("itemFitModal").setAttribute("aria-hidden","false");
+  document.body.classList.add("modal-open");
+}
+
+function openFitAuditModal(){
+  save();
+  const settings=fitLookupSettings(),audit=projectFitAudit(state.boxes,state.storages,settings);
+  const settingBits=[
+    settings.clearanceEnabled?`${fmt(settings.clearance)} ${state.unit} wall clearance`:"no wall clearance",
+    settings.fitTolerance>0?`${fmt(settings.fitTolerance)} ${state.unit} fit tolerance`:"no fit tolerance",
+    settings.uprightOnly?"all items forced upright":"item orientation rules"
+  ];
+  $("fitAuditSubtitle").textContent=`${audit.totals.items} organizer${audit.totals.items===1?"":"s"} × ${audit.totals.storages} storage space${audit.totals.storages===1?"":"s"} · ${settingBits.join(" · ")}`;
+  $("fitAuditSummary").textContent=audit.totals.pairs
+    ? `${audit.totals.fitPairs} of ${audit.totals.pairs} organizer-space pairs fit now. ${audit.totals.nearPairs} more have actionable simulated remedies. ${audit.totals.missPairs} remain hard misses under the current geometry and handling rules.`
+    :"Add at least one organizer and one storage space to run the audit.";
+  const storageById=new Map(state.storages.map(S=>[S.id,S]));
+  const head=`<thead><tr><th class="fitaudititemcol">Organizer</th>${audit.storages.map(col=>{
+    const S=storageById.get(col.id);
+    return `<th title="${esc(S?storageBreadcrumb(S):col.name)}"><span>${esc(col.name)}</span><small>${esc(S?projectStorageContext(S.id).roomName||"":"")}</small></th>`;
+  }).join("")}</tr></thead>`;
+  const body=`<tbody>${audit.rows.map(row=>`<tr><th class="fitaudititemcol"><div class="fitaudititem"><strong>${esc(row.itemName)}</strong><small>${fmt(row.w)} × ${fmt(row.d)} × ${fmt(row.h)} ${esc(state.unit)} · ${row.fitCount} fit · ${row.nearCount} near</small><button class="btn soft" type="button" data-audit-item="${row.itemId}">Find spaces</button></div></th>${row.cells.map(cell=>{
+    if(cell.status==="fit"){
+      return `<td><button class="fitauditcell fit" type="button" data-audit-storage="${cell.storageId}" title="Open storage"><strong>Fits</strong><span>${fmt(cell.fit.tightestMargin)} ${esc(state.unit)} margin</span><small>limiting ${esc(cell.fit.tightestAxis)}</small></button></td>`;
+    }
+    if(cell.status==="near"){
+      const remedy=cell.remedies[0],text=fitRemedyText(remedy,state.unit);
+      return `<td><button class="fitauditcell near" type="button" data-audit-storage="${cell.storageId}" title="Open storage"><strong>Near miss</strong><span>${esc(text)}</span><small>${cell.remedies.length} simulated fix${cell.remedies.length===1?"":"es"}</small></button></td>`;
+    }
+    const failure=cell.failure;
+    let detail="Current rules prevent a fit";
+    if(failure?.reason==="constraints")detail="Blocked by modeled geometry";
+    else if(failure){
+      const parts=[
+        failure.widthDeficit>1e-9?`W +${fmt(failure.widthDeficit)}`:"",
+        failure.depthDeficit>1e-9?`D +${fmt(failure.depthDeficit)}`:"",
+        failure.heightDeficit>1e-9?`H +${fmt(failure.heightDeficit)}`:""
+      ].filter(Boolean);
+      if(parts.length)detail=parts.join(" / ")+" "+state.unit;
+    }
+    return `<td><button class="fitauditcell miss" type="button" data-audit-storage="${cell.storageId}" title="Open storage"><strong>Doesn't fit</strong><span>${esc(detail)}</span><small>open space to review</small></button></td>`;
+  }).join("")}</tr>`).join("")}</tbody>`;
+  $("fitAuditTable").innerHTML=audit.rows.length&&audit.storages.length?head+body:'<tbody><tr><td class="empty">Nothing to audit yet.</td></tr></tbody>';
+  $("fitAuditTable").querySelectorAll("[data-audit-item]").forEach(btn=>btn.addEventListener("click",()=>{
+    const item=boxById(btn.dataset.auditItem);if(!item)return;
+    closeFitAuditModal();editingBox=item.id;
+    if($("itemSearch"))$("itemSearch").value="";
+    renderBoxList();loadBoxEditor();openItemFitModal();
+  }));
+  $("fitAuditTable").querySelectorAll("[data-audit-storage]").forEach(btn=>btn.addEventListener("click",()=>{
+    const storageId=btn.dataset.auditStorage;closeFitAuditModal();openCompatibleStorage(storageId);
+  }));
+  fitAuditModalOpen=true;
+  $("fitAuditModal").classList.add("open");
+  $("fitAuditModal").setAttribute("aria-hidden","false");
   document.body.classList.add("modal-open");
 }
 
@@ -5295,6 +5356,36 @@ function fitRemedyText(remedy,unit){
   if(remedy.kind==="constraints")return "the modeled blocked zones/dividers are corrected";
   return "";
 }
+function projectFitAudit(items,storages,settings={}){
+  const storageRows=(storages||[]).map(S=>({id:S.id,name:S.name||"Storage"}));
+  const totals={pairs:0,fitPairs:0,nearPairs:0,missPairs:0,items:(items||[]).length,storages:storageRows.length};
+  const rows=(items||[]).map(item=>{
+    let fitCount=0,nearCount=0,missCount=0;
+    const cells=storageRows.map(storageRow=>{
+      const S=(storages||[]).find(x=>x.id===storageRow.id);
+      const fit=itemFitInStorage(item,S,settings);
+      totals.pairs++;
+      if(fit){
+        fitCount++;totals.fitPairs++;
+        return {storageId:storageRow.id,status:"fit",fit};
+      }
+      const failure=fitFailureInStorage(item,S,settings);
+      const remedies=fitRemediesForFailure(item,S,settings);
+      if(remedies.length){
+        nearCount++;totals.nearPairs++;
+        return {storageId:storageRow.id,status:"near",failure,remedies};
+      }
+      missCount++;totals.missPairs++;
+      return {storageId:storageRow.id,status:"miss",failure,remedies:[]};
+    });
+    return {
+      itemId:item.id,itemName:item.name||"Item",
+      w:Number(item.w)||0,d:Number(item.d)||0,h:Number(item.h)||0,
+      fitCount,nearCount,missCount,cells
+    };
+  });
+  return {storages:storageRows,rows,totals};
+}
 function countSignature(layout){
   const c={};for(const p of layout)c[p.typeId]=(c[p.typeId]||0)+1;
   return Object.keys(c).sort().map(k=>`${k}:${c[k]}`).join("|");
@@ -6320,10 +6411,13 @@ $("exportHomeShoppingBtn").addEventListener("click",()=>{
   setTimeout(()=>{btn.textContent=old},1200);
 });
 $("findItemFits").addEventListener("click",openItemFitModal);
+$("fitAuditBtn").addEventListener("click",openFitAuditModal);
 $("findItemPlanRoom").addEventListener("click",openItemPlanRoomModal);
 $("showItemUsage").addEventListener("click",openItemUsageModal);
 $("closeItemFitModal").addEventListener("click",closeItemFitModal);
 $("itemFitBackdrop").addEventListener("click",closeItemFitModal);
+$("closeFitAuditModal").addEventListener("click",closeFitAuditModal);
+$("fitAuditBackdrop").addEventListener("click",closeFitAuditModal);
 $("comparePlansBtn").addEventListener("click",openCompareModal);
 $("closePlanFamilyModal").addEventListener("click",closePlanFamilyModal);
 $("planFamilyBackdrop").addEventListener("click",closePlanFamilyModal);
@@ -6332,6 +6426,7 @@ $("compareBackdrop").addEventListener("click",closeCompareModal);
 $("closeDetailModal").addEventListener("click",closeDetailModal);
 $("detailBackdrop").addEventListener("click",closeDetailModal);
 document.addEventListener("keydown",e=>{
+  if(e.key==="Escape" && fitAuditModalOpen){ closeFitAuditModal(); return; }
   if(e.key==="Escape" && itemFitModalOpen){ closeItemFitModal(); return; }
   if(e.key==="Escape" && planFamilyModalOpen){ closePlanFamilyModal(); return; }
   if(e.key==="Escape" && compareModalOpen){ closeCompareModal(); return; }
@@ -6665,6 +6760,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     fitFailureInStorage,
     fitFailuresForItem,
     fitRemediesForFailure,
+    projectFitAudit,
     maxFloorCopiesInStorage,
     maxCopiesInStorage,
     openCapacityPacking,

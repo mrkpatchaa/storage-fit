@@ -396,6 +396,19 @@
         reverseFitSettings
       );
       result(constraintRemedies.some(function(x){return x.kind==="constraint"&&x.label==="Rear block"}),"fit remedies identify a specific modeled constraint whose correction would make the item fit");
+      var auditItem={id:"audit-item",name:"Audit bin",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false};
+      var fitAudit=api.projectFitAudit(
+        [auditItem],
+        [
+          {id:"audit-fit",name:"Comfortable",w:13,d:13,h:6,obstacles:[],dividers:[]},
+          {id:"audit-near",name:"Near",w:11,d:11,h:6,obstacles:[],dividers:[]},
+          {id:"audit-miss",name:"Miss",w:5,d:5,h:6,obstacles:[],dividers:[]}
+        ],
+        {clearanceEnabled:false,clearance:0,fitTolerance:1,uprightOnly:true}
+      );
+      result(fitAudit.totals.pairs===3&&fitAudit.totals.fitPairs===1&&fitAudit.totals.nearPairs===1&&fitAudit.totals.missPairs===1,"project fit audit counts current fits, actionable near misses and hard misses");
+      result(fitAudit.rows.length===1&&fitAudit.rows[0].fitCount===1&&fitAudit.rows[0].nearCount===1&&fitAudit.rows[0].missCount===1,"project fit audit summarizes each organizer across all storage spaces");
+      result(fitAudit.rows[0].cells[0].status==="fit"&&fitAudit.rows[0].cells[1].status==="near"&&fitAudit.rows[0].cells[2].status==="miss","project fit audit preserves per-storage fit status in matrix order");
       var dividedFit={id:"rfd",name:"Divided",w:20,d:10,h:6,obstacles:[],dividers:[{id:"d",orientation:"vertical",position:10,thickness:1,h:6}]};
       var squareFitItem={id:"sq",name:"Square bin",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false};
       result(api.itemFitInStorage(squareFitItem,dividedFit,reverseFitSettings)===null,"reverse fit lookup respects full-height dividers");
