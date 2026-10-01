@@ -902,7 +902,7 @@ The lookup uses the planner’s real geometry rules:
 - custom dividers;
 - storage height.
 
-Compatible spaces are ranked with the tightest valid geometry first. Each result shows the Room → Furniture → Storage breadcrumb, usable dimensions, the orientation that fits, and any modeled constraints.
+Compatible spaces are ranked with the tightest valid geometry first. For each storage, the finder chooses the **most forgiving valid orientation** and shows an explicit **Fit margin**: the smallest remaining dimensional spare after wall clearance and horizontal fit tolerance, plus separate width/depth/height spare. This makes borderline measurement cases visible instead of reducing them to a binary “fits.” Each result also shows the Room → Furniture → Storage breadcrumb, usable dimensions, the chosen orientation, and any modeled constraints.
 
 The item editor also has **Used in plans**. It lists every saved plan that already contains the organizer, shows how many copies each plan uses, marks plans that are currently **Chosen** or **Installed**, and lets you open the exact plan directly. This is especially useful before editing or deleting a library item because you can see its impact across the home instead of getting only a generic dependency warning.
 

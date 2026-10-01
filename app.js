@@ -1434,6 +1434,7 @@ function openItemFitModal(){
     return `<div class="fitmatch">
       <div><div class="fitmatchtitle">${esc(S?storageBreadcrumb(S):match.storageName)}</div>
       <div class="fitmatchmeta">Usable ${fmt(match.W)} × ${fmt(match.D)} × ${fmt(match.H)} ${esc(state.unit)} · fits as ${fmt(match.w)} × ${fmt(match.d)} × ${fmt(match.h)}${constraints?` · ${esc(constraints)}`:""}</div>
+      <div class="fitmargin"><strong>Fit margin ${fmt(match.tightestMargin)} ${esc(state.unit)}</strong> · limiting ${esc(match.tightestAxis)} · spare W ${fmt(match.widthMargin)} / D ${fmt(match.depthMargin)} / H ${fmt(match.heightMargin)} ${esc(state.unit)}</div>
       <div class="fitcapacity" data-fit-capacity="${match.storageId}">Capacity not calculated yet.</div></div>
       <div class="fitmatchactions"><button class="btn soft" type="button" data-fit-capacity-btn="${match.storageId}">Calculate capacity</button><button class="btn soft" type="button" data-open-owned-capacity="${match.storageId}" disabled>${unallocatedOwned?"Open owned":"No unallocated stock"}</button><button class="btn soft" type="button" data-open-capacity-layout="${match.storageId}" disabled>Open packing</button><button class="btn soft" type="button" data-open-fit-storage="${match.storageId}">Open space</button></div>
     </div>`;
@@ -5106,6 +5107,22 @@ function maxCopiesInStorage(item,S,settings={},options={}){
   return {...result,mode:"3d",stackingEnabled:true};
 }
 
+function fitDimensionMargins(w,d,h,W,D,H,gap=0){
+  const g=Math.max(0,Number(gap)||0);
+  const widthMargin=Math.max(0,(Number(W)||0)-(Number(w)||0)-2*g);
+  const depthMargin=Math.max(0,(Number(D)||0)-(Number(d)||0)-2*g);
+  const heightMargin=Math.max(0,(Number(H)||0)-(Number(h)||0));
+  const ranked=[
+    {axis:"width",margin:widthMargin},
+    {axis:"depth",margin:depthMargin},
+    {axis:"height",margin:heightMargin}
+  ].sort((a,b)=>a.margin-b.margin||a.axis.localeCompare(b.axis));
+  return {
+    widthMargin,depthMargin,heightMargin,
+    tightestMargin:ranked[0].margin,tightestAxis:ranked[0].axis,
+    totalMargin:widthMargin+depthMargin+heightMargin
+  };
+}
 function itemFitInStorage(item,S,settings={}){
   if(!item||!S)return null;
   const c=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
@@ -5113,21 +5130,29 @@ function itemFitInStorage(item,S,settings={}){
   const gap=Math.max(0,Number(settings.fitTolerance)||0);
   if(W<=0||D<=0||H<=0)return null;
   const obstacles=usableObstaclesFor(S,c),forceUpright=settings.uprightOnly!==false;
+  let best=null;
   for(const o of orientations(item,forceUpright)){
+    let placement=null;
     for(const [x,y] of candidatePointsFor([],obstacles,o[0],o[1],gap)){
       const p={typeId:item.id,name:item.name,x:round6(x),y:round6(y),z:0,w:o[0],d:o[1],h:o[2]};
-      if(!validPlacement(p,[],item,W,D,H,obstacles,gap))continue;
-      const freeAfter=Math.max(0,usableVolume(W,D,H,obstacles)-o[0]*o[1]*o[2]);
-      return {x:p.x,y:p.y,w:p.w,d:p.d,h:p.h,W,D,H,clearance:c,fitTolerance:gap,freeAfter};
+      if(validPlacement(p,[],item,W,D,H,obstacles,gap)){placement=p;break}
+    }
+    if(!placement)continue;
+    const margins=fitDimensionMargins(o[0],o[1],o[2],W,D,H,gap);
+    const freeAfter=Math.max(0,usableVolume(W,D,H,obstacles)-o[0]*o[1]*o[2]);
+    const candidate={x:placement.x,y:placement.y,w:placement.w,d:placement.d,h:placement.h,W,D,H,clearance:c,fitTolerance:gap,freeAfter,...margins};
+    if(!best||candidate.tightestMargin>best.tightestMargin+1e-9||
+      (Math.abs(candidate.tightestMargin-best.tightestMargin)<=1e-9&&candidate.totalMargin>best.totalMargin+1e-9)){
+      best=candidate;
     }
   }
-  return null;
+  return best;
 }
 function compatibleStoragesForItem(item,storages,settings={}){
   return (storages||[]).map(S=>{
     const fit=itemFitInStorage(item,S,settings);
     return fit?{storageId:S.id,storageName:S.name||"Storage",...fit}:null;
-  }).filter(Boolean).sort((a,b)=>a.freeAfter-b.freeAfter||a.storageName.localeCompare(b.storageName));
+  }).filter(Boolean).sort((a,b)=>a.tightestMargin-b.tightestMargin||a.totalMargin-b.totalMargin||a.freeAfter-b.freeAfter||a.storageName.localeCompare(b.storageName));
 }
 
 function countSignature(layout){
@@ -6494,6 +6519,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     recoveryEntryMeta,
     defaultConstraintMeasure,
     mirrorStorageConstraintsData,
+    fitDimensionMargins,
     itemFitInStorage,
     maxFloorCopiesInStorage,
     maxCopiesInStorage,
