@@ -868,6 +868,13 @@
       result(unlockAnalysis.rows[0].boughtQty===1&&unlockAnalysis.rows[0].remainingQty===0,"stock unlock analysis preserves purchased-vs-still-to-source context without changing inventory");
       result(unlockAnalysis.rows[0].gainedReady.length===1&&unlockAnalysis.rows[0].gainedReady[0].storageId==="unlock-b"&&unlockAnalysis.rows[0].gainedReady[0].path==="Utility → Cabinet → B only"&&unlockAnalysis.rows[0].lostReady.length===0,"stock unlock impact compares the suggested hypothetical allocation with the best current-stock allocation");
 
+      var partialReceipt=api.purchaseReceiptResult(2,5,1);
+      result(partialReceipt.received===1&&partialReceipt.ownedQty===3&&partialReceipt.boughtQty===4,"partial purchase receipt moves only the requested in-transit unit into owned inventory");
+      var fullReceipt=api.purchaseReceiptResult(2,5,99);
+      result(fullReceipt.received===5&&fullReceipt.ownedQty===7&&fullReceipt.boughtQty===0,"purchase receipt caps the received quantity at the marked purchased amount");
+      var cappedReceipt=api.purchaseReceiptResult(998,5,5);
+      result(cappedReceipt.received===1&&cappedReceipt.ownedQty===999&&cappedReceipt.boughtQty===4,"purchase receipt preserves unreceived purchased units when owned inventory reaches its safety cap");
+
       var arrivalAnalysis=api.purchasedArrivalAnalysis({
         rooms:unlockRooms,furniture:unlockFurniture,storages:unlockStorages,
         install:unlockInstall,plans:unlockPlans,ownedById:unlockOwned,installedPlanIds:{},

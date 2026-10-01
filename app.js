@@ -4236,6 +4236,29 @@ function setShoppingBought(itemId,value){
   if(qty>0)state.shoppingBought[itemId]=qty;else delete state.shoppingBought[itemId];
   localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderHomeProcurement();renderInstallUnlockAnalysis();
 }
+function purchaseReceiptResult(ownedQty,boughtQty,requestedQty=boughtQty){
+  const owned=Math.max(0,Math.min(999,Math.floor(Number(ownedQty)||0)));
+  const bought=Math.max(0,Math.floor(Number(boughtQty)||0));
+  const requested=Math.max(0,Math.floor(Number(requestedQty)||0));
+  const received=Math.min(bought,requested,Math.max(0,999-owned));
+  return {ownedQty:owned+received,boughtQty:bought-received,received};
+}
+function receivePurchasedItem(itemId,requestedQty=null,{persist=true}={}){
+  const row=projectProcurement().rows.find(r=>r.id===itemId);
+  const item=boxById(itemId);
+  if(!row||!item||row.boughtQty<=0)return 0;
+  const requested=requestedQty==null?row.boughtQty:requestedQty;
+  const result=purchaseReceiptResult(item.ownedQty,row.boughtQty,requested);
+  if(!result.received)return 0;
+  item.ownedQty=result.ownedQty;
+  state.shoppingBought=state.shoppingBought||{};
+  if(result.boughtQty>0)state.shoppingBought[itemId]=result.boughtQty;
+  else delete state.shoppingBought[itemId];
+  if(persist){
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderInstallUnlockAnalysis();
+  }
+  return result.received;
+}
 function purchaseArrivalTransitionHtml(title,rows,warn=false){
   if(!rows?.length)return "";
   return `<div class="purchasearrivalgroup${warn?" warn":""}"><strong>${title}</strong>${rows.map(item=>`<span>${esc(item.path)}</span>`).join("")}</div>`;
@@ -4295,7 +4318,7 @@ function renderHomeProcurement(){
     </div>
     <div class="shopnum"><strong>Left ×${r.remainingQty}</strong></div>
     <div class="shopnum shopsubtotal">${r.remainingQty&&r.price>0?money(r.remainingSubtotal,r.currency):r.remainingQty?"—":"✓"}</div>
-    <div class="shopaction">${r.remainingQty&&r.url?`<a class="shoplink" href="${esc(r.url)}" target="_blank" rel="noopener">Product ↗</a>`:""}${r.buyQty&&r.boughtQty!==r.buyQty?` <button class="btn soft" type="button" data-bought-all="${r.id}">All bought</button>`:""}</div>
+    <div class="shopaction">${r.remainingQty&&r.url?`<a class="shoplink" href="${esc(r.url)}" target="_blank" rel="noopener">Product ↗</a>`:""}${r.buyQty&&r.boughtQty!==r.buyQty?` <button class="btn soft" type="button" data-bought-all="${r.id}">All bought</button>`:""}${r.boughtQty?` <button class="btn soft" type="button" data-receive-one="${r.id}">Receive 1</button>${r.boughtQty>1?` <button class="btn soft" type="button" data-receive-all="${r.id}">Receive all ×${r.boughtQty}</button>`:""}`:""}</div>
   </div>`).join("") || '<div class="empty">No items in the chosen plans.</div>';
 
   $("homeProcurementList").querySelectorAll("[data-bought-dec]").forEach(btn=>btn.addEventListener("click",()=>{
@@ -4308,19 +4331,21 @@ function renderHomeProcurement(){
   $("homeProcurementList").querySelectorAll("[data-bought-all]").forEach(btn=>btn.addEventListener("click",()=>{
     const row=projectProcurement().rows.find(r=>r.id===btn.dataset.boughtAll);if(row)setShoppingBought(row.id,row.buyQty);
   }));
+  $("homeProcurementList").querySelectorAll("[data-receive-one]").forEach(btn=>btn.addEventListener("click",()=>{
+    if(receivePurchasedItem(btn.dataset.receiveOne,1))renderAll();
+  }));
+  $("homeProcurementList").querySelectorAll("[data-receive-all]").forEach(btn=>btn.addEventListener("click",()=>{
+    if(receivePurchasedItem(btn.dataset.receiveAll))renderAll();
+  }));
 }
 function receiveMarkedPurchases(){
-  const summary=projectProcurement();
-  if(summary.boughtUnits<=0)return 0;
+  const rows=projectProcurement().rows.filter(row=>row.boughtQty>0);
+  if(!rows.length)return 0;
   let received=0;
-  for(const row of summary.rows){
-    if(row.boughtQty<=0)continue;
-    const item=boxById(row.id);if(!item)continue;
-    item.ownedQty=Math.max(0,Math.min(999,Math.floor(Number(item.ownedQty)||0)+row.boughtQty));
-    received+=row.boughtQty;
-    delete state.shoppingBought[row.id];
+  for(const row of rows)received+=receivePurchasedItem(row.id,null,{persist:false});
+  if(received){
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderInstallUnlockAnalysis();
   }
-  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderInstallUnlockAnalysis();
   return received;
 }
 function homeShoppingExportPayload(){
@@ -6339,6 +6364,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     nextCopyName,
     ensureHomeHierarchy,
     purchaseBreakdown,
+    purchaseReceiptResult,
     savedPlanSourceSnapshot,
     planLineageMetadata,
     planLineageInfo,
