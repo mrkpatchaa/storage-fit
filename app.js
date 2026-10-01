@@ -1529,7 +1529,7 @@ function openFitAuditModal(){
   ];
   $("fitAuditSubtitle").textContent=`${audit.totals.items} organizer${audit.totals.items===1?"":"s"} × ${audit.totals.storages} storage space${audit.totals.storages===1?"":"s"} · ${settingBits.join(" · ")}`;
   $("fitAuditSummary").textContent=audit.totals.pairs
-    ? `${audit.totals.fitPairs} of ${audit.totals.pairs} organizer-space pairs fit now. ${audit.totals.nearPairs} more are single-change near misses. ${audit.totals.missPairs} remain hard misses under the current geometry and handling rules.`
+    ? `${audit.totals.fitPairs} of ${audit.totals.pairs} organizer-space pairs fit now. ${audit.totals.nearPairs} more have actionable simulated remedies. ${audit.totals.missPairs} remain hard misses under the current geometry and handling rules.`
     :"Add at least one organizer and one storage space to run the audit.";
   const storageById=new Map(state.storages.map(S=>[S.id,S]));
   const head=`<thead><tr><th class="fitaudititemcol">Organizer</th>${audit.storages.map(col=>{
