@@ -99,6 +99,7 @@
         <div class="librarybar">
           <input class="picker" id="itemSearch" type="search" placeholder="Search items by name, SKU or retailer">
           <span class="small" id="itemSearchCount"></span>
+          <button class="btn soft" id="fitAuditBtn" type="button">Fit audit</button>
         </div>
         <div class="list" id="boxList"></div>
         <div class="editor">
@@ -300,6 +301,23 @@
               <div class="fitdistributionbar"><button class="btn soft" id="itemFitDistributionBtn" type="button">Plan owned distribution</button><span class="small" id="itemFitDistributionStatus"></span></div>
               <div class="fitdistribution" id="itemFitDistribution"></div>
               <div class="fitfinderlist" id="itemFitList"></div>
+            </section>
+          </div>
+        </div>
+      </div>
+
+      <div class="modal" id="fitAuditModal" aria-hidden="true">
+        <div class="modalbackdrop" id="fitAuditBackdrop"></div>
+        <div class="modalpanel fitauditpanel" role="dialog" aria-modal="true" aria-labelledby="fitAuditTitle">
+          <div class="modaltoolbar">
+            <div><div class="modaltitle" id="fitAuditTitle">Whole-home fit audit</div><div class="small" id="fitAuditSubtitle"></div></div>
+            <button class="btn" id="closeFitAuditModal" type="button">Close</button>
+          </div>
+          <div class="modalbody">
+            <section class="card">
+              <div class="fitfindersummary" id="fitAuditSummary"></div>
+              <div class="fitauditlegend"><span class="fit">Fits</span><span class="near">Near miss</span><span class="miss">Doesn't fit</span></div>
+              <div class="fitauditscroll"><table class="fitaudittable" id="fitAuditTable"></table></div>
             </section>
           </div>
         </div>
