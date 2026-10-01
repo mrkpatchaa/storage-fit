@@ -895,6 +895,11 @@
         installOrder:["unlock-big","unlock-a","unlock-b"],purchaseRows:[{id:"b",boughtQty:0}]
       });
       result(unavailableReceiptImpact.qty===0&&unavailableReceiptImpact.readyDelta===0&&unavailableReceiptImpact.transitions.length===0,"receipt impact never previews more than the marked purchased quantity");
+      var cappedReceiptImpact=api.purchasedReceiptImpact("b",2,{
+        install:unlockInstall,plans:unlockPlans,ownedById:{a:1,b:999},installedPlanIds:{},
+        installOrder:["unlock-big","unlock-a","unlock-b"],purchaseRows:[{id:"b",boughtQty:2}]
+      });
+      result(cappedReceiptImpact.qty===0&&cappedReceiptImpact.readyDelta===0&&cappedReceiptImpact.transitions.length===0,"receipt impact obeys the same owned-inventory safety cap as the real receipt action");
 
       var arrivalAnalysis=api.purchasedArrivalAnalysis({
         rooms:unlockRooms,furniture:unlockFurniture,storages:unlockStorages,

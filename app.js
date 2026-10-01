@@ -4254,10 +4254,11 @@ function purchasedReceiptImpact(itemId,requestedQty=1,options={}){
   const purchaseRows=Array.isArray(options.purchaseRows)?options.purchaseRows:projectProcurement(plans).rows;
   const row=purchaseRows.find(item=>item.id===itemId);
   const available=Math.max(0,Math.floor(Number(row?.boughtQty)||0));
-  const qty=Math.min(available,Math.max(0,Math.floor(Number(requestedQty)||0)));
+  const receipt=purchaseReceiptResult(ownedById[itemId],available,requestedQty);
+  const qty=receipt.received;
   const beforeReady=entries.filter(entry=>entry.status==="ready").length;
   if(!qty)return {itemId,qty:0,available,beforeReady,afterReady:beforeReady,readyDelta:0,gainedReady:[],lostReady:[],transitions:[]};
-  const hypotheticalOwned={...ownedById,[itemId]:(ownedById[itemId]||0)+qty};
+  const hypotheticalOwned={...ownedById,[itemId]:receipt.ownedQty};
   const after=installAllocationSnapshot(hypotheticalOwned,{install,plans,installedPlanIds,installOrder});
   const impact=installScenarioTransitions(install,after,options);
   const afterReady=after.entries.filter(entry=>entry.status==="ready").length;
