@@ -419,6 +419,12 @@
       var auditSearch=api.projectFitAuditView(fitAudit,{query:"audit bin",focus:"all"});
       var auditSearchMiss=api.projectFitAuditView(fitAudit,{query:"not present",focus:"all"});
       result(auditSearch.rows.length===1&&auditSearchMiss.rows.length===0,"fit audit organizer search is case-insensitive and filters rows without changing the base audit");
+      var auditInsights=api.projectFitAuditInsights(api.projectFitAuditView(fitAudit,{focus:"all"}));
+      result(auditInsights.broadest&&auditInsights.broadest.itemId==="audit-item"&&auditInsights.broadest.fitCount===1,"fit audit insights identify the organizer with the most current fits using visible-scope counts");
+      result(auditInsights.fewestFits&&auditInsights.fewestFits.id==="audit-miss"&&auditInsights.fewestFits.fitCount===0&&auditInsights.fewestFits.nearCount===0,"fit audit insights break equal-fit storage ties toward fewer actionable near misses");
+      result(auditInsights.noFitItems===0&&auditInsights.nearItems===1&&auditInsights.hardMissItems===1,"fit audit insights summarize organizer-level no-fit, near-miss and hard-miss counts");
+      var scopedAuditInsights=api.projectFitAuditInsights(api.projectFitAuditView(fitAudit,{storageIds:["audit-near","audit-miss"],focus:"all"}));
+      result(scopedAuditInsights.noFitItems===1&&scopedAuditInsights.broadest.fitCount===0&&scopedAuditInsights.fewestFits.id==="audit-miss","fit audit insights recompute from the active storage scope instead of leaking whole-home fits");
       var dividedFit={id:"rfd",name:"Divided",w:20,d:10,h:6,obstacles:[],dividers:[{id:"d",orientation:"vertical",position:10,thickness:1,h:6}]};
       var squareFitItem={id:"sq",name:"Square bin",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false};
       result(api.itemFitInStorage(squareFitItem,dividedFit,reverseFitSettings)===null,"reverse fit lookup respects full-height dividers");

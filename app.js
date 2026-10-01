@@ -1540,16 +1540,51 @@ function openFitAuditModal(){
   const storageById=new Map(state.storages.map(S=>[S.id,S]));
   const renderAuditView=()=>{
     const room=roomsWithStorage.find(row=>row.id===roomSelect.value)||null;
+    const scopeView=projectFitAuditView(audit,{
+      query:search.value,
+      storageIds:room?room.storageIds:null,
+      focus:"all"
+    });
     const view=projectFitAuditView(audit,{
       query:search.value,
       storageIds:room?room.storageIds:null,
       focus:focus.value
     });
+    const insights=projectFitAuditInsights(scopeView);
     const scope=room?` in ${room.name}`:"";
     $("fitAuditSummary").textContent=view.totals.pairs
       ? `${view.totals.fitPairs} of ${view.totals.pairs} visible organizer-space pairs fit now${scope}. ${view.totals.nearPairs} have actionable simulated remedies. ${view.totals.missPairs} are hard misses under the current geometry and handling rules.`
       : `No organizer-space pairs match the current audit filters${scope}.`;
     $("fitAuditFilterMeta").textContent=`Showing ${view.totals.items} organizer${view.totals.items===1?"":"s"} × ${view.totals.storages} storage space${view.totals.storages===1?"":"s"} · ${view.totals.pairs} pair${view.totals.pairs===1?"":"s"}`;
+
+    const broadest=insights.broadest;
+    const constrained=insights.fewestFits;
+    $("fitAuditInsights").innerHTML=scopeView.totals.pairs?`
+      <article class="fitauditinsight">
+        <span>Fits most visible spaces</span>
+        <strong>${broadest?esc(broadest.itemName):"—"}</strong>
+        <small>${broadest?`${broadest.fitCount}/${scopeView.totals.storages} fit · ${broadest.nearCount} near`:"No organizers"}</small>
+        ${broadest?`<button class="btn soft" type="button" data-audit-insight-item="${broadest.itemId}">Find spaces</button>`:""}
+      </article>
+      <article class="fitauditinsight">
+        <span>Fewest current fits</span>
+        <strong>${constrained?esc(storageById.get(constrained.id)?storageBreadcrumb(storageById.get(constrained.id)):constrained.name):"—"}</strong>
+        <small>${constrained?`${constrained.fitCount}/${scopeView.totals.items} organizers fit · ${constrained.nearCount} near`:"No storage spaces"}</small>
+        ${constrained?`<button class="btn soft" type="button" data-audit-insight-storage="${constrained.id}">Open space</button>`:""}
+      </article>
+      <article class="fitauditinsight">
+        <span>No current fit</span>
+        <strong>${insights.noFitItems}</strong>
+        <small>organizer${insights.noFitItems===1?"":"s"} with zero fits in the visible storage scope</small>
+        <button class="btn soft" type="button" data-audit-insight-focus="no-fit" ${insights.noFitItems?"":"disabled"}>Show</button>
+      </article>
+      <article class="fitauditinsight">
+        <span>Near-miss opportunities</span>
+        <strong>${insights.nearItems}</strong>
+        <small>organizer${insights.nearItems===1?"":"s"} with at least one simulated remedy</small>
+        <button class="btn soft" type="button" data-audit-insight-focus="near" ${insights.nearItems?"":"disabled"}>Show</button>
+      </article>`
+      :'<div class="fitauditinsightempty">No insight data for the current room/search scope.</div>';
 
     const head=`<thead><tr><th class="fitaudititemcol">Organizer</th>${view.storages.map(col=>{
       const S=storageById.get(col.id);
@@ -1586,6 +1621,18 @@ function openFitAuditModal(){
     }));
     $("fitAuditTable").querySelectorAll("[data-audit-storage]").forEach(btn=>btn.addEventListener("click",()=>{
       const storageId=btn.dataset.auditStorage;closeFitAuditModal();openCompatibleStorage(storageId);
+    }));
+    $("fitAuditInsights").querySelectorAll("[data-audit-insight-item]").forEach(btn=>btn.addEventListener("click",()=>{
+      const item=boxById(btn.dataset.auditInsightItem);if(!item)return;
+      closeFitAuditModal();editingBox=item.id;
+      if($("itemSearch"))$("itemSearch").value="";
+      renderBoxList();loadBoxEditor();openItemFitModal();
+    }));
+    $("fitAuditInsights").querySelectorAll("[data-audit-insight-storage]").forEach(btn=>btn.addEventListener("click",()=>{
+      closeFitAuditModal();openCompatibleStorage(btn.dataset.auditInsightStorage);
+    }));
+    $("fitAuditInsights").querySelectorAll("[data-audit-insight-focus]").forEach(btn=>btn.addEventListener("click",()=>{
+      focus.value=btn.dataset.auditInsightFocus||"all";renderAuditView();
     }));
   };
 
@@ -5451,6 +5498,42 @@ function projectFitAuditView(audit,options={}){
   }
   return {storages,rows,totals,focus,query};
 }
+function projectFitAuditInsights(view){
+  const rows=Array.isArray(view?.rows)?view.rows:[];
+  const storages=Array.isArray(view?.storages)?view.storages:[];
+  const broadest=rows.length?[...rows].sort((a,b)=>
+    b.fitCount-a.fitCount ||
+    b.nearCount-a.nearCount ||
+    a.missCount-b.missCount ||
+    String(a.itemName||"").localeCompare(String(b.itemName||""))
+  )[0]:null;
+  const storageStats=storages.map((storage,index)=>{
+    let fitCount=0,nearCount=0,missCount=0;
+    for(const row of rows){
+      const status=row.cells?.[index]?.status;
+      if(status==="fit")fitCount++;
+      else if(status==="near")nearCount++;
+      else if(status==="miss")missCount++;
+    }
+    return {...storage,fitCount,nearCount,missCount};
+  });
+  const fewestFits=storageStats.length?[...storageStats].sort((a,b)=>
+    a.fitCount-b.fitCount ||
+    a.nearCount-b.nearCount ||
+    b.missCount-a.missCount ||
+    String(a.name||"").localeCompare(String(b.name||""))
+  )[0]:null;
+  return {
+    broadest,
+    fewestFits,
+    noFitItems:rows.filter(row=>row.fitCount===0).length,
+    nearItems:rows.filter(row=>row.nearCount>0).length,
+    hardMissItems:rows.filter(row=>row.missCount>0).length,
+    allFitItems:storages.length?rows.filter(row=>row.fitCount===storages.length).length:0,
+    storageStats
+  };
+}
+
 function countSignature(layout){
   const c={};for(const p of layout)c[p.typeId]=(c[p.typeId]||0)+1;
   return Object.keys(c).sort().map(k=>`${k}:${c[k]}`).join("|");
@@ -6827,6 +6910,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     fitRemediesForFailure,
     projectFitAudit,
     projectFitAuditView,
+    projectFitAuditInsights,
     maxFloorCopiesInStorage,
     maxCopiesInStorage,
     openCapacityPacking,
