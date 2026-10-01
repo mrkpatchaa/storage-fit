@@ -359,9 +359,10 @@
       result(api.itemFitInStorage(reverseFitItem,fullyBlocked,reverseFitSettings)===null,"reverse fit lookup respects full-height blocked zones");
       var blockedFailure=api.fitFailureInStorage(reverseFitItem,fullyBlocked,reverseFitSettings);
       result(blockedFailure&&blockedFailure.reason==="constraints"&&blockedFailure.blockedCount===1&&blockedFailure.maxDeficit===0,"fit failure distinguishes modeled constraints from dimensional shortfall");
-      var dimensionalFailure=api.fitFailureInStorage(squareFitItem,{id:"too-small",name:"Too small",w:9,d:12,h:6,obstacles:[],dividers:[]},reverseFitSettings);
+      var failureItem={id:"failure-item",name:"Failure item",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false};
+      var dimensionalFailure=api.fitFailureInStorage(failureItem,{id:"too-small",name:"Too small",w:9,d:12,h:6,obstacles:[],dividers:[]},reverseFitSettings);
       result(dimensionalFailure&&dimensionalFailure.reason==="dimensions"&&dimensionalFailure.widthDeficit===1&&dimensionalFailure.maxDeficit===1,"fit failure reports the closest allowed orientation and exact dimension shortfall");
-      var failureRows=api.fitFailuresForItem(squareFitItem,[{id:"small",name:"Small",w:8,d:12,h:6,obstacles:[],dividers:[]},fullyBlocked],reverseFitSettings);
+      var failureRows=api.fitFailuresForItem(failureItem,[{id:"small",name:"Small",w:8,d:12,h:6,obstacles:[],dividers:[]},fullyBlocked],reverseFitSettings);
       result(failureRows.length===2&&failureRows[0].storageId==="rfb"&&failureRows[1].storageId==="small","fit failure list ranks dimensionally fitting constraint conflicts ahead of larger dimensional misses");
       var dividedFit={id:"rfd",name:"Divided",w:20,d:10,h:6,obstacles:[],dividers:[{id:"d",orientation:"vertical",position:10,thickness:1,h:6}]};
       var squareFitItem={id:"sq",name:"Square bin",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false};
