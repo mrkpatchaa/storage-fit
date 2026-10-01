@@ -3237,21 +3237,27 @@ function inferredProductInfo(url){
   const info=ikeaUrlInfo(url);
   return {url,name:info.name||"",sku:info.sku||"",price:0,currency:"MAD",image:"",retailer:retailerName(url)};
 }
+function productNeedsDimensionEnrichment(p){
+  return !(Number(p?.w)>0&&Number(p?.d)>0&&Number(p?.h)>0);
+}
 async function fetchSmartProduct(url){
-  let data=inferredProductInfo(url),source="URL";
+  let data=inferredProductInfo(url),source="URL",directOk=false;
   try{
     const r=await fetch(url,{headers:{"Accept":"text/html,application/xhtml+xml"}});
     if(r.ok){
       data=mergeProductInfo(data,parseHtmlProduct(await r.text(),url));
-      source="product page";
-    }else throw new Error("direct blocked");
-  }catch(e){
+      source="product page";directOk=true;
+    }
+  }catch(e){}
+  if(!directOk||productNeedsDimensionEnrichment(data)){
     try{
       const reader=`https://r.jina.ai/${url}`;
       const r=await fetch(reader,{headers:{"Accept":"text/plain"}});
       if(r.ok){
+        const beforeDims=[data.w,data.d,data.h].map(Number);
         data=mergeProductInfo(data,parseReaderProduct(await r.text(),url));
-        source="public reader";
+        const enriched=beforeDims.some((v,i)=>!(v>0)&&Number([data.w,data.d,data.h][i])>0);
+        source=directOk?(enriched?"product page + public reader":"product page"):"public reader";
       }
     }catch(e2){}
   }
@@ -6950,6 +6956,9 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     retailerName,
     ikeaUrlInfo,
     normalizeProductDimensions,
+    productNeedsDimensionEnrichment,
+    parseReaderProduct,
+    mergeProductInfo,
     safeUrl,
     validateBackupState,
     normalizeChosenPlanSelections,
