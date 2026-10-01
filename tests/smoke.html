@@ -41,6 +41,31 @@
       result(api.retailerName(clean)==="IKEA","retailer detection");
       var info=api.ikeaUrlInfo(clean);
       result(info.sku==="405.220.88","IKEA article number",info.sku||"missing");
+      var inferredSock={name:"SOCKERBIT storage box with lid white",sku:"405.220.88",w:0,d:0,h:0,price:0,currency:"MAD"};
+      result(api.productNeedsDimensionEnrichment(inferredSock)===true,"URL-only product metadata is recognized as needing dimension enrichment");
+      result(api.shouldUseProductReader(true,inferredSock)===true,"successful but dimension-incomplete product pages still trigger the public reader fallback");
+      result(api.shouldUseProductReader(true,{w:38,d:76,h:30})===false,"complete direct-page dimensions avoid an unnecessary reader request");
+      var sockReader=[
+        "# SOCKERBIT Storage box with lid, white",
+        "",
+        "SOCKERBIT",
+        "405.220.88",
+        "",
+        "## Measurements",
+        "* Width 38 cm",
+        "* Depth 76 cm",
+        "* Height 30 cm",
+        "* Volume 63 l",
+        "",
+        "## Package details",
+        "* Width: 38 cm",
+        "* Height: 3 cm",
+        "* Length: 75 cm"
+      ].join("\n");
+      var sockReaderProduct=api.parseReaderProduct(sockReader,clean);
+      result(sockReaderProduct.w===38&&sockReaderProduct.d===76&&sockReaderProduct.h===30,"SOCKERBIT-style reader output recovers product dimensions before package measurements");
+      var mergedSock=api.mergeProductInfo(inferredSock,sockReaderProduct);
+      result(mergedSock.name===inferredSock.name&&mergedSock.sku==="405.220.88"&&mergedSock.w===38&&mergedSock.d===76&&mergedSock.h===30,"reader enrichment fills missing dimensions without replacing URL-derived identity");
       result(same(api.normalizeProductDimensions([380,760,300],"mm"),[38,76,30]),"unit conversion mm to cm");
       result(api.safeUrl("javascript:alert(1)")==="","unsafe URL rejection");
       var valid={storages:[{id:"s",name:"Drawer",w:67,d:26,h:13,obstacles:[]}],boxes:[{id:"b",name:"Box",w:10,d:10,h:5}],savedPlans:[]};
