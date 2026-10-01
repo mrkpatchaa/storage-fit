@@ -34,6 +34,7 @@
       result(same(api.parseDimensionString("38 x 76 x 30 cm"),[38,76,30]),"compact dimensions");
       result(same(api.parseLabeledDimensions("Width: 38 cm Depth: 76 cm Height: 30 cm"),[38,76,30]),"IKEA labeled dimensions");
       result(same(api.parseLabeledDimensions("Largeur 38 cm Profondeur 76 cm Hauteur 30 cm"),[38,76,30]),"French labeled dimensions");
+      result(same(api.parseLabeledDimensions("Package Width 40 cm Height 5 cm Product Width 38 cm Depth 76 cm Height 30 cm"),[38,76,30]),"labeled dimension parsing chooses the closest coherent width/depth/height group instead of mixing package and product values");
       result(api.normalizedSku("405.220.88")==="40522088","SKU punctuation normalization");
       var tracked="https://www.ikea.com/ma/en/p/sockerbit-storage-box-with-lid-white-40522088/?utm_source=test#details";
       var clean="https://www.ikea.com/ma/en/p/sockerbit-storage-box-with-lid-white-40522088/";
@@ -64,6 +65,34 @@
       ].join("\n");
       var sockReaderProduct=api.parseReaderProduct(sockReader,clean);
       result(sockReaderProduct.w===38&&sockReaderProduct.d===76&&sockReaderProduct.h===30,"SOCKERBIT-style reader output recovers product dimensions before package measurements");
+      var packageFirstReader=[
+        "# SOCKERBIT Storage box with lid, white",
+        "",
+        "## Package details",
+        "* Width: 40 cm",
+        "* Depth: 80 cm",
+        "* Height: 5 cm",
+        "",
+        "## Measurements",
+        "* Width: 38 cm",
+        "* Depth: 76 cm",
+        "* Height: 30 cm"
+      ].join("\n");
+      result(same(api.parseReaderDimensions(packageFirstReader,"SOCKERBIT"),[38,76,30]),"reader dimension parsing prefers the coherent product measurement section over earlier package dimensions");
+      var frenchReader=[
+        "# Boîte de rangement",
+        "",
+        "## Emballage",
+        "* Largeur: 42 cm",
+        "* Profondeur: 81 cm",
+        "* Hauteur: 4 cm",
+        "",
+        "## Dimensions du produit",
+        "* Largeur: 39 cm",
+        "* Profondeur: 77 cm",
+        "* Hauteur: 31 cm"
+      ].join("\n");
+      result(same(api.parseReaderDimensions(frenchReader,"Boîte de rangement"),[39,77,31]),"reader dimension parsing recognizes French product measurement sections and ignores packaging");
       var mergedSock=api.mergeProductInfo(inferredSock,sockReaderProduct);
       result(mergedSock.name===inferredSock.name&&mergedSock.sku==="405.220.88"&&mergedSock.w===38&&mergedSock.d===76&&mergedSock.h===30,"reader enrichment fills missing dimensions without replacing URL-derived identity");
       result(same(api.normalizeProductDimensions([380,760,300],"mm"),[38,76,30]),"unit conversion mm to cm");
