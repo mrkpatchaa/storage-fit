@@ -3240,6 +3240,9 @@ function inferredProductInfo(url){
 function productNeedsDimensionEnrichment(p){
   return !(Number(p?.w)>0&&Number(p?.d)>0&&Number(p?.h)>0);
 }
+function shouldUseProductReader(directOk,p){
+  return !directOk||productNeedsDimensionEnrichment(p);
+}
 async function fetchSmartProduct(url){
   let data=inferredProductInfo(url),source="URL",directOk=false;
   try{
@@ -3249,7 +3252,7 @@ async function fetchSmartProduct(url){
       source="product page";directOk=true;
     }
   }catch(e){}
-  if(!directOk||productNeedsDimensionEnrichment(data)){
+  if(shouldUseProductReader(directOk,data)){
     try{
       const reader=`https://r.jina.ai/${url}`;
       const r=await fetch(reader,{headers:{"Accept":"text/plain"}});
@@ -6957,6 +6960,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     ikeaUrlInfo,
     normalizeProductDimensions,
     productNeedsDimensionEnrichment,
+    shouldUseProductReader,
     parseReaderProduct,
     mergeProductInfo,
     safeUrl,
