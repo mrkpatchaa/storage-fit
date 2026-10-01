@@ -875,6 +875,32 @@
       var cappedReceipt=api.purchaseReceiptResult(998,5,5);
       result(cappedReceipt.received===1&&cappedReceipt.ownedQty===999&&cappedReceipt.boughtQty===4,"purchase receipt preserves unreceived purchased units when owned inventory reaches its safety cap");
 
+      var oneReceiptImpact=api.purchasedReceiptImpact("b",1,{
+        rooms:unlockRooms,furniture:unlockFurniture,storages:unlockStorages,
+        install:unlockInstall,plans:unlockPlans,ownedById:unlockOwned,installedPlanIds:{},
+        installOrder:["unlock-big","unlock-a","unlock-b"],
+        purchaseRows:[{id:"b",name:"Beta",boughtQty:2}]
+      });
+      result(oneReceiptImpact.qty===1&&oneReceiptImpact.beforeReady===1&&oneReceiptImpact.afterReady===1&&oneReceiptImpact.readyDelta===0,"single-unit receipt impact previews the exact partial receipt without changing the Ready count");
+      result(oneReceiptImpact.gainedReady.length===1&&oneReceiptImpact.gainedReady[0].storageId==="unlock-big"&&oneReceiptImpact.lostReady.length===1&&oneReceiptImpact.lostReady[0].storageId==="unlock-a","single-unit receipt impact exposes Ready-to-Waiting displacement under the current queue");
+      var allReceiptImpact=api.purchasedReceiptImpact("b",2,{
+        rooms:unlockRooms,furniture:unlockFurniture,storages:unlockStorages,
+        install:unlockInstall,plans:unlockPlans,ownedById:unlockOwned,installedPlanIds:{},
+        installOrder:["unlock-big","unlock-a","unlock-b"],
+        purchaseRows:[{id:"b",name:"Beta",boughtQty:2}]
+      });
+      result(allReceiptImpact.qty===2&&allReceiptImpact.afterReady===2&&allReceiptImpact.readyDelta===1&&allReceiptImpact.gainedReady.some(function(x){return x.storageId==="unlock-b";}),"receive-all impact can differ from Receive 1 and reports the additional Ready space");
+      var unavailableReceiptImpact=api.purchasedReceiptImpact("b",3,{
+        install:unlockInstall,plans:unlockPlans,ownedById:unlockOwned,installedPlanIds:{},
+        installOrder:["unlock-big","unlock-a","unlock-b"],purchaseRows:[{id:"b",boughtQty:0}]
+      });
+      result(unavailableReceiptImpact.qty===0&&unavailableReceiptImpact.readyDelta===0&&unavailableReceiptImpact.transitions.length===0,"receipt impact never previews more than the marked purchased quantity");
+      var cappedReceiptImpact=api.purchasedReceiptImpact("b",2,{
+        install:unlockInstall,plans:unlockPlans,ownedById:{a:1,b:999},installedPlanIds:{},
+        installOrder:["unlock-big","unlock-a","unlock-b"],purchaseRows:[{id:"b",boughtQty:2}]
+      });
+      result(cappedReceiptImpact.qty===0&&cappedReceiptImpact.readyDelta===0&&cappedReceiptImpact.transitions.length===0,"receipt impact obeys the same owned-inventory safety cap as the real receipt action");
+
       var arrivalAnalysis=api.purchasedArrivalAnalysis({
         rooms:unlockRooms,furniture:unlockFurniture,storages:unlockStorages,
         install:unlockInstall,plans:unlockPlans,ownedById:unlockOwned,installedPlanIds:{},
