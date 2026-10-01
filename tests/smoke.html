@@ -93,6 +93,41 @@
         "* Hauteur: 31 cm"
       ].join("\n");
       result(same(api.parseReaderDimensions(frenchReader,"Boîte de rangement"),[39,77,31]),"reader dimension parsing recognizes French product measurement sections and ignores packaging");
+      var mixedSchemaDims=api.schemaProductDimensions({
+        width:{"@type":"QuantitativeValue",value:380,unitCode:"MMT"},
+        depth:{"@type":"QuantitativeValue",value:0.76,unitCode:"MTR"},
+        height:{"@type":"QuantitativeValue",value:"30 cm"}
+      });
+      result(same(mixedSchemaDims,[38,76,30]),"structured dimensions normalize each axis using its own declared unit");
+      var propertySchemaDims=api.schemaProductDimensions({
+        additionalProperty:[
+          {"@type":"PropertyValue",name:"Largeur",value:38,unitCode:"CMT"},
+          {"@type":"PropertyValue",name:"Profondeur",value:76,unitCode:"CMT"},
+          {"@type":"PropertyValue",name:"Hauteur",value:30,unitCode:"CMT"}
+        ]
+      });
+      result(same(propertySchemaDims,[38,76,30]),"structured additionalProperty dimensions support localized product labels");
+      var packagePropertyDims=api.schemaProductDimensions({
+        additionalProperty:[
+          {"@type":"PropertyValue",name:"Package width",value:40,unitCode:"CMT"},
+          {"@type":"PropertyValue",name:"Package depth",value:80,unitCode:"CMT"},
+          {"@type":"PropertyValue",name:"Package height",value:5,unitCode:"CMT"},
+          {"@type":"PropertyValue",name:"Width",value:38,unitCode:"CMT"},
+          {"@type":"PropertyValue",name:"Depth",value:76,unitCode:"CMT"},
+          {"@type":"PropertyValue",name:"Height",value:30,unitCode:"CMT"}
+        ]
+      });
+      result(same(packagePropertyDims,[38,76,30]),"structured dimension extraction ignores package-prefixed properties");
+      var jsonLdHtml='<html><head><script type="application/ld+json">'+JSON.stringify({
+        "@context":"https://schema.org","@type":"Product",name:"Structured bin",sku:"12345678",
+        additionalProperty:[
+          {"@type":"PropertyValue",name:"Width",value:"38 cm"},
+          {"@type":"PropertyValue",name:"Depth",value:"76 cm"},
+          {"@type":"PropertyValue",name:"Height",value:"30 cm"}
+        ]
+      })+'<\\/script></head><body></body></html>';
+      var jsonLdProduct=api.parseHtmlProduct(jsonLdHtml,"https://example.com/bin");
+      result(jsonLdProduct.w===38&&jsonLdProduct.d===76&&jsonLdProduct.h===30&&jsonLdProduct.name==="Structured bin","HTML product parsing consumes JSON-LD additionalProperty dimensions before text scraping");
       var mergedSock=api.mergeProductInfo(inferredSock,sockReaderProduct);
       result(mergedSock.name===inferredSock.name&&mergedSock.sku==="405.220.88"&&mergedSock.w===38&&mergedSock.d===76&&mergedSock.h===30,"reader enrichment fills missing dimensions without replacing URL-derived identity");
       result(same(api.normalizeProductDimensions([380,760,300],"mm"),[38,76,30]),"unit conversion mm to cm");
