@@ -242,6 +242,27 @@
       result(api.storageStructureSignature(withDivider)!==api.storageStructureSignature(movedDivider),"structural matching detects divider geometry changes");
       var siblings=api.matchingSiblingStorages(matchSource,[matchSource,sameGeometry,changedObstacle,otherFurniture]);
       result(siblings.length===1&&siblings[0].id==="s2","propagation targets only structurally identical siblings in the same furniture");
+      var freshDrift={id:"s5",furnitureId:"f1",name:"Drawer E",w:66,d:26,h:13,obstacles:[],dividers:[]};
+      var plannedDrift={id:"s6",furnitureId:"f1",name:"Drawer F",w:65,d:26,h:13,obstacles:[],dividers:[]};
+      var installedDrift={id:"s7",furnitureId:"f1",name:"Drawer G",w:64,d:26,h:13,obstacles:[],dividers:[]};
+      var structureTargets=api.storageStructureCopyTargets(matchSource,{
+        storages:[matchSource,sameGeometry,freshDrift,plannedDrift,installedDrift,otherFurniture],
+        savedPlans:[{id:"p6",storageId:"s6"}],
+        chosenPlanIds:{},
+        installedPlanIds:{s7:"p7"}
+      });
+      result(structureTargets.eligible.length===1&&structureTargets.eligible[0].id==="s5","structure copy includes only drifted fresh siblings in the same furniture");
+      result(structureTargets.matchingFresh.length===1&&structureTargets.matchingFresh[0].id==="s2","structure copy skips fresh siblings that already match exactly");
+      result(structureTargets.protected.length===2&&structureTargets.protected.some(function(x){return x.id==="s6"})&&structureTargets.protected.some(function(x){return x.id==="s7"}),"structure copy protects siblings with saved or installed project work");
+      var syncSeq=0;
+      var copiedStructure=api.copyStorageStructureData(
+        matchSource,
+        {id:"s5",furnitureId:"f1",name:"Drawer E",w:66,d:25,h:12,obstacles:[{id:"old",name:"Old",x:0,y:0,w:1,d:1,h:1}],dividers:[]},
+        {idFactory:function(prefix){syncSeq+=1;return prefix+"-sync"+syncSeq}}
+      );
+      result(copiedStructure.id==="s5"&&copiedStructure.name==="Drawer E"&&copiedStructure.furnitureId==="f1","structure copy preserves target identity, name and furniture");
+      result(copiedStructure.w===67&&copiedStructure.d===26&&copiedStructure.h===13,"structure copy replaces target dimensions with the source dimensions");
+      result(copiedStructure.obstacles.length===1&&copiedStructure.obstacles[0].name==="Left rail"&&copiedStructure.obstacles[0].id!=="o1","structure copy deep-copies source constraints with fresh IDs");
       var unlabeled=[{typeId:"b1",x:0,y:0,z:0,w:5,d:5,h:5}];
       var labeled=[{typeId:"b1",x:0,y:0,z:0,w:5,d:5,h:5,label:"Socks"}];
       result(api.canonicalPlanLayout(unlabeled)!==api.canonicalPlanLayout(labeled),"placement label changes saved-plan identity");
