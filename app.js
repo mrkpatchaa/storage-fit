@@ -3194,6 +3194,15 @@ function parseDimensionString(str,orderHint=""){
   const order=dimensionOrderFromText(orderHint)||dimensionOrderFromText(context);
   return reorderProductDimensions(dims,order);
 }
+function parseQuickDimensions(str,defaultUnit=state.unit){
+  const raw=String(str||"").trim();if(!raw)return null;
+  const labeled=parseLabeledDimensions(raw);if(labeled)return labeled;
+  const direct=parseDimensionString(raw);if(direct)return direct;
+  const unit=["mm","cm","m","in"].includes(String(defaultUnit||"").toLowerCase())?String(defaultUnit).toLowerCase():"cm";
+  const triplet=/(\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?\s*[x×]\s*\d+(?:[.,]\d+)?)(?!\s*(?:mm|cm|m|in|inches?|\"))/i;
+  if(!triplet.test(raw))return null;
+  return parseDimensionString(raw.replace(triplet,match=>match+" "+unit));
+}
 function parseLabeledDimensions(str){
   const s=String(str||"")
     .replace(/\u00a0/g," ")
@@ -6971,6 +6980,28 @@ $("clearanceEnabled").addEventListener("change",()=>{state.clearanceEnabled=$("c
 $("clearance").addEventListener("change",()=>{state.clearance=Math.max(0,Number($("clearance").value)||0);save();resetResults()});
 $("fitTolerance").addEventListener("change",()=>{state.fitTolerance=Math.max(0,Number($("fitTolerance").value)||0);save();resetResults()});
 
+function pasteDimensionsIntoFields(fieldIds,subject){
+  const unit=state.unit||"cm";
+  const raw=prompt(`Paste ${subject} dimensions.\n\nExamples:\n81 × 40 × 47 cm\nDimensions (L × W × H): 76 × 38 × 30 cm\nWidth 38 cm · Depth 76 cm · Height 30 cm\n\nIf no unit is included, ${unit} is assumed.`);
+  if(raw===null)return false;
+  const dims=parseQuickDimensions(raw,unit);
+  if(!dims){alert("Could not find three usable dimensions. Include three positive measurements, optionally with units or an explicit axis order.");return false}
+  fieldIds.forEach((id,index)=>{
+    const el=$(id);if(!el)return;
+    el.value=String(round6(dims[index]));
+    el.classList.add("autofill");setTimeout(()=>el.classList.remove("autofill"),750);
+  });
+  return true;
+}
+$("pasteStorageDimensions").addEventListener("click",()=>{
+  const ok=pasteDimensionsIntoFields(["sw","sd","sh"],"storage");if(!ok)return;
+  const btn=$("pasteStorageDimensions"),old=btn.textContent;btn.textContent="Filled ✓";setTimeout(()=>{btn.textContent=old},1200);
+});
+$("pasteBoxDimensions").addEventListener("click",()=>{
+  const ok=pasteDimensionsIntoFields(["bw","bd","bh"],"organizer");if(!ok)return;
+  const btn=$("pasteBoxDimensions"),old=btn.textContent;btn.textContent="Filled ✓";setTimeout(()=>{btn.textContent=old},1200);
+});
+
 $("addStorage").addEventListener("click",()=>{
   if(!state.selectedFurniture){alert("Add or select a piece of furniture first.");return}
   const id=uid("s");state.storages.push({id,name:"New storage",w:60,d:40,h:20,furnitureId:state.selectedFurniture,obstacles:[],dividers:[]});
@@ -7175,6 +7206,7 @@ $("deleteBox").addEventListener("click",()=>{
 if(new URLSearchParams(location.search).has("smoke-test")){
   window.StorageFitTest={
     parseDimensionString,
+    parseQuickDimensions,
     dimensionOrderFromText,
     reorderProductDimensions,
     parseLabeledDimensions,

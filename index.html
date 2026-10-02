@@ -45,6 +45,7 @@
             <div class="field"><label for="sd">Depth</label><input id="sd" type="number" min="0" step="0.1"></div>
             <div class="field"><label for="sh">Height</label><input id="sh" type="number" min="0" step="0.1"></div>
           </div>
+          <div class="dimensionpaste"><button class="btn soft" id="pasteStorageDimensions" type="button">Paste dimensions…</button><span class="small">Accepts 81 × 40 × 47 cm, W × H × D labels, or separate Width / Depth / Height text.</span></div>
           <div class="actions storageactions">
             <button class="btn soft" id="saveStorage" type="button">Save</button>
             <button class="btn soft" id="duplicateStorage" type="button">Duplicate</button>
@@ -110,6 +111,7 @@
             <div class="field"><label for="bd">Depth</label><input id="bd" type="number" min="0" step="0.1"></div>
             <div class="field"><label for="bh">Height</label><input id="bh" type="number" min="0" step="0.1"></div>
           </div>
+          <div class="dimensionpaste"><button class="btn soft" id="pasteBoxDimensions" type="button">Paste dimensions…</button><span class="small">Paste retailer specs or your own measurements. Values are converted to the current project unit.</span></div>
           <div class="rulegrid" style="margin-top:8px">
             <label class="rulecard"><input id="boxUprightOnly" type="checkbox" checked><span><strong>Must stay upright</strong><small>Do not tip this item onto its side.</small></span></label>
             <label class="rulecard"><input id="boxFloorRotationLocked" type="checkbox"><span><strong>Keep floor orientation</strong><small>Do not rotate its footprint 90°.</small></span></label>

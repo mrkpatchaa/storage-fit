@@ -114,6 +114,20 @@ Duplicate matching prefers normalized SKU/article numbers and falls back to cano
 
 Retailer pages and cross-origin policies can change, so automatic import remains best-effort. The app never adds an imported item until you explicitly confirm it.
 
+## Paste manual dimensions
+
+Storage and organizer editors both have **Paste dimensions…** for measurements copied from notes, retailer specs, or a message.
+
+Accepted examples include:
+
+- `81 × 40 × 47 cm`
+- `Dimensions (L × W × H): 76 × 38 × 30 cm`
+- `Width 38 cm · Depth 76 cm · Height 30 cm`
+- `810 × 400 × 470` while the project unit is mm
+
+Explicit units are converted into the current project unit. If the pasted triplet has no unit, Storage Fit assumes the current project unit. Explicit axis-order labels are honored using the same order-aware parser as Smart Import.
+
+Pasting only fills the Width / Depth / Height form fields. It does not save anything until **Save** is pressed, so the measurements remain review-first.
 
 ## Home hierarchy
 

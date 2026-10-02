@@ -32,6 +32,11 @@
       var api=w.StorageFitTest;
       result(!!api,"smoke-test API is exposed only for the test page");
       result(same(api.parseDimensionString("38 x 76 x 30 cm"),[38,76,30]),"compact dimensions");
+      result(same(api.parseQuickDimensions("81 × 40 × 47","cm"),[81,40,47]),"quick dimension paste assumes the current unit when a compact triplet omits one");
+      result(same(api.parseQuickDimensions("810 x 400 x 470","mm"),[81,40,47]),"quick dimension paste converts a unitless triplet from the supplied current unit");
+      result(same(api.parseQuickDimensions("76 x 38 x 30 (L x W x H)","cm"),[38,76,30]),"quick dimension paste preserves explicit axis-order hints when the unit is implicit");
+      result(same(api.parseQuickDimensions("Width: 38 cm Depth: 76 cm Height: 30 cm","mm"),[38,76,30]),"quick dimension paste prefers labeled measurements and ignores the default unit when units are explicit");
+      result(api.parseQuickDimensions("38 x 76","cm")===null,"quick dimension paste rejects incomplete measurement pairs");
       result(same(api.parseLabeledDimensions("Width: 38 cm Depth: 76 cm Height: 30 cm"),[38,76,30]),"IKEA labeled dimensions");
       result(same(api.parseLabeledDimensions("Largeur 38 cm Profondeur 76 cm Hauteur 30 cm"),[38,76,30]),"French labeled dimensions");
       result(same(api.parseLabeledDimensions("Package Width 40 cm Height 5 cm Product Width 38 cm Depth 76 cm Height 30 cm"),[38,76,30]),"labeled dimension parsing chooses the closest coherent width/depth/height group instead of mixing package and product values");
