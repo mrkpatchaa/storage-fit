@@ -53,5 +53,8 @@ jobs:
           share = Path("share.html").read_text()
           assert 'href="styles.css"' in share, "share.html must load styles.css"
           assert 'src="share.js"' in share, "share.html must load share.js"
+          readme = Path("README.md").read_text()
+          assert readme.startswith("# Storage Fit\n"), "README must start with the project title"
+          assert readme.count("\n# Storage Fit\n") == 0, "README contains a duplicated project title"
           print("Static structure looks good.")
           PY
