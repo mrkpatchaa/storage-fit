@@ -1281,8 +1281,9 @@
         }
       });
       var checklistBedroom=projectChecklist.rooms.find(function(r){return r.roomId==="room-b"});
+      var checklistWaiting=checklistBedroom&&checklistBedroom.spaces.filter(function(s){return s.status==="waiting"});
       result(projectChecklist.totals.storages===blockedRoomProgress.totals.storages&&projectChecklist.totals.installed===blockedRoomProgress.totals.installed,"project checklist preserves whole-home planning and installation totals");
-      result(checklistBedroom&&checklistBedroom.spaces.filter(function(s){return s.status==="waiting"}).length===2&&checklistBedroom.spaces[0].missing[0].name==="Sock boxes","project checklist carries room storage states and concrete waiting blockers into the printable model");
+      result(checklistWaiting&&checklistWaiting.length===2&&checklistWaiting[0].missing[0].name==="Sock boxes","project checklist carries room storage states and concrete waiting blockers into the printable model");
       result(projectChecklist.shopping.length===1&&projectChecklist.shopping[0].need===3&&projectChecklist.shopping[0].purchased===2&&projectChecklist.shopping[0].left===1&&projectChecklist.shopping[0].storageCount===2,"project checklist shopping rows distinguish needed purchased and remaining units");
       result(projectChecklist.remainingText==="1 unpriced","project checklist includes the same remaining procurement summary as the live project");
 
