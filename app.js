@@ -3164,11 +3164,35 @@ function normalizeProductDimensions(values,unit){
   else if(from==="in"||from==='"')factor=unitScale("in",target);
   return nums.map(n=>Math.round(n*factor*1000)/1000);
 }
-function parseDimensionString(str){
+function dimensionAxisToken(token){
+  const normalized=normalizedDimensionLabel(token);
+  if(normalized==="w"||["width","largeur","breite","ancho","larghezza","breedte"].includes(normalized))return "w";
+  if(normalized==="d"||normalized==="l"||["depth","length","profondeur","longueur","tiefe","lange","profundidad","largo","fondo","profondita","lunghezza","diepte","lengte"].includes(normalized))return "d";
+  if(normalized==="h"||["height","hauteur","hohe","altura","alto","altezza","hoogte"].includes(normalized))return "h";
+  return "";
+}
+function dimensionOrderFromText(text){
+  const normalized=normalizedDimensionLabel(String(text||"").replace(/×/g," x "));
+  const token="(?:width|depth|height|length|largeur|profondeur|hauteur|longueur|breite|tiefe|hohe|lange|ancho|profundidad|altura|largo|fondo|larghezza|profondita|altezza|lunghezza|breedte|diepte|hoogte|lengte|w|d|h|l)";
+  const re=new RegExp(`\\b(${token})\\s+(?:x|by)\\s+(${token})\\s+(?:x|by)\\s+(${token})\\b`,"i");
+  const m=normalized.match(re);if(!m)return null;
+  const order=[dimensionAxisToken(m[1]),dimensionAxisToken(m[2]),dimensionAxisToken(m[3])];
+  return new Set(order).size===3&&order.includes("w")&&order.includes("d")&&order.includes("h")?order:null;
+}
+function reorderProductDimensions(values,order){
+  if(!Array.isArray(values)||values.length!==3||!Array.isArray(order)||order.length!==3)return values;
+  const byAxis={};
+  order.forEach((axis,index)=>{byAxis[axis]=values[index]});
+  return byAxis.w>0&&byAxis.d>0&&byAxis.h>0?[byAxis.w,byAxis.d,byAxis.h]:values;
+}
+function parseDimensionString(str,orderHint=""){
   const s=String(str||"").replace(/×/g,"x");
   const m=s.match(/(\d+(?:[.,]\d+)?)\s*x\s*(\d+(?:[.,]\d+)?)\s*x\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m|in|")\b/i);
   if(!m)return null;
-  return normalizeProductDimensions([m[1],m[2],m[3]],m[4]);
+  const dims=normalizeProductDimensions([m[1],m[2],m[3]],m[4]);if(!dims)return null;
+  const index=m.index??0,context=s.slice(Math.max(0,index-180),Math.min(s.length,index+m[0].length+180));
+  const order=dimensionOrderFromText(orderHint)||dimensionOrderFromText(context);
+  return reorderProductDimensions(dims,order);
 }
 function parseLabeledDimensions(str){
   const s=String(str||"")
@@ -3283,26 +3307,35 @@ function schemaDimensionAxis(name){
   return "";
 }
 function schemaCompositeDimensionLabel(name){
-  const normalized=normalizedDimensionLabel(name);
+  const normalized=normalizedDimensionLabel(String(name||"").replace(/×/g," x "));
   if(/(?:package|packaging|parcel|colis|emballage|paket|verpackung|paquete|embalaje|imballaggio)/.test(normalized))return false;
   const bare=normalized.replace(/^product\s+/,"");
-  return [
+  const bases=[
     "dimensions","dimension","measurements","measurement","size",
     "dimensions du produit","mesures","abmessungen","masse",
     "dimensiones","medidas","dimensioni","misure","afmetingen","dimensoes","matt"
-  ].includes(bare);
+  ];
+  if(bases.includes(bare))return true;
+  const order=dimensionOrderFromText(name);if(!order)return false;
+  return bases.some(base=>{
+    if(!bare.startsWith(base+" "))return false;
+    const suffix=bare.slice(base.length).trim();
+    const cleaned=suffix.replace(/\b(?:width|depth|height|length|largeur|profondeur|hauteur|longueur|breite|tiefe|hohe|lange|ancho|profundidad|altura|largo|fondo|larghezza|profondita|altezza|lunghezza|breedte|diepte|hoogte|lengte|w|d|h|l|x|by)\b/g,"").replace(/\s+/g," ").trim();
+    return !cleaned;
+  });
 }
-function schemaCompositeDimensions(value,fallbackUnit="cm"){
+function schemaCompositeDimensions(value,fallbackUnit="cm",orderHint=""){
   if(value==null)return null;
-  let raw=value,unit=fallbackUnit;
+  let raw=value,unit=fallbackUnit,embeddedHint="";
   if(typeof value==="object"){
     raw=value.value??value.maxValue??value.minValue??value.name??null;
     unit=value.unitCode??value.unitText??fallbackUnit;
+    embeddedHint=[value.name,value.propertyID].filter(Boolean).join(" ");
   }
   if(raw==null)return null;
   let text=String(raw).trim().replace(/\binches?\b/gi,"in");
   if(!/(?:mm|cm|\bm\b|in|")\s*$/i.test(text))text=`${text} ${schemaDimensionUnit(unit,fallbackUnit)}`;
-  return parseDimensionString(text);
+  return parseDimensionString(text,[orderHint,embeddedHint].filter(Boolean).join(" "));
 }
 function schemaProductDimensions(product){
   if(!product||typeof product!=="object")return null;
@@ -3324,7 +3357,8 @@ function schemaProductDimensions(product){
   if(directComposite)return directComposite;
   for(const prop of props){
     if(!prop||typeof prop!=="object"||!schemaCompositeDimensionLabel(prop.name||prop.propertyID||""))continue;
-    const dims=schemaCompositeDimensions(prop,fallbackUnit);
+    const label=prop.name||prop.propertyID||"";
+    const dims=schemaCompositeDimensions(prop,fallbackUnit,label);
     if(dims)return dims;
   }
   return null;
@@ -7141,6 +7175,8 @@ $("deleteBox").addEventListener("click",()=>{
 if(new URLSearchParams(location.search).has("smoke-test")){
   window.StorageFitTest={
     parseDimensionString,
+    dimensionOrderFromText,
+    reorderProductDimensions,
     parseLabeledDimensions,
     parseReaderDimensions,
     schemaDimensionValue,
