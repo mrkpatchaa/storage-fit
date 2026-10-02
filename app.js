@@ -3229,12 +3229,37 @@ function schemaDimensionValue(value,fallbackUnit="cm"){
   if(!Number.isFinite(number)||number<=0)return null;
   return normalizeProductDimensions([number,1,1],schemaDimensionUnit(unit,fallbackUnit))?.[0]??null;
 }
+function normalizedDimensionLabel(name){
+  return String(name||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/ß/g,"ss").replace(/[^a-z]+/g," ").trim();
+}
 function schemaDimensionAxis(name){
-  const normalized=String(name||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z]+/g," ").trim().replace(/^product\s+/,"");
+  const normalized=normalizedDimensionLabel(name).replace(/^product\s+/,"");
   if(["width","largeur","breite","ancho","larghezza"].includes(normalized))return "w";
   if(["depth","profondeur","tiefe","profundidad","fondo","profondita"].includes(normalized))return "d";
   if(["height","hauteur","hohe","altura","alto","altezza"].includes(normalized))return "h";
   return "";
+}
+function schemaCompositeDimensionLabel(name){
+  const normalized=normalizedDimensionLabel(name);
+  if(/(?:package|packaging|parcel|colis|emballage|paket|verpackung|paquete|embalaje|imballaggio)/.test(normalized))return false;
+  const bare=normalized.replace(/^product\s+/,"");
+  return [
+    "dimensions","dimension","measurements","measurement","size",
+    "dimensions du produit","mesures","abmessungen","masse",
+    "dimensiones","medidas","dimensioni","misure","afmetingen","dimensoes","matt"
+  ].includes(bare);
+}
+function schemaCompositeDimensions(value,fallbackUnit="cm"){
+  if(value==null)return null;
+  let raw=value,unit=fallbackUnit;
+  if(typeof value==="object"){
+    raw=value.value??value.maxValue??value.minValue??value.name??null;
+    unit=value.unitCode??value.unitText??fallbackUnit;
+  }
+  if(raw==null)return null;
+  let text=String(raw).trim().replace(/\binches?\b/gi,"in");
+  if(!/(?:mm|cm|\bm\b|in|")\s*$/i.test(text))text=`${text} ${schemaDimensionUnit(unit,fallbackUnit)}`;
+  return parseDimensionString(text);
 }
 function schemaProductDimensions(product){
   if(!product||typeof product!=="object")return null;
@@ -3250,7 +3275,16 @@ function schemaProductDimensions(product){
     const axis=schemaDimensionAxis(prop.name||prop.propertyID||"");
     if(axis&&!values[axis])values[axis]=schemaDimensionValue(prop,fallbackUnit);
   }
-  return values.w>0&&values.d>0&&values.h>0?[values.w,values.d,values.h]:null;
+  if(values.w>0&&values.d>0&&values.h>0)return [values.w,values.d,values.h];
+
+  const directComposite=schemaCompositeDimensions(product.size||product.dimensions||null,fallbackUnit);
+  if(directComposite)return directComposite;
+  for(const prop of props){
+    if(!prop||typeof prop!=="object"||!schemaCompositeDimensionLabel(prop.name||prop.propertyID||""))continue;
+    const dims=schemaCompositeDimensions(prop,fallbackUnit);
+    if(dims)return dims;
+  }
+  return null;
 }
 function parseHtmlProduct(html,url){
   const doc=new DOMParser().parseFromString(html,"text/html");
@@ -7037,6 +7071,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     parseReaderDimensions,
     schemaDimensionValue,
     schemaDimensionAxis,
+    schemaCompositeDimensionLabel,
+    schemaCompositeDimensions,
     schemaProductDimensions,
     parseHtmlProduct,
     canonicalProductUrl,
