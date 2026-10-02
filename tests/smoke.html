@@ -45,6 +45,16 @@
       var clean="https://www.ikea.com/ma/en/p/sockerbit-storage-box-with-lid-white-40522088/";
       result(api.canonicalProductUrl(tracked)===api.canonicalProductUrl(clean),"tracking URLs canonicalize to one product");
       result(api.retailerName(clean)==="IKEA","retailer detection");
+      result(api.parseLocalizedPrice("1 299")==1299&&api.parseLocalizedPrice("1\u202f299,00")==1299&&api.parseLocalizedPrice("1.299,00")==1299&&api.parseLocalizedPrice("1,299.00")==1299,"localized price parsing handles spaces and both decimal/grouping conventions");
+      result(api.parseLocalizedPrice("19,99")==19.99&&api.parseLocalizedPrice("19.99")==19.99&&api.parseLocalizedPrice("1,299")==1299&&api.parseLocalizedPrice("1.299")==1299,"localized price parsing distinguishes two-decimal prices from three-digit grouping");
+      result(api.normalizedCurrency("DH")==="MAD"&&api.normalizedCurrency("dhs")==="MAD"&&api.normalizedCurrency("€")==="EUR"&&api.normalizedCurrency("$")==="USD","currency normalization maps common retailer symbols and Moroccan dirham abbreviations");
+      var aggregateOfferPrice=api.schemaOfferPrice({lowPrice:"1.299,00",priceCurrency:"MAD"});
+      result(aggregateOfferPrice.price===1299&&aggregateOfferPrice.currency==="MAD","structured offer parsing supports localized AggregateOffer lowPrice");
+      var nestedOfferPrice=api.schemaOfferPrice({priceSpecification:{price:"1,299.00",priceCurrency:"USD"}});
+      result(nestedOfferPrice.price===1299&&nestedOfferPrice.currency==="USD","structured offer parsing supports nested priceSpecification values");
+      var readerSuffixPrice=api.parseReaderPrice("Price\n1 299,00 DH");
+      var readerPrefixPrice=api.parseReaderPrice("Price\nMAD 1.299,00");
+      result(readerSuffixPrice.price===1299&&readerSuffixPrice.currency==="MAD"&&readerPrefixPrice.price===1299&&readerPrefixPrice.currency==="MAD","reader price parsing supports currency after or before a localized amount");
       var info=api.ikeaUrlInfo(clean);
       result(info.sku==="405.220.88","IKEA article number",info.sku||"missing");
       var inferredSock={name:"SOCKERBIT storage box with lid white",sku:"405.220.88",w:0,d:0,h:0,price:0,currency:"MAD"};
@@ -70,6 +80,8 @@
       ].join("\n");
       var sockReaderProduct=api.parseReaderProduct(sockReader,clean);
       result(sockReaderProduct.w===38&&sockReaderProduct.d===76&&sockReaderProduct.h===30,"SOCKERBIT-style reader output recovers product dimensions before package measurements");
+      var pricedReaderProduct=api.parseReaderProduct("# Storage box\n\n1.299,00 DH\n\nWidth 38 cm Depth 76 cm Height 30 cm","https://example.com/storage-box");
+      result(pricedReaderProduct.price===1299&&pricedReaderProduct.currency==="MAD","reader product import keeps localized price normalization in the full product parser");
       var packageFirstReader=[
         "# SOCKERBIT Storage box with lid, white",
         "",
@@ -133,6 +145,15 @@
       })+'<\/script></head><body></body></html>';
       var jsonLdProduct=api.parseHtmlProduct(jsonLdHtml,"https://example.com/bin");
       result(jsonLdProduct.w===38&&jsonLdProduct.d===76&&jsonLdProduct.h===30&&jsonLdProduct.name==="Structured bin","HTML product parsing consumes JSON-LD additionalProperty dimensions before text scraping");
+      var localizedPriceHtml='<html><head><script type="application/ld+json">'+JSON.stringify({
+        "@context":"https://schema.org","@type":"Product",name:"Priced bin",
+        offers:{"@type":"Offer",price:"1.299,00",priceCurrency:"MAD"}
+      })+'<\/script></head><body></body></html>';
+      var localizedPriceProduct=api.parseHtmlProduct(localizedPriceHtml,"https://example.com/priced-bin");
+      result(localizedPriceProduct.price===1299&&localizedPriceProduct.currency==="MAD","HTML product parsing normalizes localized JSON-LD prices end to end");
+      var localizedMetaHtml='<html><head><meta property="product:price:amount" content="1,299.00"><meta property="product:price:currency" content="USD"></head><body><h1>Meta bin</h1></body></html>';
+      var localizedMetaProduct=api.parseHtmlProduct(localizedMetaHtml,"https://example.com/meta-bin");
+      result(localizedMetaProduct.price===1299&&localizedMetaProduct.currency==="USD","HTML product parsing normalizes localized meta-tag prices");
       result(same(api.schemaCompositeDimensions("38 × 76 × 30 cm"),[38,76,30]),"composite structured dimensions accept a single W×D×H value with an inline unit");
       result(same(api.schemaCompositeDimensions({value:"380 x 760 x 300",unitCode:"MMT"}),[38,76,30]),"composite structured dimensions use PropertyValue unit metadata when the value omits a unit");
       result(same(api.schemaCompositeDimensions("15 x 30 x 12 inches"),[38.1,76.2,30.48]),"composite structured dimensions normalize spelled-out inch units");
