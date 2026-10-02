@@ -3230,7 +3230,7 @@ function schemaDimensionValue(value,fallbackUnit="cm"){
   return normalizeProductDimensions([number,1,1],schemaDimensionUnit(unit,fallbackUnit))?.[0]??null;
 }
 function normalizedDimensionLabel(name){
-  return String(name||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/[^a-z]+/g," ").trim();
+  return String(name||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().replace(/ß/g,"ss").replace(/[^a-z]+/g," ").trim();
 }
 function schemaDimensionAxis(name){
   const normalized=normalizedDimensionLabel(name).replace(/^product\s+/,"");
@@ -3243,7 +3243,11 @@ function schemaCompositeDimensionLabel(name){
   const normalized=normalizedDimensionLabel(name);
   if(/(?:package|packaging|parcel|colis|emballage|paket|verpackung|paquete|embalaje|imballaggio)/.test(normalized))return false;
   const bare=normalized.replace(/^product\s+/,"");
-  return ["dimensions","dimension","measurements","measurement","size","dimensions du produit","mesures","abmessungen","masse","medidas","misure"].includes(bare);
+  return [
+    "dimensions","dimension","measurements","measurement","size",
+    "dimensions du produit","mesures","abmessungen","masse",
+    "dimensiones","medidas","dimensioni","misure","afmetingen","dimensoes","matt"
+  ].includes(bare);
 }
 function schemaCompositeDimensions(value,fallbackUnit="cm"){
   if(value==null)return null;
@@ -3253,8 +3257,9 @@ function schemaCompositeDimensions(value,fallbackUnit="cm"){
     unit=value.unitCode??value.unitText??fallbackUnit;
   }
   if(raw==null)return null;
-  const text=String(raw).trim();
-  return parseDimensionString(/(?:mm|cm|\bm\b|in|inch|inches|")\s*$/i.test(text)?text:`${text} ${schemaDimensionUnit(unit,fallbackUnit)}`);
+  let text=String(raw).trim().replace(/\binches?\b/gi,"in");
+  if(!/(?:mm|cm|\bm\b|in|")\s*$/i.test(text))text=`${text} ${schemaDimensionUnit(unit,fallbackUnit)}`;
+  return parseDimensionString(text);
 }
 function schemaProductDimensions(product){
   if(!product||typeof product!=="object")return null;
