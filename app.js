@@ -3372,6 +3372,86 @@ function schemaProductDimensions(product){
   }
   return null;
 }
+function parseLocalizedPrice(value){
+  if(typeof value==="number")return Number.isFinite(value)&&value>0?value:0;
+  let s=String(value??"").trim().replace(/[\u00a0\u202f]/g," ");
+  if(!s)return 0;
+  s=s.replace(/[^\d.,'’\s]/g,"").replace(/[\s'’]/g,"");
+  if(!/\d/.test(s))return 0;
+  const normalizeWithDecimal=(decimalSep,groupSep)=>{
+    let normalized=s;
+    if(groupSep)normalized=normalized.split(groupSep).join("");
+    const last=normalized.lastIndexOf(decimalSep);
+    if(last<0)return normalized;
+    normalized=normalized.slice(0,last).split(decimalSep).join("")+"."+normalized.slice(last+1);
+    return normalized;
+  };
+  const commas=(s.match(/,/g)||[]).length,dots=(s.match(/\./g)||[]).length;
+  let normalized=s;
+  if(commas&&dots){
+    const decimal=s.lastIndexOf(",")>s.lastIndexOf(".")?",":".";
+    normalized=normalizeWithDecimal(decimal,decimal===","?".":",");
+  }else if(commas||dots){
+    const sep=commas?",":".",count=commas||dots;
+    const last=s.lastIndexOf(sep),after=s.length-last-1;
+    if(count>1){
+      normalized=(after===1||after===2)?normalizeWithDecimal(sep,""):s.split(sep).join("");
+    }else if(after===1||after===2){
+      normalized=s.slice(0,last)+"."+s.slice(last+1);
+    }else if(after===3){
+      normalized=s.slice(0,last)+s.slice(last+1);
+    }else{
+      normalized=s.slice(0,last)+"."+s.slice(last+1);
+    }
+  }
+  const number=Number(normalized);
+  return Number.isFinite(number)&&number>0?number:0;
+}
+function normalizedCurrency(token){
+  const raw=String(token||"").trim().toUpperCase();
+  if(raw==="DH"||raw==="DHS"||raw==="MAD")return "MAD";
+  if(raw==="€"||raw==="EUR")return "EUR";
+  if(raw==="$"||raw==="USD")return "USD";
+  return raw.slice(0,6);
+}
+function schemaOfferPrice(offers){
+  const list=Array.isArray(offers)?offers:[offers];
+  for(const offer of list){
+    if(!offer||typeof offer!=="object")continue;
+    const specs=Array.isArray(offer.priceSpecification)?offer.priceSpecification:[offer.priceSpecification].filter(Boolean);
+    const candidates=[
+      {value:offer.price,currency:offer.priceCurrency},
+      {value:offer.lowPrice,currency:offer.priceCurrency},
+      {value:offer.highPrice,currency:offer.priceCurrency},
+      ...specs.flatMap(spec=>[
+        {value:spec?.price,currency:spec?.priceCurrency||offer.priceCurrency},
+        {value:spec?.minPrice,currency:spec?.priceCurrency||offer.priceCurrency},
+        {value:spec?.maxPrice,currency:spec?.priceCurrency||offer.priceCurrency}
+      ])
+    ];
+    for(const candidate of candidates){
+      const price=parseLocalizedPrice(candidate.value);
+      if(price>0)return {price,currency:normalizedCurrency(candidate.currency)};
+    }
+  }
+  return {price:0,currency:""};
+}
+function parseReaderPrice(text){
+  const currency="(?:DH|DHS|MAD|EUR|USD|€|\\$)";
+  for(const line of String(text||"").slice(0,6000).split(/\r?\n/)){
+    const suffix=new RegExp("(\\d[\\d\\s\\u00a0\\u202f.,'’]*?)\\s*("+currency+")(?![A-Za-z])","i").exec(line);
+    if(suffix){
+      const price=parseLocalizedPrice(suffix[1]);
+      if(price>0)return {price,currency:normalizedCurrency(suffix[2])};
+    }
+    const prefix=new RegExp("("+currency+")\\s*(\\d[\\d\\s\\u00a0\\u202f.,'’]*\\d|\\d)","i").exec(line);
+    if(prefix){
+      const price=parseLocalizedPrice(prefix[2]);
+      if(price>0)return {price,currency:normalizedCurrency(prefix[1])};
+    }
+  }
+  return {price:0,currency:""};
+}
 function parseHtmlProduct(html,url){
   const doc=new DOMParser().parseFromString(html,"text/html");
   const out={url};
@@ -3382,8 +3462,8 @@ function parseHtmlProduct(html,url){
   if(product){
     out.name=product.name||"";
     out.sku=String(product.sku||product.productID||"");
-    const offers=Array.isArray(product.offers)?product.offers[0]:product.offers;
-    if(offers){out.price=Number(offers.price)||0;out.currency=offers.priceCurrency||""}
+    const offerPrice=schemaOfferPrice(product.offers);
+    if(offerPrice.price>0){out.price=offerPrice.price;out.currency=offerPrice.currency}
     const image=Array.isArray(product.image)?product.image[0]:product.image;
     if(typeof image==="string")out.image=image;
     const dims=schemaProductDimensions(product);
@@ -3392,8 +3472,8 @@ function parseHtmlProduct(html,url){
   out.name=out.name||doc.querySelector('meta[property="og:title"]')?.content||doc.querySelector("h1")?.textContent?.trim()||doc.title||"";
   out.image=out.image||doc.querySelector('meta[property="og:image"]')?.content||"";
   if(!out.price){
-    out.price=Number(doc.querySelector('meta[property="product:price:amount"]')?.content)||0;
-    out.currency=out.currency||doc.querySelector('meta[property="product:price:currency"]')?.content||"";
+    out.price=parseLocalizedPrice(doc.querySelector('meta[property="product:price:amount"]')?.content);
+    out.currency=out.currency||normalizedCurrency(doc.querySelector('meta[property="product:price:currency"]')?.content);
   }
   const body=(doc.body?.innerText||"").replace(/\s+/g," ");
   if(!out.w){
@@ -3416,12 +3496,8 @@ function parseReaderProduct(markdown,url){
   if(dims)[out.w,out.d,out.h]=dims;
   const sku=(txt.match(/\b(\d{3})\.(\d{3})\.(\d{2})\b/)||txt.match(/\b(\d{3})\s(\d{3})\s(\d{2})\b/));
   out.sku=sku?`${sku[1]}.${sku[2]}.${sku[3]}`:(info.sku||"");
-  const priceMatches=[...txt.slice(0,6000).matchAll(/(?:^|\s)(\d[\d\s.,]*?)\s*(DH|MAD|EUR|USD|€|\$)(?:\s|$)/gim)];
-  if(priceMatches.length){
-    const pm=priceMatches.find(m=>Number(m[1].replace(/\s/g,"").replace(",", "."))>0)||priceMatches[0];
-    out.price=Number(pm[1].replace(/\s/g,"").replace(",", "."))||0;
-    const c=pm[2].toUpperCase();out.currency=(c==="DH"?"MAD":c==="€"?"EUR":c==="$"?"USD":c);
-  }
+  const readerPrice=parseReaderPrice(txt);
+  if(readerPrice.price>0){out.price=readerPrice.price;out.currency=readerPrice.currency}
   const img=(txt.match(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/)||[])[1];
   if(img)out.image=img;
   return out;
@@ -3429,7 +3505,8 @@ function parseReaderProduct(markdown,url){
 function mergeProductInfo(base,extra){
   const out={...base};
   for(const k of ["name","sku","currency","image"]){if(!out[k]&&extra[k])out[k]=extra[k]}
-  for(const k of ["price","w","d","h"]){if(!(Number(out[k])>0)&&Number(extra[k])>0)out[k]=Number(extra[k])}
+  for(const k of ["w","d","h"]){if(!(Number(out[k])>0)&&Number(extra[k])>0)out[k]=Number(extra[k])}
+  if(!(parseLocalizedPrice(out.price)>0)&&parseLocalizedPrice(extra.price)>0)out.price=parseLocalizedPrice(extra.price);
   out.url=out.url||extra.url||"";
   return out;
 }
@@ -3468,13 +3545,13 @@ async function fetchSmartProduct(url){
 }
 function productCompleteness(p){
   const keys=["name","w","d","h","price","sku"];
-  return keys.filter(k=>k==="price"?Number(p[k])>0:!!p[k]).length;
+  return keys.filter(k=>k==="price"?parseLocalizedPrice(p[k])>0:!!p[k]).length;
 }
 function importedFields(p){
   return {
     name:String(p?.name||"").trim(),
     w:Number(p?.w)||0,d:Number(p?.d)||0,h:Number(p?.h)||0,
-    price:Math.max(0,Number(p?.price)||0),
+    price:parseLocalizedPrice(p?.price),
     currency:String(p?.currency||"MAD").trim().toUpperCase().slice(0,6)||"MAD",
     sku:String(p?.sku||"").trim(),
     url:safeUrl(p?.url),
@@ -7216,6 +7293,10 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     schemaCompositeDimensionLabel,
     schemaCompositeDimensions,
     schemaProductDimensions,
+    parseLocalizedPrice,
+    normalizedCurrency,
+    schemaOfferPrice,
+    parseReaderPrice,
     parseHtmlProduct,
     canonicalProductUrl,
     normalizedSku,
