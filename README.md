@@ -1054,6 +1054,25 @@ When every storage space has an installed chosen plan and no higher-priority wor
 
 No schema migration is required; the app remains on V28.
 
+## Printable project checklist
+
+The **Project next actions** header also has **Print project checklist** for taking the whole-home plan away from the screen.
+
+The print sheet is derived from the same live project state and includes:
+
+- whole-home installed, chosen, and current-plan totals;
+- one room section with every storage space in its normal priority order;
+- the current storage status: Plan, Choose, Review/Repair, Waiting, Ready, Chosen, or Installed;
+- the exact next action already used by the on-screen workflow;
+- per-storage missing organizers for Waiting spaces;
+- a Shopping / receiving table with global **Need / Purchased / Left** quantities after owned inventory is applied once across the project.
+
+Installed rows print with a check mark; unfinished rows print with an empty checkbox so the sheet can double as a physical walkthrough checklist.
+
+The printable view does not create or persist separate task state. Reprint it at any time to reflect the current saved plans, health, shopping progress, owned inventory, install allocation, and room status.
+
+No schema migration is required; the app remains on V28.
+
 ## Whole-home distribution work dashboard
 
 Persistent owned-stock distribution sessions are also surfaced in a whole-home **Distribution work** dashboard.

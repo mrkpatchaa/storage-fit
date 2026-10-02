@@ -2423,6 +2423,48 @@ function projectRoomProgress(options={}){
   };
   return {rooms:roomRows,storages:storageRows,totals};
 }
+function projectChecklistData(options={}){
+  const progress=options.progress||projectRoomProgress();
+  const procurement=options.procurement||projectProcurement();
+  const statusLabels={plan:"Plan",choose:"Choose",review:"Review",waiting:"Waiting",ready:"Ready",chosen:"Chosen",installed:"Installed"};
+  const rooms=(progress.rooms||[]).filter(room=>room.total>0).map(room=>({
+    roomId:room.roomId,roomName:room.roomName,total:room.total,currentPlans:room.currentPlans,chosen:room.chosen,installed:room.installed,
+    spaces:(room.spaces||[]).map(space=>{
+      const statusLabel=space.status==="review"?(space.healthStatus==="invalid"?"Repair":"Review"):(statusLabels[space.status]||space.status||"Plan");
+      return {
+        storageId:space.storageId,
+        displayPath:space.displayPath||space.path||"",
+        status:space.status||"plan",
+        statusLabel,
+        nextAction:space.action?.label||statusLabel,
+        missing:(space.missing||[]).map(item=>({id:item.id,name:item.name||"Item",qty:Math.max(0,Math.floor(Number(item.qty)||0))})).filter(item=>item.qty>0)
+      };
+    })
+  }));
+  const shopping=(procurement.rows||[]).map(row=>({
+    id:row.id,name:row.name||"Item",
+    need:Math.max(0,Math.floor(Number(row.buyQty)||0)),
+    purchased:Math.max(0,Math.floor(Number(row.boughtQty)||0)),
+    left:Math.max(0,Math.floor(Number(row.remainingQty)||0)),
+    storageCount:Math.max(0,Math.floor(Number(row.storageCount)||0))
+  })).filter(row=>row.need>0);
+  return {
+    totals:{
+      rooms:rooms.length,
+      storages:Math.max(0,Math.floor(Number(progress.totals?.storages)||0)),
+      currentPlans:Math.max(0,Math.floor(Number(progress.totals?.currentPlans)||0)),
+      chosen:Math.max(0,Math.floor(Number(progress.totals?.chosen)||0)),
+      installed:Math.max(0,Math.floor(Number(progress.totals?.installed)||0)),
+      review:Math.max(0,Math.floor(Number(progress.totals?.review)||0))
+    },
+    rooms,
+    shopping,
+    purchaseUnits:Math.max(0,Math.floor(Number(procurement.purchaseUnits)||0)),
+    boughtUnits:Math.max(0,Math.floor(Number(procurement.boughtUnits)||0)),
+    remainingUnits:Math.max(0,Math.floor(Number(procurement.remainingUnits)||0)),
+    remainingText:projectRemainingText(procurement)
+  };
+}
 function focusProjectRoom(roomId){
   const progress=projectRoomProgress(),row=progress.rooms.find(item=>item.roomId===roomId);if(!row)return false;
   if(row.nextStorageId){openCompatibleStorage(row.nextStorageId);return true}
@@ -2653,9 +2695,10 @@ function runProjectNextAction(action){
   return false;
 }
 function renderProjectNextActions(){
-  const sec=$("projectNextSection"),list=$("projectNextList"),summary=$("projectNextSummary");if(!sec||!list||!summary)return;
+  const sec=$("projectNextSection"),list=$("projectNextList"),summary=$("projectNextSummary"),printBtn=$("printProjectChecklistBtn");if(!sec||!list||!summary)return;
   const result=projectNextActions(),actions=result.actions;
   sec.style.display="block";
+  if(printBtn)printBtn.disabled=!state.storages.length;
   summary.textContent=result.complete?"Project complete":actions.length+" next action"+(actions.length===1?"":"s");
   list.innerHTML=actions.map((action,index)=>{
     const targets=Array.isArray(action.targets)?action.targets:[];
@@ -3715,6 +3758,33 @@ function buildLabelPrintSheet(){
       <div class="labelmeta">Placement #${x.index} · ${fmt(x.w)} × ${fmt(x.d)} × ${fmt(x.h)} ${esc(state.unit)}${x.z>0?` · stacked at z ${fmt(x.z)} ${esc(state.unit)}`:""}</div>
       <div class="labelstorage">${esc(s.name)}</div>
     </article>`).join("")}</div>
+  </div>`;
+  return true;
+}
+
+function buildProjectChecklistPrintSheet(){
+  const data=projectChecklistData();if(!data.totals.storages)return false;
+  const roomHtml=data.rooms.map(room=>`<section class="projectcheckroom">
+    <div class="projectcheckroomhead"><h2>${esc(room.roomName)}</h2><span>${room.installed}/${room.total} installed · ${room.chosen}/${room.total} chosen · ${room.currentPlans}/${room.total} current plans</span></div>
+    <table class="projectchecktable"><thead><tr><th></th><th>Storage space</th><th>Status</th><th>Next step</th><th>Blocker</th></tr></thead><tbody>
+      ${room.spaces.map(space=>`<tr><td class="projectcheckmark">${space.status==="installed"?"✓":"☐"}</td><td><strong>${esc(space.displayPath)}</strong></td><td><span class="projectcheckstatus ${esc(space.status)}">${esc(space.statusLabel)}</span></td><td>${esc(space.nextAction)}</td><td>${space.missing.length?space.missing.map(item=>esc(item.name)+" ×"+item.qty).join(" · "):"—"}</td></tr>`).join("")}
+    </tbody></table>
+  </section>`).join("");
+  const shoppingHtml=data.shopping.length
+    ?`<table class="projectchecktable projectcheckshopping"><thead><tr><th>Organizer</th><th>Need</th><th>Purchased</th><th>Left</th><th>Storage spaces</th></tr></thead><tbody>${data.shopping.map(row=>`<tr><td><strong>${esc(row.name)}</strong></td><td class="num">${row.need}</td><td class="num">${row.purchased}</td><td class="num">${row.left}</td><td class="num">${row.storageCount}</td></tr>`).join("")}</tbody></table>`
+    :`<div class="projectcheckempty">Nothing to buy for the current usable chosen plans.</div>`;
+  $("printSheet").innerHTML=`<div class="projectchecksheet">
+    <h1>Storage Fit — Project checklist</h1>
+    <div class="printmeta">Generated ${esc(new Date().toLocaleString())} · ${esc(data.remainingText)}</div>
+    <div class="projectchecksummary">
+      <div><strong>${data.totals.installed}/${data.totals.storages}</strong><span>installed</span></div>
+      <div><strong>${data.totals.chosen}/${data.totals.storages}</strong><span>chosen</span></div>
+      <div><strong>${data.totals.currentPlans}/${data.totals.storages}</strong><span>current plans</span></div>
+      <div><strong>${data.remainingUnits}</strong><span>units left to source</span></div>
+    </div>
+    <h2>Room checklist</h2>
+    ${roomHtml}
+    <section class="projectcheckshoppingsection"><h2>Shopping / receiving</h2><div class="printmeta">${data.boughtUnits} purchased · ${data.remainingUnits} left to source</div>${shoppingHtml}</section>
   </div>`;
   return true;
 }
@@ -6641,6 +6711,10 @@ $("reset3d").addEventListener("click",()=>{
 });
 
 
+$("printProjectChecklistBtn").addEventListener("click",()=>{
+  if(!buildProjectChecklistPrintSheet()){alert("Add at least one storage space before printing a project checklist.");return}
+  window.print();
+});
 $("printPlanBtn").addEventListener("click",()=>{
   if(!buildPrintSheet())return;
   window.print();
@@ -7100,6 +7174,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     purchasedArrivalAnalysis,
     roomInstallPriorityImpact,
     projectRoomProgress,
+    projectChecklistData,
     projectNextActions,
     computeInstallAllocation,
     repeatStorageNames,

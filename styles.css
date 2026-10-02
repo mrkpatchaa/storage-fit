@@ -76,6 +76,20 @@ h1{font-size:clamp(30px,5vw,48px);line-height:1;letter-spacing:-.045em;margin:0}
   #printSheet .labelitem{font-size:12px;font-weight:750;margin-bottom:2mm}
   #printSheet .labelmeta{font-size:10px;color:#555;line-height:1.4}
   #printSheet .labelstorage{font-size:10px;color:#777;margin-top:3mm;padding-top:2mm;border-top:1px solid #ddd}
+  #printSheet .projectchecksummary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:7mm 0}
+  #printSheet .projectchecksummary div{border:1px solid #ccc;border-radius:8px;padding:8px}
+  #printSheet .projectchecksummary strong{display:block;font-size:16px}
+  #printSheet .projectchecksummary span{display:block;font-size:9px;color:#666;margin-top:2px}
+  #printSheet .projectcheckroom{margin-top:7mm;break-inside:avoid;page-break-inside:avoid}
+  #printSheet .projectcheckroomhead{display:flex;justify-content:space-between;gap:10px;align-items:baseline;border-bottom:1.5px solid #222;padding-bottom:4px;margin-bottom:3px}
+  #printSheet .projectcheckroomhead h2{margin:0;font-size:15px}
+  #printSheet .projectcheckroomhead span{font-size:9px;color:#666}
+  #printSheet .projectchecktable th,#printSheet .projectchecktable td{text-align:left!important;vertical-align:top}
+  #printSheet .projectchecktable .num{text-align:right!important}
+  #printSheet .projectcheckmark{width:18px;font-size:14px;font-weight:900;text-align:center!important}
+  #printSheet .projectcheckstatus{display:inline-block;border:1px solid #aaa;border-radius:999px;padding:2px 6px;font-size:9px;font-weight:800;white-space:nowrap}
+  #printSheet .projectcheckshoppingsection{margin-top:9mm}
+  #printSheet .projectcheckempty{border:1px solid #ddd;border-radius:8px;padding:9px;font-size:11px;color:#666}
 }
 
 .sharepage{background:var(--bg);color:var(--ink);min-height:100vh}
