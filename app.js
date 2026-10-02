@@ -3167,13 +3167,13 @@ function normalizeProductDimensions(values,unit){
 function dimensionAxisToken(token){
   const normalized=normalizedDimensionLabel(token);
   if(normalized==="w"||["width","largeur","breite","ancho","larghezza","breedte"].includes(normalized))return "w";
-  if(normalized==="d"||normalized==="l"||["depth","length","profondeur","longueur","tiefe","lange","profundidad","largo","fondo","profondita","lunghezza","diepte","lengte"].includes(normalized))return "d";
+  if(normalized==="d"||normalized==="l"||["depth","length","profondeur","longueur","tiefe","lange","profundidad","largo","longitud","fondo","profondita","lunghezza","diepte","lengte"].includes(normalized))return "d";
   if(normalized==="h"||["height","hauteur","hohe","altura","alto","altezza","hoogte"].includes(normalized))return "h";
   return "";
 }
 function dimensionOrderFromText(text){
   const normalized=normalizedDimensionLabel(String(text||"").replace(/×/g," x "));
-  const token="(?:width|depth|height|length|largeur|profondeur|hauteur|longueur|breite|tiefe|hohe|lange|ancho|profundidad|altura|largo|fondo|larghezza|profondita|altezza|lunghezza|breedte|diepte|hoogte|lengte|w|d|h|l)";
+  const token="(?:width|depth|height|length|largeur|profondeur|hauteur|longueur|breite|tiefe|hohe|lange|ancho|profundidad|altura|alto|largo|longitud|fondo|larghezza|profondita|altezza|lunghezza|breedte|diepte|hoogte|lengte|w|d|h|l)";
   const re=new RegExp(`\\b(${token})\\s+(?:x|by)\\s+(${token})\\s+(?:x|by)\\s+(${token})\\b`,"i");
   const m=normalized.match(re);if(!m)return null;
   const order=[dimensionAxisToken(m[1]),dimensionAxisToken(m[2]),dimensionAxisToken(m[3])];
@@ -3320,7 +3320,7 @@ function schemaCompositeDimensionLabel(name){
   return bases.some(base=>{
     if(!bare.startsWith(base+" "))return false;
     const suffix=bare.slice(base.length).trim();
-    const cleaned=suffix.replace(/\b(?:width|depth|height|length|largeur|profondeur|hauteur|longueur|breite|tiefe|hohe|lange|ancho|profundidad|altura|largo|fondo|larghezza|profondita|altezza|lunghezza|breedte|diepte|hoogte|lengte|w|d|h|l|x|by)\b/g,"").replace(/\s+/g," ").trim();
+    const cleaned=suffix.replace(/\b(?:width|depth|height|length|largeur|profondeur|hauteur|longueur|breite|tiefe|hohe|lange|ancho|profundidad|altura|alto|largo|longitud|fondo|larghezza|profondita|altezza|lunghezza|breedte|diepte|hoogte|lengte|w|d|h|l|x|by)\b/g,"").replace(/\s+/g," ").trim();
     return !cleaned;
   });
 }
