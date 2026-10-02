@@ -131,7 +131,10 @@
       result(same(api.schemaCompositeDimensions("38 × 76 × 30 cm"),[38,76,30]),"composite structured dimensions accept a single W×D×H value with an inline unit");
       result(same(api.schemaCompositeDimensions({value:"380 x 760 x 300",unitCode:"MMT"}),[38,76,30]),"composite structured dimensions use PropertyValue unit metadata when the value omits a unit");
       result(same(api.schemaCompositeDimensions("15 x 30 x 12 inches"),[38.1,76.2,30.48]),"composite structured dimensions normalize spelled-out inch units");
-      result(api.schemaCompositeDimensionLabel("Package dimensions")===false&&api.schemaCompositeDimensionLabel("Maße")===true&&api.schemaCompositeDimensionLabel("Dimensiones")===true,"composite dimension labels reject package metadata and normalize localized labels");
+      result(same(api.dimensionOrderFromText("Product dimensions (L × W × H)"),["d","w","h"]),"explicit L×W×H dimension order maps length to storage depth");
+      result(same(api.parseDimensionString("Product dimensions (L x W x H): 76 x 38 x 30 cm"),[38,76,30]),"compact text dimensions reorder explicit L×W×H values into W×D×H");
+      result(same(api.parseDimensionString("Dimensions (W x H x D): 38 x 30 x 76 cm"),[38,76,30]),"compact text dimensions honor non-default W×H×D order");
+      result(api.schemaCompositeDimensionLabel("Package dimensions (L x W x H)")===false&&api.schemaCompositeDimensionLabel("Maße (Länge × Breite × Höhe)")===true&&api.schemaCompositeDimensionLabel("Dimensiones (Largo × Ancho × Alto)")===true,"ordered composite labels still reject package metadata and accept localized axis names");
       var compositePropertyDims=api.schemaProductDimensions({
         additionalProperty:[
           {"@type":"PropertyValue",name:"Package dimensions",value:"40 x 80 x 5 cm"},
@@ -139,8 +142,16 @@
         ]
       });
       result(same(compositePropertyDims,[38,76,30]),"structured product dimensions use composite product metadata while ignoring package dimensions");
+      var orderedCompositePropertyDims=api.schemaProductDimensions({
+        additionalProperty:[
+          {"@type":"PropertyValue",name:"Product Dimensions (L x W x H)",value:"76 x 38 x 30 cm"}
+        ]
+      });
+      result(same(orderedCompositePropertyDims,[38,76,30]),"structured composite metadata uses the axis order declared in the property label");
       var directSizeDims=api.schemaProductDimensions({size:{"@type":"QuantitativeValue",value:"380 x 760 x 300",unitCode:"MMT"}});
       result(same(directSizeDims,[38,76,30]),"structured product dimensions accept a numeric triplet from the product size field");
+      var orderedDirectSizeDims=api.schemaProductDimensions({size:"76 x 38 x 30 cm (L x W x H)"});
+      result(same(orderedDirectSizeDims,[38,76,30]),"structured product size values can carry their own explicit axis order");
       var separateWins=api.schemaProductDimensions({
         width:{value:38,unitCode:"CMT"},depth:{value:76,unitCode:"CMT"},height:{value:30,unitCode:"CMT"},
         additionalProperty:[{"@type":"PropertyValue",name:"Dimensions",value:"40 x 80 x 35 cm"}]
@@ -152,6 +163,13 @@
       })+'<\/script></head><body></body></html>';
       var compositeJsonLdProduct=api.parseHtmlProduct(compositeJsonLdHtml,"https://example.com/composite-bin");
       result(compositeJsonLdProduct.w===38&&compositeJsonLdProduct.d===76&&compositeJsonLdProduct.h===30,"HTML product parsing consumes composite JSON-LD dimensions end to end");
+      var orderedReader=[
+        "# Storage bin",
+        "",
+        "## Product dimensions (L x W x H)",
+        "* 76 x 38 x 30 cm"
+      ].join("\n");
+      result(same(api.parseReaderDimensions(orderedReader,"Storage bin"),[38,76,30]),"reader fallback honors an explicit L×W×H section heading");
       var mergedSock=api.mergeProductInfo(inferredSock,sockReaderProduct);
       result(mergedSock.name===inferredSock.name&&mergedSock.sku==="405.220.88"&&mergedSock.w===38&&mergedSock.d===76&&mergedSock.h===30,"reader enrichment fills missing dimensions without replacing URL-derived identity");
       result(same(api.normalizeProductDimensions([380,760,300],"mm"),[38,76,30]),"unit conversion mm to cm");
