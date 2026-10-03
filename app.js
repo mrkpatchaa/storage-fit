@@ -344,7 +344,7 @@ function syncHierarchyToStorage(storageId){
 function save(){
   state.unit=$("unit").value; state.uprightOnly=$("uprightOnly").checked; state.enableStacking=$("enableStacking").checked; state.optimizeGoal=$("optimizeGoal").value;
   state.clearanceEnabled=$("clearanceEnabled").checked; state.clearance=Math.max(0,Number($("clearance").value)||0); state.fitTolerance=Math.max(0,Number($("fitTolerance").value)||0);
-  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
+  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderStorageMeasurementStatus();
 }
 function uid(p){return p+Math.random().toString(36).slice(2,9)}
 function fmt(n){return String(Math.round(n*10)/10)}
@@ -1894,6 +1894,8 @@ function validateBackupState(candidate){
     if(!s||typeof s!=="object"||!s.id)return "A storage space is missing its ID.";
     if(ids.has(`s:${s.id}`))return "Duplicate storage-space ID found.";
     ids.add(`s:${s.id}`);
+    if(s.measuredAt!=null&&typeof s.measuredAt!=="string")return `Storage “${s.name||s.id}” has invalid measurement verification metadata.`;
+    if(s.measurementSignature!=null&&typeof s.measurementSignature!=="string")return `Storage “${s.name||s.id}” has invalid measurement verification metadata.`;
     if(!isFiniteNonNegative(s.w)||!isFiniteNonNegative(s.d)||!isFiniteNonNegative(s.h))return `Storage “${s.name||s.id}” has invalid dimensions.`;
     if(s.obstacles!=null&&!Array.isArray(s.obstacles))return `Storage “${s.name||s.id}” has malformed blocked zones.`;
     if(s.dividers!=null&&!Array.isArray(s.dividers))return `Storage “${s.name||s.id}” has malformed dividers.`;
