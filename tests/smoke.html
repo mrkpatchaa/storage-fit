@@ -32,10 +32,16 @@
       var api=w.StorageFitTest;
       result(!!api,"smoke-test API is exposed only for the test page");
       result(same(api.parseDimensionString("38 x 76 x 30 cm"),[38,76,30]),"compact dimensions");
+      result(same(api.parseDimensionString("38 cm x 760 mm x 0.3 m"),[38,76,30]),"compact dimensions normalize a unit declared on each value");
+      result(same(api.parseDimensionString("38 cm by 760 mm by 0.3 m"),[38,76,30]),"compact dimensions accept retailer-style by separators with mixed units");
+      result(same(api.parseDimensionString("Product dimensions (L x W x H): 0.76 m x 380 mm x 12 in"),[38,76,30.48]),"mixed-unit compact dimensions still honor explicit axis order");
+      result(api.parseDimensionString("76 x 380 mm x 12 in")===null,"mixed-unit compact dimensions reject an ambiguous value with no unit");
       result(same(api.parseQuickDimensions("81 × 40 × 47","cm"),[81,40,47]),"quick dimension paste assumes the current unit when a compact triplet omits one");
       result(same(api.parseQuickDimensions("810 x 400 x 470","mm"),[81,40,47]),"quick dimension paste converts a unitless triplet from the supplied current unit");
       result(same(api.parseQuickDimensions("76 x 38 x 30 (L x W x H)","cm"),[38,76,30]),"quick dimension paste preserves explicit axis-order hints when the unit is implicit");
       result(same(api.parseQuickDimensions("Width: 38 cm Depth: 76 cm Height: 30 cm","mm"),[38,76,30]),"quick dimension paste prefers labeled measurements and ignores the default unit when units are explicit");
+      result(same(api.parseQuickDimensions("38 cm × 760 mm × 0.3 m","mm"),[38,76,30]),"quick dimension paste normalizes mixed explicit units instead of applying the project default");
+      result(api.parseQuickDimensions("38 x 760 mm x 12 in","cm")===null,"quick dimension paste does not guess the missing unit in a mixed-unit triplet");
       result(api.parseQuickDimensions("38 x 76","cm")===null,"quick dimension paste rejects incomplete measurement pairs");
       result(same(api.parseLabeledDimensions("Width: 38 cm Depth: 76 cm Height: 30 cm"),[38,76,30]),"IKEA labeled dimensions");
       result(same(api.parseLabeledDimensions("Largeur 38 cm Profondeur 76 cm Hauteur 30 cm"),[38,76,30]),"French labeled dimensions");
@@ -155,6 +161,8 @@
       var localizedMetaProduct=api.parseHtmlProduct(localizedMetaHtml,"https://example.com/meta-bin");
       result(localizedMetaProduct.price===1299&&localizedMetaProduct.currency==="USD","HTML product parsing normalizes localized meta-tag prices");
       result(same(api.schemaCompositeDimensions("38 × 76 × 30 cm"),[38,76,30]),"composite structured dimensions accept a single W×D×H value with an inline unit");
+      result(same(api.schemaCompositeDimensions("38 cm × 760 mm × 0.3 m"),[38,76,30]),"composite structured dimensions normalize mixed per-value units");
+      result(same(api.schemaCompositeDimensions({value:"38 cm x 760 mm x 0.3",unitCode:"MTR"}),[38,76,30]),"composite structured dimensions use metadata only for the value whose unit is omitted");
       result(same(api.schemaCompositeDimensions({value:"380 x 760 x 300",unitCode:"MMT"}),[38,76,30]),"composite structured dimensions use PropertyValue unit metadata when the value omits a unit");
       result(same(api.schemaCompositeDimensions("15 x 30 x 12 inches"),[38.1,76.2,30.48]),"composite structured dimensions normalize spelled-out inch units");
       result(same(api.dimensionOrderFromText("Product dimensions (L × W × H)"),["d","w","h"]),"explicit L×W×H dimension order maps length to storage depth");
@@ -196,6 +204,13 @@
         "* 76 x 38 x 30 cm"
       ].join("\n");
       result(same(api.parseReaderDimensions(orderedReader,"Storage bin"),[38,76,30]),"reader fallback honors an explicit L×W×H section heading");
+      var mixedUnitReader=[
+        "# Storage bin",
+        "",
+        "## Measurements",
+        "* 38 cm x 760 mm x 0.3 m"
+      ].join("\n");
+      result(same(api.parseReaderDimensions(mixedUnitReader,"Storage bin"),[38,76,30]),"reader fallback normalizes compact mixed-unit dimensions");
       var mergedSock=api.mergeProductInfo(inferredSock,sockReaderProduct);
       result(mergedSock.name===inferredSock.name&&mergedSock.sku==="405.220.88"&&mergedSock.w===38&&mergedSock.d===76&&mergedSock.h===30,"reader enrichment fills missing dimensions without replacing URL-derived identity");
       result(same(api.normalizeProductDimensions([380,760,300],"mm"),[38,76,30]),"unit conversion mm to cm");
