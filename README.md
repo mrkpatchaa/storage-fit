@@ -156,6 +156,10 @@ A stale storage can be physically checked again and **Reconfirm measured**. Curr
 
 The main workspace also includes **Measurement coverage**. It summarizes current / recheck / not-measured counts for the whole home and lists only unfinished field checks. Rechecks are ordered before never-measured spaces, then sorted by their full Room → Furniture → Storage path. **Open next** jumps directly to the next storage editor without changing any verification state.
 
+Inside the storage editor, **Save measured & next** closes the field-work loop: it saves the visible storage name, furniture, Width / Depth / Height, applies the same constraint clamping as normal **Save**, marks the resulting physical geometry as measured, then opens the next unfinished measurement. If that was the final pending space, the button becomes **Save measured** and stays on the current storage. Width, depth, and height must all be greater than zero before a storage can be verified.
+
+Plain **Save** remains available and does not mark anything measured.
+
 ## Home hierarchy
 
 Storage spaces are organized as:

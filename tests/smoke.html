@@ -1338,6 +1338,7 @@
         dividers:[{id:"md1",orientation:"vertical",position:40.5,thickness:0.5,h:47}]
       };
       result(api.storageMeasurementStatus(measuredStorage,"cm").status==="unverified","storage measurements start unverified");
+      result(api.storageMeasurementVerificationError(measuredStorage)===""&&api.storageMeasurementVerificationError({...measuredStorage,w:0})!=="","measurement verification requires positive width depth and height");
       api.markStorageMeasured(measuredStorage,"cm","2026-10-03T08:00:00.000Z");
       result(api.storageMeasurementStatus(measuredStorage,"cm").status==="current"&&measuredStorage.measuredAt==="2026-10-03T08:00:00.000Z","mark measured records a current geometry fingerprint and timestamp");
       measuredStorage.name="Renamed drawer";measuredStorage.furnitureId="mf2";
@@ -1394,6 +1395,18 @@
       });
       result(measureProgress.totals.total===3&&measureProgress.totals.current===1&&measureProgress.totals.stale===1&&measureProgress.totals.unverified===1&&measureProgress.totals.currentPct===33,"measurement progress summarizes current stale and unverified storage coverage");
       result(measureProgress.pending.map(function(row){return row.storageId;}).join(",")==="ms2,ms3","measurement progress prioritizes stale rechecks before never-measured spaces");
+      result(api.nextPendingMeasurementStorageId("ms2",{
+        rooms:[{id:"mr1",name:"Bedroom"},{id:"mr2",name:"Kitchen"}],
+        furniture:[{id:"mf1",roomId:"mr1",name:"Wardrobe"},{id:"mf2",roomId:"mr2",name:"Pantry"}],
+        storages:[worksheetVerified,worksheetStale,{id:"ms3",furnitureId:"mf2",name:"Upper shelf",w:60,d:35,h:30,obstacles:[],dividers:[]}],
+        unit:"cm"
+      })==="ms3","measurement save-and-next skips the storage just completed and returns the next pending field check");
+      result(api.nextPendingMeasurementStorageId("",{
+        rooms:[{id:"mr1",name:"Bedroom"},{id:"mr2",name:"Kitchen"}],
+        furniture:[{id:"mf1",roomId:"mr1",name:"Wardrobe"},{id:"mf2",roomId:"mr2",name:"Pantry"}],
+        storages:[worksheetVerified,worksheetStale,{id:"ms3",furnitureId:"mf2",name:"Upper shelf",w:60,d:35,h:30,obstacles:[],dividers:[]}],
+        unit:"cm"
+      })==="ms2","measurement save-and-next follows the same stale-first queue priority as measurement coverage");
       result(measureProgress.pending[0].path==="Bedroom → Wardrobe → Bottom track"&&measureProgress.pending[1].path==="Kitchen → Pantry → Upper shelf","measurement progress preserves hierarchy paths for direct navigation");
       result(measureProgress.rows[0].blockedZones===0&&measureProgress.rows[0].dividers===2&&measureProgress.rows[0].height===14,"measurement progress carries physical geometry context for the queue");
       var measureComplete=api.measurementProgressData({
@@ -1403,6 +1416,12 @@
         unit:"cm"
       });
       result(measureComplete.totals.complete===true&&measureComplete.pending.length===0&&measureComplete.totals.currentPct===100,"measurement progress reports completion when every storage verification is current");
+      result(api.nextPendingMeasurementStorageId("ms1",{
+        rooms:[{id:"mr1",name:"Bedroom"}],
+        furniture:[{id:"mf1",roomId:"mr1",name:"Wardrobe"}],
+        storages:[worksheetVerified],
+        unit:"cm"
+      })==="","measurement save-and-next stops cleanly when measurement coverage is complete");
       var projectChecklist=api.projectChecklistData({
         progress:blockedRoomProgress,
         procurement:{
