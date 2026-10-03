@@ -3307,10 +3307,20 @@ function reorderProductDimensions(values,order){
   return byAxis.w>0&&byAxis.d>0&&byAxis.h>0?[byAxis.w,byAxis.d,byAxis.h]:values;
 }
 function parseDimensionString(str,orderHint=""){
-  const s=String(str||"").replace(/×/g,"x");
-  const m=s.match(/(\d+(?:[.,]\d+)?)\s*x\s*(\d+(?:[.,]\d+)?)\s*x\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m|in|")\b/i);
+  const s=String(str||"").replace(/\binches?\b/gi,"in").replace(/×/g,"x");
+  const m=s.match(/(\d+(?:[.,]\d+)?)\s*(mm|cm|m|in|")?\s*(?:x|by)\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m|in|")?\s*(?:x|by)\s*(\d+(?:[.,]\d+)?)\s*(mm|cm|m|in|")?/i);
   if(!m)return null;
-  const dims=normalizeProductDimensions([m[1],m[2],m[3]],m[4]);if(!dims)return null;
+  const values=[m[1],m[3],m[5]],units=[m[2]||"",m[4]||"",m[6]||""];
+  const explicitUnits=units.filter(Boolean).map(unit=>schemaDimensionUnit(unit,""));
+  if(!explicitUnits.length||explicitUnits.some(unit=>!unit))return null;
+  const distinct=[...new Set(explicitUnits)];
+  if(distinct.length>1&&units.some(unit=>!unit))return null;
+  const fallback=distinct.length===1?distinct[0]:"";
+  const dims=values.map((value,index)=>{
+    const unit=schemaDimensionUnit(units[index]||fallback,"");
+    return unit?normalizeProductDimensions([value,1,1],unit)?.[0]:null;
+  });
+  if(dims.some(value=>!(value>0)))return null;
   const index=m.index??0,context=s.slice(Math.max(0,index-180),Math.min(s.length,index+m[0].length+180));
   const order=dimensionOrderFromText(orderHint)||dimensionOrderFromText(context);
   return reorderProductDimensions(dims,order);
