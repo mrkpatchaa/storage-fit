@@ -153,6 +153,8 @@ Renaming a storage, moving it to another piece of furniture, or switching the pr
 
 A stale storage can be physically checked again and **Reconfirm measured**. Current verification can also be cleared explicitly. The printable measurement worksheet shows the same verification state beside each space.
 
+The main workspace also includes **Measurement coverage**. It summarizes current / recheck / not-measured counts for the whole home and lists only unfinished field checks. Rechecks are ordered before never-measured spaces, then sorted by their full Room → Furniture → Storage path. **Open next** jumps directly to the next storage editor without changing any verification state.
+
 ## Home hierarchy
 
 Storage spaces are organized as:
