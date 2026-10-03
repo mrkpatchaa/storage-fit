@@ -1333,6 +1333,12 @@
         dividers:[{id:"md1",orientation:"vertical",position:405,thickness:5,h:470}]
       };
       result(api.storageMeasurementStatus(measuredMm,"mm").status==="current","switching project units does not invalidate a physically unchanged measured storage");
+      var measuredIn={
+        ...measuredStorage,w:31.89,d:15.748,h:18.504,
+        obstacles:[{id:"mo1",x:0,y:0,w:0.787,d:15.748,h:1.969}],
+        dividers:[{id:"md1",orientation:"vertical",position:15.945,thickness:0.197,h:18.504}]
+      };
+      result(api.storageMeasurementStatus(measuredIn,"in").status==="current","measurement verification tolerates normal cm-to-inch display rounding");
       var measuredClone=api.cloneStorageDefinition(measuredStorage,{id:"measure-copy",idFactory:function(prefix){return prefix+"-copy";}});
       result(api.storageMeasurementStatus(measuredClone,"cm").status==="unverified","duplicated storage structure does not inherit physical measurement verification");
       api.clearStorageMeasured(measuredStorage);
