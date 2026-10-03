@@ -1371,6 +1371,23 @@
       result(measureData.rooms[0].furniture[0].spaces[0].width===81&&measureData.rooms[0].furniture[0].spaces[0].depth===40&&measureData.rooms[0].furniture[0].spaces[0].height===47&&measureData.rooms[0].furniture[0].spaces[0].blockedZones===1,"measurement worksheet carries saved dimensions and blocked-zone counts");
       result(measureData.rooms[0].furniture[0].spaces[1].dividers===2,"measurement worksheet carries divider counts for field verification");
       result(measureData.rooms[0].furniture[0].spaces[0].measurement.status==="current"&&measureData.rooms[0].furniture[0].spaces[1].measurement.status==="stale"&&measureData.rooms[1].furniture[0].spaces[0].measurement.status==="unverified","measurement worksheet carries current stale and unverified field-check states");
+      var measureProgress=api.measurementProgressData({
+        rooms:[{id:"mr1",name:"Bedroom"},{id:"mr2",name:"Kitchen"}],
+        furniture:[{id:"mf1",roomId:"mr1",name:"Wardrobe"},{id:"mf2",roomId:"mr2",name:"Pantry"}],
+        storages:[worksheetVerified,worksheetStale,{id:"ms3",furnitureId:"mf2",name:"Upper shelf",w:60,d:35,h:30,obstacles:[],dividers:[]}],
+        unit:"cm"
+      });
+      result(measureProgress.totals.total===3&&measureProgress.totals.current===1&&measureProgress.totals.stale===1&&measureProgress.totals.unverified===1&&measureProgress.totals.currentPct===33,"measurement progress summarizes current stale and unverified storage coverage");
+      result(measureProgress.pending.map(function(row){return row.storageId;}).join(",")==="ms2,ms3","measurement progress prioritizes stale rechecks before never-measured spaces");
+      result(measureProgress.pending[0].path==="Bedroom → Wardrobe → Bottom track"&&measureProgress.pending[1].path==="Kitchen → Pantry → Upper shelf","measurement progress preserves hierarchy paths for direct navigation");
+      result(measureProgress.rows[0].blockedZones===0&&measureProgress.rows[0].dividers===2&&measureProgress.rows[0].height===14,"measurement progress carries physical geometry context for the queue");
+      var measureComplete=api.measurementProgressData({
+        rooms:[{id:"mr1",name:"Bedroom"}],
+        furniture:[{id:"mf1",roomId:"mr1",name:"Wardrobe"}],
+        storages:[worksheetVerified],
+        unit:"cm"
+      });
+      result(measureComplete.totals.complete===true&&measureComplete.pending.length===0&&measureComplete.totals.currentPct===100,"measurement progress reports completion when every storage verification is current");
       var projectChecklist=api.projectChecklistData({
         progress:blockedRoomProgress,
         procurement:{
