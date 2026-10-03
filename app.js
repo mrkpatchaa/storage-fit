@@ -4029,7 +4029,7 @@ function storageStructureSignature(s){
 }
 function storageMeasurementSignature(s,unit=state.unit){
   if(!s)return "";
-  const scale=unitScale(unit,"cm"),n=value=>round6((Number(value)||0)*scale);
+  const scale=unitScale(unit,"cm"),n=value=>Math.round((Number(value)||0)*scale*100)/100;
   const obstacles=(s.obstacles||[]).map(o=>[
     n(o.x),n(o.y),n(o.w),n(o.d),n(o.h)
   ]).sort((a,b)=>a.join("|").localeCompare(b.join("|")));
