@@ -1313,6 +1313,24 @@
       var firstWaitingSpace=blockedBedroom.spaces.find(function(s){return s.status==="waiting"});
       result(firstWaitingSpace&&firstWaitingSpace.action.kind==="room-shopping"&&firstWaitingSpace.action.targetId==="sock"&&firstWaitingSpace.action.label==="View blocker","waiting storage queue routes to the first concrete missing organizer");
 
+      var measureData=api.measurementWorksheetData({
+        rooms:[{id:"mr1",name:"Bedroom"},{id:"mr2",name:"Kitchen"}],
+        furniture:[
+          {id:"mf1",roomId:"mr1",name:"Wardrobe"},
+          {id:"mf2",roomId:"mr2",name:"Pantry"},
+          {id:"mf-empty",roomId:"mr1",name:"Empty unit"}
+        ],
+        storages:[
+          {id:"ms1",furnitureId:"mf1",name:"Left drawer",w:81,d:40,h:47,obstacles:[{id:"o1"}],dividers:[]},
+          {id:"ms2",furnitureId:"mf1",name:"Bottom track",w:67,d:26,h:13,obstacles:[],dividers:[{id:"d1"},{id:"d2"}]},
+          {id:"ms3",furnitureId:"mf2",name:"Upper shelf",w:60,d:35,h:30,obstacles:[],dividers:[]}
+        ],
+        unit:"cm"
+      });
+      result(measureData.storageCount===3&&measureData.rooms.length===2&&measureData.unit==="cm","measurement worksheet model counts storage spaces and preserves the project unit");
+      result(measureData.rooms[0].roomName==="Bedroom"&&measureData.rooms[0].furniture.length===1&&measureData.rooms[0].furniture[0].spaces.length===2,"measurement worksheet groups storage spaces by room and furniture while omitting empty furniture");
+      result(measureData.rooms[0].furniture[0].spaces[0].width===81&&measureData.rooms[0].furniture[0].spaces[0].depth===40&&measureData.rooms[0].furniture[0].spaces[0].height===47&&measureData.rooms[0].furniture[0].spaces[0].blockedZones===1,"measurement worksheet carries saved dimensions and blocked-zone counts");
+      result(measureData.rooms[0].furniture[0].spaces[1].dividers===2,"measurement worksheet carries divider counts for field verification");
       var projectChecklist=api.projectChecklistData({
         progress:blockedRoomProgress,
         procurement:{
