@@ -2998,11 +2998,14 @@ function updateStorageStructureCopyButton(){
     : (notes.join(" · ")||"No fresh sibling storage needs this structure.");
 }
 function renderStorageMeasurementStatus(){
-  const wrap=$("storageMeasurementStatus"),label=$("storageMeasurementLabel"),detail=$("storageMeasurementDetail"),btn=$("toggleStorageMeasured");
-  if(!wrap||!label||!detail||!btn)return;
+  const wrap=$("storageMeasurementStatus"),label=$("storageMeasurementLabel"),detail=$("storageMeasurementDetail"),btn=$("toggleStorageMeasured"),saveNext=$("saveMeasuredNext");
+  if(!wrap||!label||!detail||!btn||!saveNext)return;
   const s=state.storages.find(x=>x.id===editingStorage);
-  if(!s){wrap.className="measurementverify";label.textContent="Not measured";detail.textContent="Select a storage space first.";btn.disabled=true;btn.textContent="Mark measured";return}
-  const status=storageMeasurementStatus(s);
+  if(!s){
+    wrap.className="measurementverify";label.textContent="Not measured";detail.textContent="Select a storage space first.";
+    btn.disabled=true;btn.textContent="Mark measured";saveNext.disabled=true;saveNext.textContent="Save measured & next";return;
+  }
+  const status=storageMeasurementStatus(s),nextId=nextPendingMeasurementStorageId(s.id);
   wrap.className="measurementverify "+status.status;
   label.textContent=status.label;
   if(status.status==="unverified"){
@@ -3016,6 +3019,8 @@ function renderStorageMeasurementStatus(){
     btn.textContent=status.status==="current"?"Clear measured":"Reconfirm measured";
   }
   btn.disabled=false;
+  saveNext.disabled=false;
+  saveNext.textContent=nextId?"Save measured & next":"Save measured";
 }
 function loadStorageEditor(){
   const s=state.storages.find(x=>x.id===editingStorage);
@@ -4134,6 +4139,15 @@ function clearStorageMeasured(s){
   if(!s)return null;
   s.measuredAt="";s.measurementSignature="";
   return storageMeasurementStatus(s);
+}
+function storageMeasurementVerificationError(s){
+  if(!s)return "Select a storage space first.";
+  if(![s.w,s.d,s.h].every(value=>Number(value)>0))return "Width, depth and height must all be greater than zero before marking this storage measured.";
+  return "";
+}
+function nextPendingMeasurementStorageId(currentId="",options={}){
+  const data=measurementProgressData(options);
+  return data.pending.find(row=>row.storageId!==currentId)?.storageId||"";
 }
 function matchingSiblingStorages(source,storages=state.storages){
   if(!source)return [];
@@ -7263,6 +7277,27 @@ $("pasteStorageDimensions").addEventListener("click",()=>{
   const ok=pasteDimensionsIntoFields(["sw","sd","sh"],"storage");if(!ok)return;
   const btn=$("pasteStorageDimensions"),old=btn.textContent;btn.textContent="Filled ✓";setTimeout(()=>{btn.textContent=old},1200);
 });
+function saveStorageEditor({verify=false,advance=false}={}){
+  const s=state.storages.find(x=>x.id===editingStorage);if(!s)return false;
+  s.name=$("storageName").value.trim()||"Storage";
+  s.w=Math.max(0,Number($("sw").value)||0);s.d=Math.max(0,Number($("sd").value)||0);s.h=Math.max(0,Number($("sh").value)||0);
+  s.furnitureId=$("storageFurniture").value||s.furnitureId||state.selectedFurniture;
+  s.obstacles=s.obstacles||[];for(const o of s.obstacles){o.x=Math.min(o.x,s.w);o.y=Math.min(o.y,s.d);o.w=Math.min(o.w,Math.max(0,s.w-o.x));o.d=Math.min(o.d,Math.max(0,s.d-o.y));o.h=Math.min(o.h,s.h)}
+  s.dividers=s.dividers||[];for(const d of s.dividers){
+    d.position=Math.min(Math.max(0,d.position),d.orientation==="horizontal"?s.d:s.w);
+    d.thickness=Math.max(0.01,d.thickness);d.h=Math.min(Math.max(0,d.h),s.h);
+  }
+  if(verify){
+    const error=storageMeasurementVerificationError(s);
+    if(error){alert(error);return false}
+    markStorageMeasured(s);
+  }
+  const nextId=verify&&advance?nextPendingMeasurementStorageId(s.id):"";
+  save();
+  if(nextId)openMeasurementStorage(nextId);
+  else renderAll();
+  return true;
+}
 $("toggleStorageMeasured").addEventListener("click",()=>{
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
   const status=storageMeasurementStatus(s);
@@ -7275,8 +7310,11 @@ $("toggleStorageMeasured").addEventListener("click",()=>{
     alert("Save the visible Width, Depth and Height first, then mark the saved storage as measured.");
     return;
   }
+  const error=storageMeasurementVerificationError(s);
+  if(error){alert(error);return}
   markStorageMeasured(s);save();renderStorageMeasurementStatus();renderStorageList();
 });
+$("saveMeasuredNext").addEventListener("click",()=>saveStorageEditor({verify:true,advance:true}));
 $("pasteBoxDimensions").addEventListener("click",()=>{
   const ok=pasteDimensionsIntoFields(["bw","bd","bh"],"organizer");if(!ok)return;
   const btn=$("pasteBoxDimensions"),old=btn.textContent;btn.textContent="Filled ✓";setTimeout(()=>{btn.textContent=old},1200);
@@ -7433,17 +7471,7 @@ $("smartImportBtn").addEventListener("click",async()=>{
 $("addBox").addEventListener("click",()=>{
   const id=uid("b");state.boxes.push({id,name:"New item",w:30,d:20,h:10,price:0,currency:"MAD",ownedQty:0,sku:"",url:"",image:"",retailer:"",uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:false,canSupportStack:false,maxStackLevel:null});state.selectedTypes[id]=false;state.itemLimits[id]=null;editingBox=id;save();renderAll();$("boxName").focus();$("boxName").select()
 });
-$("saveStorage").addEventListener("click",()=>{
-  const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
-  s.name=$("storageName").value.trim()||"Storage";s.w=Math.max(0,Number($("sw").value)||0);s.d=Math.max(0,Number($("sd").value)||0);s.h=Math.max(0,Number($("sh").value)||0);
-  s.furnitureId=$("storageFurniture").value||s.furnitureId||state.selectedFurniture;
-  s.obstacles=s.obstacles||[];for(const o of s.obstacles){o.x=Math.min(o.x,s.w);o.y=Math.min(o.y,s.d);o.w=Math.min(o.w,Math.max(0,s.w-o.x));o.d=Math.min(o.d,Math.max(0,s.d-o.y));o.h=Math.min(o.h,s.h)}
-  s.dividers=s.dividers||[];for(const d of s.dividers){
-    d.position=Math.min(Math.max(0,d.position),d.orientation==="horizontal"?s.d:s.w);
-    d.thickness=Math.max(0.01,d.thickness);d.h=Math.min(Math.max(0,d.h),s.h);
-  }
-  save();renderAll()
-});
+$("saveStorage").addEventListener("click",()=>saveStorageEditor());
 $("saveBox").addEventListener("click",()=>{
   const b=state.boxes.find(x=>x.id===editingBox);if(!b)return;
   b.name=$("boxName").value.trim()||"Item";b.w=Math.max(0,Number($("bw").value)||0);b.d=Math.max(0,Number($("bd").value)||0);b.h=Math.max(0,Number($("bh").value)||0);
@@ -7604,6 +7632,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     storageMeasurementStatus,
     markStorageMeasured,
     clearStorageMeasured,
+    storageMeasurementVerificationError,
+    nextPendingMeasurementStorageId,
     matchingSiblingStorages,
     storageStructureCopyTargets,
     copyStorageStructureData,
