@@ -91,6 +91,19 @@ h1{font-size:clamp(30px,5vw,48px);line-height:1;letter-spacing:-.045em;margin:0}
   #printSheet .projectcheckstatus{display:inline-block;border:1px solid #aaa;border-radius:999px;padding:2px 6px;font-size:9px;font-weight:800;white-space:nowrap}
   #printSheet .projectcheckshoppingsection{margin-top:9mm}
   #printSheet .projectcheckempty{border:1px solid #ddd;border-radius:8px;padding:9px;font-size:11px;color:#666}
+  #printSheet .measurementtips{border:1px solid #ccc;border-radius:8px;padding:9px 10px;font-size:10px;line-height:1.45;margin:5mm 0 7mm;background:#fafafa}
+  #printSheet .measureroom{margin-top:8mm}
+  #printSheet .measureroom>h2{border-bottom:1.5px solid #222;padding-bottom:4px;margin-bottom:4mm}
+  #printSheet .measurefurniture{margin:0 0 6mm;break-inside:avoid;page-break-inside:avoid}
+  #printSheet .measurefurniturehead{display:flex;justify-content:space-between;gap:10px;align-items:baseline;margin-bottom:2mm;font-size:11px}
+  #printSheet .measurefurniturehead span{font-size:9px;color:#666}
+  #printSheet .measuretable th,#printSheet .measuretable td{text-align:left!important;vertical-align:middle}
+  #printSheet .measuretable th{font-size:9px}
+  #printSheet .measuretable td{height:13mm}
+  #printSheet .measuretable .measureblank{min-width:17mm;border-left:1px solid #ddd;border-right:1px solid #ddd}
+  #printSheet .measuretable .measureblank:after{content:"";display:block;border-bottom:1px solid #777;margin:7mm 2mm 0}
+  #printSheet .measuretable .measurenotes{min-width:36mm;font-size:9px;color:#555;line-height:1.35}
+  #printSheet .measuretable .measurenotes span{display:inline-block;margin-top:3mm;color:#777}
 }
 
 .sharepage{background:var(--bg);color:var(--ink);min-height:100vh}
