@@ -61,68 +61,7 @@ Product import runs in the browser. It first tries the public product page. If t
 
 Structured product metadata is preferred before text scraping. Storage Fit reads normal JSON-LD width/depth/height fields **per axis**, so mixed unit declarations are normalized correctly, and it can also recover dimensions from schema.org `additionalProperty` / `PropertyValue` entries such as Width, Depth and Height (including common localized labels). It also accepts coherent composite triplets such as `Dimensions: 38 × 76 × 30 cm`, including triplets whose unit is carried separately in `unitCode` / `unitText` or exposed through a product `size` field. When the retailer explicitly declares another axis order—such as `Product Dimensions (L × W × H): 76 × 38 × 30 cm`—Storage Fit maps the values back to its internal **Width × Depth × Height** order instead of silently swapping width and depth. Common full axis names are recognized in English, French, German, Spanish, Italian, and Dutch. Unlabeled triplets retain the normal W×D×H interpretation. Complete axis-specific dimensions take precedence over composite metadata. Package-prefixed properties are ignored.
 
-Prices are normalized across common retailer number formats before the preview is shown. Values such as `1 299`, `1.299,00`, and `1,299.00` all resolve to the same numeric price. Smart Import applies this to JSON-LD offers (including aggregate/nested price fields), product-price meta tags, and reader text; `DH` / `DHS` are normalized to `MAD`, while `€` and `# Storage Fit
-
-Storage Fit is a dependency-free browser tool for planning boxes and organizers inside drawers, shelves and cupboards.
-
-## What it does
-
-- Models your home as Room → Furniture → Storage space, while keeping reusable items in one shared library.
-- Supports opt-in true 3D stacking with per-item rules: stay upright, may sit on another item, and may support items above.
-- Generates practical maximal layouts with different optimization goals.
-- Shows front, top, side and draggable 3D views.
-- Lets you drag, rotate, duplicate and remove items in a layout.
-- Models blocked zones such as rails, hinges and unusable corners.
-- Detects leftover rectangles and suggests saved items that fit them.
-- Imports public IKEA/product URLs when product metadata is available, previews the result before saving, and detects existing catalog items by SKU or canonical product URL.
-- Finds every storage space where a selected organizer can physically fit, using the same clearance, orientation, obstacle and divider rules as the planner.
-- Saves plans, builds inventory-aware shopping lists, prints/exports layouts, and backs up/restores all browser data.
-- Turns saved plans into a shortlist: rename them, add notes, mark a chosen plan, and compare up to three side-by-side.
-
-## Run locally
-
-No build step or package install is required.
-
-    python3 -m http.server 8080
-
-Then open http://localhost:8080/.
-
-Using a local web server is preferable to opening index.html directly because browser storage and cross-origin behavior are more predictable.
-
-## Project structure
-
-    .
-    ├── index.html        Application shell
-    ├── styles.css        Application styles
-    ├── app.js            Planner, optimizer, import and persistence logic
-    ├── tests/
-    │   └── smoke.html    Browser smoke tests for core helpers
-    └── README.md
-
-The project intentionally remains plain HTML, CSS and JavaScript with no framework and no bundler.
-
-## Tests
-
-Start the local server and open:
-
-http://localhost:8080/tests/smoke.html
-
-The smoke suite loads the real application through a test-only API and checks IKEA measurement parsing, article-number extraction, unit conversion, URL sanitization, backup validation, 3D collision detection, and full-footprint stack support. It snapshots and restores localStorage so the test page does not replace your planner data.
-
-## Data and backups
-
-Application state lives in browser localStorage. Use Data & portability → Backup all data before changing browser, device or deployment origin.
-
-A plan export is different from a full backup:
-
-- Plan export contains one selected layout and its exact placements.
-- Full backup contains the complete application state.
-
-## Smart product import
-
-Product import runs in the browser. It first tries the public product page. If that request is blocked **or succeeds without usable width/depth/height**, Storage Fit also tries the public r.jina.ai reader and merges any missing measurements into the preview. This matters for retailer pages that return a partial JavaScript shell with a title/reference but omit the measurement section from the fetched HTML. Complete direct-page imports still use a single request.
-
- map to `EUR` and `USD`.
+Prices are normalized across common retailer number formats before the preview is shown. Values such as `1 299`, `1.299,00`, and `1,299.00` all resolve to the same numeric price. Smart Import applies this to JSON-LD offers (including aggregate/nested price fields), product-price meta tags, and reader text; `DH` / `DHS` are normalized to `MAD`, while `€` and `$` map to `EUR` and `USD`.
 
 Reader parsing then acts as the text fallback. It treats product measurements as a coherent set rather than taking the first width, depth, and height independently. When markdown headings are available it prefers product/measurement sections and ignores package/packaging sections, preventing shipping dimensions from being mixed with the organizer's real dimensions. Retailer markup and access policies can change, so imported dimensions should always be reviewed before purchasing.
 
