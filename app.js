@@ -2423,6 +2423,32 @@ function projectRoomProgress(options={}){
   };
   return {rooms:roomRows,storages:storageRows,totals};
 }
+function measurementWorksheetData(options={}){
+  const rooms=Array.isArray(options.rooms)?options.rooms:state.rooms;
+  const furniture=Array.isArray(options.furniture)?options.furniture:state.furniture;
+  const storages=Array.isArray(options.storages)?options.storages:state.storages;
+  const unit=String(options.unit||state.unit||"cm");
+  const roomRows=(rooms||[]).map(room=>{
+    const furnitureRows=(furniture||[]).filter(item=>item.roomId===room.id).map(item=>{
+      const spaces=(storages||[]).filter(storage=>storage.furnitureId===item.id).map(storage=>({
+        storageId:storage.id,
+        storageName:storage.name||"Storage",
+        width:Number(storage.w)||0,
+        depth:Number(storage.d)||0,
+        height:Number(storage.h)||0,
+        blockedZones:Array.isArray(storage.obstacles)?storage.obstacles.length:0,
+        dividers:Array.isArray(storage.dividers)?storage.dividers.length:0
+      }));
+      return {furnitureId:item.id,furnitureName:item.name||"Furniture",spaces};
+    }).filter(item=>item.spaces.length);
+    return {roomId:room.id,roomName:room.name||"Room",furniture:furnitureRows};
+  }).filter(room=>room.furniture.length);
+  return {
+    unit,
+    rooms:roomRows,
+    storageCount:roomRows.reduce((sum,room)=>sum+room.furniture.reduce((inner,item)=>inner+item.spaces.length,0),0)
+  };
+}
 function projectChecklistData(options={}){
   const progress=options.progress||projectRoomProgress();
   const procurement=options.procurement||projectProcurement();
@@ -2695,10 +2721,11 @@ function runProjectNextAction(action){
   return false;
 }
 function renderProjectNextActions(){
-  const sec=$("projectNextSection"),list=$("projectNextList"),summary=$("projectNextSummary"),printBtn=$("printProjectChecklistBtn");if(!sec||!list||!summary)return;
+  const sec=$("projectNextSection"),list=$("projectNextList"),summary=$("projectNextSummary"),printBtn=$("printProjectChecklistBtn"),measureBtn=$("printMeasurementWorksheetBtn");if(!sec||!list||!summary)return;
   const result=projectNextActions(),actions=result.actions;
   sec.style.display="block";
   if(printBtn)printBtn.disabled=!state.storages.length;
+  if(measureBtn)measureBtn.disabled=!state.storages.length;
   summary.textContent=result.complete?"Project complete":actions.length+" next action"+(actions.length===1?"":"s");
   list.innerHTML=actions.map((action,index)=>{
     const targets=Array.isArray(action.targets)?action.targets:[];
@@ -3878,6 +3905,31 @@ function buildLabelPrintSheet(){
       <div class="labelmeta">Placement #${x.index} · ${fmt(x.w)} × ${fmt(x.d)} × ${fmt(x.h)} ${esc(state.unit)}${x.z>0?` · stacked at z ${fmt(x.z)} ${esc(state.unit)}`:""}</div>
       <div class="labelstorage">${esc(s.name)}</div>
     </article>`).join("")}</div>
+  </div>`;
+  return true;
+}
+
+function buildMeasurementWorksheetPrintSheet(){
+  const data=measurementWorksheetData();if(!data.storageCount)return false;
+  const roomHtml=data.rooms.map(room=>`<section class="measureroom">
+    <h2>${esc(room.roomName)}</h2>
+    ${room.furniture.map(item=>`<section class="measurefurniture">
+      <div class="measurefurniturehead"><strong>${esc(item.furnitureName)}</strong><span>${item.spaces.length} storage space${item.spaces.length===1?"":"s"}</span></div>
+      <table class="measuretable"><thead><tr><th>Storage space</th><th>Saved W × D × H</th><th>Measured W</th><th>Measured D</th><th>Measured H</th><th>Constraints / notes</th></tr></thead><tbody>
+        ${item.spaces.map(space=>`<tr>
+          <td><strong>${esc(space.storageName)}</strong></td>
+          <td>${fmt(space.width)} × ${fmt(space.depth)} × ${fmt(space.height)} ${esc(data.unit)}</td>
+          <td class="measureblank"></td><td class="measureblank"></td><td class="measureblank"></td>
+          <td class="measurenotes">${space.blockedZones||space.dividers?`${space.blockedZones} blocked · ${space.dividers} divider${space.dividers===1?"":"s"}<br>`:""}<span>________________________</span></td>
+        </tr>`).join("")}
+      </tbody></table>
+    </section>`).join("")}
+  </section>`).join("");
+  $("printSheet").innerHTML=`<div class="measurementsheet">
+    <h1>Storage Fit — Measurement worksheet</h1>
+    <div class="printmeta">${data.storageCount} storage space${data.storageCount===1?"":"s"} · project unit: ${esc(data.unit)} · use the narrowest usable inside dimensions</div>
+    <div class="measurementtips"><strong>Measure before planning:</strong> record usable inside width, depth and height. Note rails, hinges, lips, tracks, posts, dividers, sloped backs, or any obstruction that reduces usable space.</div>
+    ${roomHtml}
   </div>`;
   return true;
 }
@@ -6831,6 +6883,10 @@ $("reset3d").addEventListener("click",()=>{
 });
 
 
+$("printMeasurementWorksheetBtn").addEventListener("click",()=>{
+  if(!buildMeasurementWorksheetPrintSheet()){alert("Add at least one storage space before printing a measurement worksheet.");return}
+  window.print();
+});
 $("printProjectChecklistBtn").addEventListener("click",()=>{
   if(!buildProjectChecklistPrintSheet()){alert("Add at least one storage space before printing a project checklist.");return}
   window.print();
@@ -7323,6 +7379,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     purchasedArrivalAnalysis,
     roomInstallPriorityImpact,
     projectRoomProgress,
+    measurementWorksheetData,
     projectChecklistData,
     projectNextActions,
     computeInstallAllocation,
