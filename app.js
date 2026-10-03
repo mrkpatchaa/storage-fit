@@ -79,6 +79,8 @@ for(const b of state.boxes){
 for(const s of state.storages){
   if(!Array.isArray(s.obstacles)) s.obstacles=[];
   if(!Array.isArray(s.dividers)) s.dividers=[];
+  s.measuredAt=typeof s.measuredAt==="string"?s.measuredAt:"";
+  s.measurementSignature=typeof s.measurementSignature==="string"?s.measurementSignature:"";
   for(const o of s.obstacles){
     o.id=o.id||uid("o");
     o.name=o.name||"Blocked zone";
@@ -342,7 +344,7 @@ function syncHierarchyToStorage(storageId){
 function save(){
   state.unit=$("unit").value; state.uprightOnly=$("uprightOnly").checked; state.enableStacking=$("enableStacking").checked; state.optimizeGoal=$("optimizeGoal").value;
   state.clearanceEnabled=$("clearanceEnabled").checked; state.clearance=Math.max(0,Number($("clearance").value)||0); state.fitTolerance=Math.max(0,Number($("fitTolerance").value)||0);
-  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
+  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderStorageMeasurementStatus();
 }
 function uid(p){return p+Math.random().toString(36).slice(2,9)}
 function fmt(n){return String(Math.round(n*10)/10)}
@@ -1892,6 +1894,8 @@ function validateBackupState(candidate){
     if(!s||typeof s!=="object"||!s.id)return "A storage space is missing its ID.";
     if(ids.has(`s:${s.id}`))return "Duplicate storage-space ID found.";
     ids.add(`s:${s.id}`);
+    if(s.measuredAt!=null&&typeof s.measuredAt!=="string")return `Storage “${s.name||s.id}” has invalid measurement verification metadata.`;
+    if(s.measurementSignature!=null&&typeof s.measurementSignature!=="string")return `Storage “${s.name||s.id}” has invalid measurement verification metadata.`;
     if(!isFiniteNonNegative(s.w)||!isFiniteNonNegative(s.d)||!isFiniteNonNegative(s.h))return `Storage “${s.name||s.id}” has invalid dimensions.`;
     if(s.obstacles!=null&&!Array.isArray(s.obstacles))return `Storage “${s.name||s.id}” has malformed blocked zones.`;
     if(s.dividers!=null&&!Array.isArray(s.dividers))return `Storage “${s.name||s.id}” has malformed dividers.`;
@@ -2437,7 +2441,8 @@ function measurementWorksheetData(options={}){
         depth:Number(storage.d)||0,
         height:Number(storage.h)||0,
         blockedZones:Array.isArray(storage.obstacles)?storage.obstacles.length:0,
-        dividers:Array.isArray(storage.dividers)?storage.dividers.length:0
+        dividers:Array.isArray(storage.dividers)?storage.dividers.length:0,
+        measurement:storageMeasurementStatus(storage,unit)
       }));
       return {furnitureId:item.id,furnitureName:item.name||"Furniture",spaces};
     }).filter(item=>item.spaces.length);
@@ -2793,9 +2798,9 @@ function renderStorageList(){
   const el=$("storageList"),filtered=state.storages.filter(s=>s.furnitureId===state.selectedFurniture);
   if(!filtered.length){el.innerHTML='<div class="empty">No storage spaces in this furniture yet.</div>';return}
   const progress=projectRoomProgress(),statusById=new Map(progress.storages.map(row=>[row.storageId,row]));
-  el.innerHTML=filtered.map(s=>{const project=statusById.get(s.id),review=project?.status==="review",planned=!!project?.currentPlan;return `<div class="listitem ${s.id===editingStorage?"active":""}" data-s="${s.id}">
-    <div><div class="listname">${esc(s.name)}</div><div class="dims">${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${esc(state.unit)}${s.obstacles?.length?` · ${s.obstacles.length} blocked`:""}${s.dividers?.length?` · ${s.dividers.length} divider${s.dividers.length===1?"":"s"}`:""}<div class="crumb">${review?"saved plan needs review":planned?"current saved plan available":"not planned yet"}</div></div></div>
-    ${s.id===state.selectedStorage?'<span class="badge">selected</span>':review?'<span class="badge">review</span>':planned?'<span class="badge">planned</span>':""}</div>`}).join("");
+  el.innerHTML=filtered.map(s=>{const project=statusById.get(s.id),review=project?.status==="review",planned=!!project?.currentPlan,measurement=storageMeasurementStatus(s);return `<div class="listitem ${s.id===editingStorage?"active":""}" data-s="${s.id}">
+    <div><div class="listname">${esc(s.name)}</div><div class="dims">${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${esc(state.unit)}${s.obstacles?.length?` · ${s.obstacles.length} blocked`:""}${s.dividers?.length?` · ${s.dividers.length} divider${s.dividers.length===1?"":"s"}`:""}<div class="crumb">${review?"saved plan needs review":planned?"current saved plan available":"not planned yet"} · ${measurement.status==="current"?"measured":measurement.status==="stale"?"measurement needs recheck":"not measured"}</div></div></div>
+    ${s.id===state.selectedStorage?'<span class="badge">selected</span>':review?'<span class="badge">review</span>':measurement.status==="stale"?'<span class="badge">recheck</span>':measurement.status==="current"?'<span class="badge">measured</span>':planned?'<span class="badge">planned</span>':""}</div>`}).join("");
   el.querySelectorAll("[data-s]").forEach(n=>n.addEventListener("click",()=>{
     editingStorage=n.dataset.s;state.selectedStorage=n.dataset.s;syncHierarchyToStorage(n.dataset.s);
     localStorage.setItem(KEY,JSON.stringify(state));
@@ -2923,11 +2928,31 @@ function updateStorageStructureCopyButton(){
     ? `Copy dimensions, blocked zones and dividers to ${targets.eligible.length} fresh sibling${targets.eligible.length===1?"":"s"}. ${notes.join(" · ")}`.trim()
     : (notes.join(" · ")||"No fresh sibling storage needs this structure.");
 }
+function renderStorageMeasurementStatus(){
+  const wrap=$("storageMeasurementStatus"),label=$("storageMeasurementLabel"),detail=$("storageMeasurementDetail"),btn=$("toggleStorageMeasured");
+  if(!wrap||!label||!detail||!btn)return;
+  const s=state.storages.find(x=>x.id===editingStorage);
+  if(!s){wrap.className="measurementverify";label.textContent="Not measured";detail.textContent="Select a storage space first.";btn.disabled=true;btn.textContent="Mark measured";return}
+  const status=storageMeasurementStatus(s);
+  wrap.className="measurementverify "+status.status;
+  label.textContent=status.label;
+  if(status.status==="unverified"){
+    detail.textContent="Mark this after physically checking the usable inside space and constraints.";
+    btn.textContent="Mark measured";
+  }else{
+    const when=new Date(status.measuredAt),time=Number.isFinite(when.getTime())?when.toLocaleString():"an earlier time";
+    detail.textContent=status.status==="current"
+      ?`Verified ${time}. Current dimensions and constraints still match.`
+      :`Geometry changed since ${time}. Re-measure before trusting fit results.`;
+    btn.textContent=status.status==="current"?"Clear measured":"Reconfirm measured";
+  }
+  btn.disabled=false;
+}
 function loadStorageEditor(){
   const s=state.storages.find(x=>x.id===editingStorage);
   $("storageName").value=s?.name||"";$("sw").value=s?.w??"";$("sd").value=s?.d??"";$("sh").value=s?.h??"";
   if(s&&$("storageFurniture"))$("storageFurniture").value=s.furnitureId||state.selectedFurniture;
-  updateStorageStructureCopyButton();
+  updateStorageStructureCopyButton();renderStorageMeasurementStatus();
 }
 function defaultConstraintMeasure(unit=state.unit){
   return unit==="mm"?10:unit==="in"?0.4:1;
@@ -3920,7 +3945,7 @@ function buildMeasurementWorksheetPrintSheet(){
           <td><strong>${esc(space.storageName)}</strong></td>
           <td>${fmt(space.width)} × ${fmt(space.depth)} × ${fmt(space.height)} ${esc(data.unit)}</td>
           <td class="measureblank"></td><td class="measureblank"></td><td class="measureblank"></td>
-          <td class="measurenotes">${space.blockedZones||space.dividers?`${space.blockedZones} blocked · ${space.dividers} divider${space.dividers===1?"":"s"}<br>`:""}<span>________________________</span></td>
+          <td class="measurenotes"><strong>${space.measurement.status==="current"?"Measured":space.measurement.status==="stale"?"Needs recheck":"Not measured"}</strong><br>${space.blockedZones||space.dividers?`${space.blockedZones} blocked · ${space.dividers} divider${space.dividers===1?"":"s"}<br>`:""}<span>________________________</span></td>
         </tr>`).join("")}
       </tbody></table>
     </section>`).join("")}
@@ -4001,6 +4026,35 @@ function storageStructureSignature(s){
     d.orientation==="horizontal"?"h":"v",round6(Number(d.position)||0),round6(Number(d.thickness)||0),round6(Number(d.h)||0)
   ]).sort((a,b)=>a.join("|").localeCompare(b.join("|")));
   return JSON.stringify([round6(Number(s.w)||0),round6(Number(s.d)||0),round6(Number(s.h)||0),obstacles,dividers]);
+}
+function storageMeasurementSignature(s,unit=state.unit){
+  if(!s)return "";
+  const scale=unitScale(unit,"cm"),n=value=>Math.round((Number(value)||0)*scale*100)/100;
+  const obstacles=(s.obstacles||[]).map(o=>[
+    n(o.x),n(o.y),n(o.w),n(o.d),n(o.h)
+  ]).sort((a,b)=>a.join("|").localeCompare(b.join("|")));
+  const dividers=(s.dividers||[]).map(d=>[
+    d.orientation==="horizontal"?"h":"v",n(d.position),n(d.thickness),n(d.h)
+  ]).sort((a,b)=>a.join("|").localeCompare(b.join("|")));
+  return JSON.stringify([n(s.w),n(s.d),n(s.h),obstacles,dividers]);
+}
+function storageMeasurementStatus(s,unit=state.unit){
+  const measuredAt=String(s?.measuredAt||""),signature=String(s?.measurementSignature||"");
+  if(!measuredAt||!signature)return {status:"unverified",label:"Not measured",measuredAt:""};
+  const current=storageMeasurementSignature(s,unit)===signature;
+  return {status:current?"current":"stale",label:current?"Measured":"Needs recheck",measuredAt};
+}
+function markStorageMeasured(s,unit=state.unit,now=new Date()){
+  if(!s)return null;
+  const date=now instanceof Date?now:new Date(now);
+  s.measuredAt=Number.isFinite(date.getTime())?date.toISOString():new Date().toISOString();
+  s.measurementSignature=storageMeasurementSignature(s,unit);
+  return storageMeasurementStatus(s,unit);
+}
+function clearStorageMeasured(s){
+  if(!s)return null;
+  s.measuredAt="";s.measurementSignature="";
+  return storageMeasurementStatus(s);
 }
 function matchingSiblingStorages(source,storages=state.storages){
   if(!source)return [];
@@ -7130,6 +7184,20 @@ $("pasteStorageDimensions").addEventListener("click",()=>{
   const ok=pasteDimensionsIntoFields(["sw","sd","sh"],"storage");if(!ok)return;
   const btn=$("pasteStorageDimensions"),old=btn.textContent;btn.textContent="Filled ✓";setTimeout(()=>{btn.textContent=old},1200);
 });
+$("toggleStorageMeasured").addEventListener("click",()=>{
+  const s=state.storages.find(x=>x.id===editingStorage);if(!s)return;
+  const status=storageMeasurementStatus(s);
+  if(status.status==="current"){
+    clearStorageMeasured(s);save();renderStorageMeasurementStatus();renderStorageList();return;
+  }
+  const visible=[Number($("sw").value)||0,Number($("sd").value)||0,Number($("sh").value)||0];
+  const saved=[Number(s.w)||0,Number(s.d)||0,Number(s.h)||0];
+  if(visible.some((value,index)=>Math.abs(value-saved[index])>1e-9)){
+    alert("Save the visible Width, Depth and Height first, then mark the saved storage as measured.");
+    return;
+  }
+  markStorageMeasured(s);save();renderStorageMeasurementStatus();renderStorageList();
+});
 $("pasteBoxDimensions").addEventListener("click",()=>{
   const ok=pasteDimensionsIntoFields(["bw","bd","bh"],"organizer");if(!ok)return;
   const btn=$("pasteBoxDimensions"),old=btn.textContent;btn.textContent="Filled ✓";setTimeout(()=>{btn.textContent=old},1200);
@@ -7452,6 +7520,10 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     dividerRectsForStorage,
     physicalObstaclesForStorage,
     storageStructureSignature,
+    storageMeasurementSignature,
+    storageMeasurementStatus,
+    markStorageMeasured,
+    clearStorageMeasured,
     matchingSiblingStorages,
     storageStructureCopyTargets,
     copyStorageStructureData,

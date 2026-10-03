@@ -203,6 +203,10 @@
       var valid={storages:[{id:"s",name:"Drawer",w:67,d:26,h:13,obstacles:[]}],boxes:[{id:"b",name:"Box",w:10,d:10,h:5}],savedPlans:[]};
       result(api.validateBackupState(valid)==="","backup validation accepts valid state");
       result(api.validateBackupState({storages:"bad",boxes:[]})!=="","backup validation rejects invalid state");
+      var measuredBackup={storages:[{id:"s",name:"Drawer",w:67,d:26,h:13,obstacles:[],measuredAt:"2026-10-03T08:00:00.000Z",measurementSignature:"sig"}],boxes:[{id:"b",name:"Box",w:10,d:10,h:5}],savedPlans:[]};
+      result(api.validateBackupState(measuredBackup)==="","backup validation accepts measurement verification metadata");
+      var invalidMeasuredBackup={storages:[{id:"s",name:"Drawer",w:67,d:26,h:13,obstacles:[],measuredAt:{bad:true},measurementSignature:"sig"}],boxes:[{id:"b",name:"Box",w:10,d:10,h:5}],savedPlans:[]};
+      result(api.validateBackupState(invalidMeasuredBackup)!=="","backup validation rejects malformed measurement verification metadata");
       var validSessionBackup={...valid,ownedDistributionSessions:{b:{itemId:"b",allocations:[{storageId:"s",status:"opened",result:{layout:[]}}]}}};
       result(api.validateBackupState(validSessionBackup)==="","backup validation accepts persisted owned-distribution sessions");
       var invalidSessionBackup={...valid,ownedDistributionSessions:{b:{itemId:"b",allocations:[{storageId:"s",status:"opened",result:{}}]}}};
@@ -1313,6 +1317,41 @@
       var firstWaitingSpace=blockedBedroom.spaces.find(function(s){return s.status==="waiting"});
       result(firstWaitingSpace&&firstWaitingSpace.action.kind==="room-shopping"&&firstWaitingSpace.action.targetId==="sock"&&firstWaitingSpace.action.label==="View blocker","waiting storage queue routes to the first concrete missing organizer");
 
+      var measuredStorage={
+        id:"measure-status",furnitureId:"mf1",name:"Measured drawer",w:81,d:40,h:47,
+        obstacles:[{id:"mo1",x:0,y:0,w:2,d:40,h:5}],
+        dividers:[{id:"md1",orientation:"vertical",position:40.5,thickness:0.5,h:47}]
+      };
+      result(api.storageMeasurementStatus(measuredStorage,"cm").status==="unverified","storage measurements start unverified");
+      api.markStorageMeasured(measuredStorage,"cm","2026-10-03T08:00:00.000Z");
+      result(api.storageMeasurementStatus(measuredStorage,"cm").status==="current"&&measuredStorage.measuredAt==="2026-10-03T08:00:00.000Z","mark measured records a current geometry fingerprint and timestamp");
+      measuredStorage.name="Renamed drawer";measuredStorage.furnitureId="mf2";
+      result(api.storageMeasurementStatus(measuredStorage,"cm").status==="current","renaming or moving a storage does not invalidate physical measurement verification");
+      measuredStorage.w=82;
+      result(api.storageMeasurementStatus(measuredStorage,"cm").status==="stale","changing a measured physical dimension requires recheck");
+      measuredStorage.w=81;
+      result(api.storageMeasurementStatus(measuredStorage,"cm").status==="current","restoring the verified physical geometry restores current measurement status");
+      var measuredMm={
+        ...measuredStorage,w:810,d:400,h:470,
+        obstacles:[{id:"mo1",x:0,y:0,w:20,d:400,h:50}],
+        dividers:[{id:"md1",orientation:"vertical",position:405,thickness:5,h:470}]
+      };
+      result(api.storageMeasurementStatus(measuredMm,"mm").status==="current","switching project units does not invalidate a physically unchanged measured storage");
+      var measuredIn={
+        ...measuredStorage,w:31.89,d:15.748,h:18.504,
+        obstacles:[{id:"mo1",x:0,y:0,w:0.787,d:15.748,h:1.969}],
+        dividers:[{id:"md1",orientation:"vertical",position:15.945,thickness:0.197,h:18.504}]
+      };
+      result(api.storageMeasurementStatus(measuredIn,"in").status==="current","measurement verification tolerates normal cm-to-inch display rounding");
+      var measuredClone=api.cloneStorageDefinition(measuredStorage,{id:"measure-copy",idFactory:function(prefix){return prefix+"-copy";}});
+      result(api.storageMeasurementStatus(measuredClone,"cm").status==="unverified","duplicated storage structure does not inherit physical measurement verification");
+      api.clearStorageMeasured(measuredStorage);
+      result(api.storageMeasurementStatus(measuredStorage,"cm").status==="unverified"&&!measuredStorage.measuredAt&&!measuredStorage.measurementSignature,"measurement verification can be cleared explicitly");
+
+      var worksheetVerified={id:"ms1",furnitureId:"mf1",name:"Left drawer",w:81,d:40,h:47,obstacles:[{id:"o1"}],dividers:[]};
+      api.markStorageMeasured(worksheetVerified,"cm","2026-10-03T08:00:00.000Z");
+      var worksheetStale={id:"ms2",furnitureId:"mf1",name:"Bottom track",w:67,d:26,h:13,obstacles:[],dividers:[{id:"d1"},{id:"d2"}]};
+      api.markStorageMeasured(worksheetStale,"cm","2026-10-03T08:00:00.000Z");worksheetStale.h=14;
       var measureData=api.measurementWorksheetData({
         rooms:[{id:"mr1",name:"Bedroom"},{id:"mr2",name:"Kitchen"}],
         furniture:[
@@ -1321,8 +1360,8 @@
           {id:"mf-empty",roomId:"mr1",name:"Empty unit"}
         ],
         storages:[
-          {id:"ms1",furnitureId:"mf1",name:"Left drawer",w:81,d:40,h:47,obstacles:[{id:"o1"}],dividers:[]},
-          {id:"ms2",furnitureId:"mf1",name:"Bottom track",w:67,d:26,h:13,obstacles:[],dividers:[{id:"d1"},{id:"d2"}]},
+          worksheetVerified,
+          worksheetStale,
           {id:"ms3",furnitureId:"mf2",name:"Upper shelf",w:60,d:35,h:30,obstacles:[],dividers:[]}
         ],
         unit:"cm"
@@ -1331,6 +1370,7 @@
       result(measureData.rooms[0].roomName==="Bedroom"&&measureData.rooms[0].furniture.length===1&&measureData.rooms[0].furniture[0].spaces.length===2,"measurement worksheet groups storage spaces by room and furniture while omitting empty furniture");
       result(measureData.rooms[0].furniture[0].spaces[0].width===81&&measureData.rooms[0].furniture[0].spaces[0].depth===40&&measureData.rooms[0].furniture[0].spaces[0].height===47&&measureData.rooms[0].furniture[0].spaces[0].blockedZones===1,"measurement worksheet carries saved dimensions and blocked-zone counts");
       result(measureData.rooms[0].furniture[0].spaces[1].dividers===2,"measurement worksheet carries divider counts for field verification");
+      result(measureData.rooms[0].furniture[0].spaces[0].measurement.status==="current"&&measureData.rooms[0].furniture[0].spaces[1].measurement.status==="stale"&&measureData.rooms[1].furniture[0].spaces[0].measurement.status==="unverified","measurement worksheet carries current stale and unverified field-check states");
       var projectChecklist=api.projectChecklistData({
         progress:blockedRoomProgress,
         procurement:{
