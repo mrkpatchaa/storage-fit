@@ -203,6 +203,10 @@
       var valid={storages:[{id:"s",name:"Drawer",w:67,d:26,h:13,obstacles:[]}],boxes:[{id:"b",name:"Box",w:10,d:10,h:5}],savedPlans:[]};
       result(api.validateBackupState(valid)==="","backup validation accepts valid state");
       result(api.validateBackupState({storages:"bad",boxes:[]})!=="","backup validation rejects invalid state");
+      var measuredBackup={storages:[{id:"s",name:"Drawer",w:67,d:26,h:13,obstacles:[],measuredAt:"2026-10-03T08:00:00.000Z",measurementSignature:"sig"}],boxes:[{id:"b",name:"Box",w:10,d:10,h:5}],savedPlans:[]};
+      result(api.validateBackupState(measuredBackup)==="","backup validation accepts measurement verification metadata");
+      var invalidMeasuredBackup={storages:[{id:"s",name:"Drawer",w:67,d:26,h:13,obstacles:[],measuredAt:{bad:true},measurementSignature:"sig"}],boxes:[{id:"b",name:"Box",w:10,d:10,h:5}],savedPlans:[]};
+      result(api.validateBackupState(invalidMeasuredBackup)!=="","backup validation rejects malformed measurement verification metadata");
       var validSessionBackup={...valid,ownedDistributionSessions:{b:{itemId:"b",allocations:[{storageId:"s",status:"opened",result:{layout:[]}}]}}};
       result(api.validateBackupState(validSessionBackup)==="","backup validation accepts persisted owned-distribution sessions");
       var invalidSessionBackup={...valid,ownedDistributionSessions:{b:{itemId:"b",allocations:[{storageId:"s",status:"opened",result:{}}]}}};
