@@ -131,6 +131,14 @@ Explicit units are converted into the current project unit. If the pasted triple
 
 Pasting only fills the Width / Depth / Height form fields. It does not save anything until **Save** is pressed, so the measurements remain review-first.
 
+## Printable measurement worksheet
+
+**Print measurement worksheet** creates a whole-home field sheet from the current Room → Furniture → Storage hierarchy.
+
+For every storage space it shows the currently saved Width × Depth × Height for reference and leaves dedicated blanks to record fresh measured Width / Depth / Height values. Existing blocked-zone and divider counts are included as prompts, with extra note space for rails, hinges, lips, tracks, posts, sloped backs, or other real-world obstructions.
+
+The worksheet is read-only: printing it does not mark measurements as verified or change project data. After measuring, enter or paste the corrected dimensions into the normal storage editor and press **Save**.
+
 ## Home hierarchy
 
 Storage spaces are organized as:
