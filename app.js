@@ -7279,19 +7279,24 @@ $("pasteStorageDimensions").addEventListener("click",()=>{
 });
 function saveStorageEditor({verify=false,advance=false}={}){
   const s=state.storages.find(x=>x.id===editingStorage);if(!s)return false;
-  s.name=$("storageName").value.trim()||"Storage";
-  s.w=Math.max(0,Number($("sw").value)||0);s.d=Math.max(0,Number($("sd").value)||0);s.h=Math.max(0,Number($("sh").value)||0);
-  s.furnitureId=$("storageFurniture").value||s.furnitureId||state.selectedFurniture;
+  const nextValues={
+    name:$("storageName").value.trim()||"Storage",
+    w:Math.max(0,Number($("sw").value)||0),
+    d:Math.max(0,Number($("sd").value)||0),
+    h:Math.max(0,Number($("sh").value)||0),
+    furnitureId:$("storageFurniture").value||s.furnitureId||state.selectedFurniture
+  };
+  if(verify){
+    const error=storageMeasurementVerificationError(nextValues);
+    if(error){alert(error);return false}
+  }
+  s.name=nextValues.name;s.w=nextValues.w;s.d=nextValues.d;s.h=nextValues.h;s.furnitureId=nextValues.furnitureId;
   s.obstacles=s.obstacles||[];for(const o of s.obstacles){o.x=Math.min(o.x,s.w);o.y=Math.min(o.y,s.d);o.w=Math.min(o.w,Math.max(0,s.w-o.x));o.d=Math.min(o.d,Math.max(0,s.d-o.y));o.h=Math.min(o.h,s.h)}
   s.dividers=s.dividers||[];for(const d of s.dividers){
     d.position=Math.min(Math.max(0,d.position),d.orientation==="horizontal"?s.d:s.w);
     d.thickness=Math.max(0.01,d.thickness);d.h=Math.min(Math.max(0,d.h),s.h);
   }
-  if(verify){
-    const error=storageMeasurementVerificationError(s);
-    if(error){alert(error);return false}
-    markStorageMeasured(s);
-  }
+  if(verify)markStorageMeasured(s);
   const nextId=verify&&advance?nextPendingMeasurementStorageId(s.id):"";
   save();
   if(nextId)openMeasurementStorage(nextId);
