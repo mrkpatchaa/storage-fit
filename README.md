@@ -139,6 +139,20 @@ For every storage space it shows the currently saved Width × Depth × Height fo
 
 The worksheet is read-only: printing it does not mark measurements as verified or change project data. After measuring, enter or paste the corrected dimensions into the normal storage editor and press **Save**.
 
+## Measurement verification
+
+Each storage editor can be marked **Measured** after you physically check its usable inside Width / Depth / Height and modeled constraints.
+
+Storage Fit records a fingerprint of the physical geometry—not the storage name or room location. The state then behaves as follows:
+
+- **Not measured** — no physical verification has been recorded.
+- **Measured** — current dimensions, blocked zones, and dividers still match the verified geometry.
+- **Needs recheck** — a physical dimension, blocked-zone geometry, or divider geometry changed after verification.
+
+Renaming a storage, moving it to another piece of furniture, or switching the project between cm / mm / inches does not invalidate measurement verification. Duplicated or structure-synced storage spaces do not inherit another compartment's physical verification.
+
+A stale storage can be physically checked again and **Reconfirm measured**. Current verification can also be cleared explicitly. The printable measurement worksheet shows the same verification state beside each space.
+
 ## Home hierarchy
 
 Storage spaces are organized as:
