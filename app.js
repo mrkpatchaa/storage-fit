@@ -344,7 +344,7 @@ function syncHierarchyToStorage(storageId){
 function save(){
   state.unit=$("unit").value; state.uprightOnly=$("uprightOnly").checked; state.enableStacking=$("enableStacking").checked; state.optimizeGoal=$("optimizeGoal").value;
   state.clearanceEnabled=$("clearanceEnabled").checked; state.clearance=Math.max(0,Number($("clearance").value)||0); state.fitTolerance=Math.max(0,Number($("fitTolerance").value)||0);
-  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderStorageMeasurementStatus();
+  localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();renderStorageMeasurementStatus();renderMeasurementProgress();
 }
 function uid(p){return p+Math.random().toString(36).slice(2,9)}
 function fmt(n){return String(Math.round(n*10)/10)}
@@ -2427,6 +2427,41 @@ function projectRoomProgress(options={}){
   };
   return {rooms:roomRows,storages:storageRows,totals};
 }
+function measurementProgressData(options={}){
+  const rooms=Array.isArray(options.rooms)?options.rooms:state.rooms;
+  const furniture=Array.isArray(options.furniture)?options.furniture:state.furniture;
+  const storages=Array.isArray(options.storages)?options.storages:state.storages;
+  const unit=String(options.unit||state.unit||"cm");
+  const priority={stale:0,unverified:1,current:2};
+  const rows=(storages||[]).map(storage=>{
+    const context=projectStorageContext(storage.id,{rooms,furniture,storages});
+    const measurement=storageMeasurementStatus(storage,unit);
+    return {
+      storageId:storage.id,
+      roomId:context.room?.id||"",
+      furnitureId:context.furniture?.id||"",
+      path:context.path,
+      sortKey:context.sortKey,
+      status:measurement.status,
+      label:measurement.label,
+      measuredAt:measurement.measuredAt,
+      width:Number(storage.w)||0,
+      depth:Number(storage.d)||0,
+      height:Number(storage.h)||0,
+      blockedZones:Array.isArray(storage.obstacles)?storage.obstacles.length:0,
+      dividers:Array.isArray(storage.dividers)?storage.dividers.length:0
+    };
+  }).sort((a,b)=>(priority[a.status]??9)-(priority[b.status]??9)||a.sortKey.localeCompare(b.sortKey));
+  const current=rows.filter(row=>row.status==="current").length;
+  const stale=rows.filter(row=>row.status==="stale").length;
+  const unverified=rows.filter(row=>row.status==="unverified").length;
+  const total=rows.length;
+  return {
+    rows,
+    pending:rows.filter(row=>row.status!=="current"),
+    totals:{total,current,stale,unverified,complete:total>0&&current===total,currentPct:total?Math.round(current/total*100):0}
+  };
+}
 function measurementWorksheetData(options={}){
   const rooms=Array.isArray(options.rooms)?options.rooms:state.rooms;
   const furniture=Array.isArray(options.furniture)?options.furniture:state.furniture;
@@ -2536,6 +2571,40 @@ function runRoomStorageAction(space){
   if(space.action.kind==="room-shopping")return focusShoppingItem(space.action.targetId);
   if(space.action.kind==="open-plan"){openSavedPlan(space.action.targetId);return true}
   return runProjectNextAction(space.action);
+}
+function openMeasurementStorage(storageId){
+  if(!storageId)return false;
+  const exists=state.storages.some(storage=>storage.id===storageId);if(!exists)return false;
+  openCompatibleStorage(storageId);
+  $("storageMeasurementStatus")?.scrollIntoView({behavior:"smooth",block:"center"});
+  return true;
+}
+function renderMeasurementProgress(){
+  const sec=$("measurementProgressSection"),summary=$("measurementProgressSummary"),stats=$("measurementProgressStats"),list=$("measurementProgressList"),next=$("openNextMeasurementBtn");
+  if(!sec||!summary||!stats||!list||!next)return;
+  const data=measurementProgressData(),t=data.totals;
+  if(!t.total){
+    sec.style.display="none";summary.textContent="";stats.innerHTML="";list.innerHTML="";next.disabled=true;return;
+  }
+  sec.style.display="block";
+  summary.textContent=`${t.current}/${t.total} current · ${t.stale} recheck · ${t.unverified} not measured`;
+  next.disabled=!data.pending.length;
+  next.textContent=data.pending.length?(data.pending[0].status==="stale"?"Open next recheck":"Open next measurement"):"All measured ✓";
+  stats.innerHTML=`
+    <div class="measurementprogressstat current"><strong>${t.current}</strong><span>Measured</span></div>
+    <div class="measurementprogressstat stale"><strong>${t.stale}</strong><span>Needs recheck</span></div>
+    <div class="measurementprogressstat unverified"><strong>${t.unverified}</strong><span>Not measured</span></div>
+    <div class="measurementprogressstat"><strong>${t.currentPct}%</strong><span>Current coverage</span></div>`;
+  if(!data.pending.length){
+    list.innerHTML='<div class="measurementprogresscomplete"><strong>All storage measurements are current.</strong><span>Every saved storage geometry still matches its latest physical verification.</span></div>';
+  }else{
+    list.innerHTML=data.pending.map(row=>`<div class="measurementprogressrow ${row.status}">
+      <div><div class="measurementprogresspath">${esc(row.path)}</div><div class="measurementprogressmeta">${fmt(row.width)} × ${fmt(row.depth)} × ${fmt(row.height)} ${esc(state.unit)} · ${row.blockedZones} blocked · ${row.dividers} divider${row.dividers===1?"":"s"}</div><span class="measurementprogressstatus ${row.status}">${esc(row.label)}</span></div>
+      <button class="btn soft" type="button" data-measurement-storage="${row.storageId}">Open</button>
+    </div>`).join("");
+  }
+  next.onclick=()=>{const row=data.pending[0];if(row)openMeasurementStorage(row.storageId)};
+  list.querySelectorAll("[data-measurement-storage]").forEach(btn=>btn.addEventListener("click",()=>openMeasurementStorage(btn.dataset.measurementStorage)));
 }
 function renderRoomProgressOverview(){
   const sec=$("roomProgressSection"),list=$("roomProgressList"),summary=$("roomProgressSummary");if(!sec||!list||!summary)return;
@@ -2756,7 +2825,7 @@ function renderAll(){
   $("unit").value=state.unit||"cm";$("optimizeGoal").value=state.optimizeGoal||"fill";$("uprightOnly").checked=state.uprightOnly!==false;$("enableStacking").checked=!!state.enableStacking;
   $("clearanceEnabled").checked=!!state.clearanceEnabled;$("clearance").value=state.clearance??0.5;$("fitTolerance").value=state.fitTolerance??0;
   $("clearanceField").style.display=state.clearanceEnabled?"block":"none";
-  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();renderDividerEditor();loadBoxEditor();renderSavedPlans();renderInstallDashboard();renderDistributionWorkDashboard();renderHomeProcurement();renderProjectNextActions();renderRoomProgressOverview();renderBackupStats();renderRecoveryHistory();resetResults();
+  renderHierarchy();renderStorageList();renderBoxList();renderStorageSelect();renderItemPicker();loadStorageEditor();renderObstacleEditor();renderDividerEditor();loadBoxEditor();renderSavedPlans();renderInstallDashboard();renderDistributionWorkDashboard();renderHomeProcurement();renderProjectNextActions();renderMeasurementProgress();renderRoomProgressOverview();renderBackupStats();renderRecoveryHistory();resetResults();
 }
 function installedStorageIds(){return new Set(Object.keys(state.installedPlanIds||{}))}
 function renderHierarchy(){
@@ -7447,6 +7516,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     purchasedArrivalAnalysis,
     roomInstallPriorityImpact,
     projectRoomProgress,
+    measurementProgressData,
     measurementWorksheetData,
     projectChecklistData,
     projectNextActions,
