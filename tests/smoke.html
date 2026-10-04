@@ -1856,6 +1856,25 @@
       playButton.click();
       w.matchMedia=realMatchMedia;
       result(calmFirstFrame,"with reduced motion preferred, each assembly step shows its organizer already in place instead of dropping it in",calmGroups.length+" solids in the first frame");
+      frame.style.width="400px";frame.style.height="900px";
+      w.dispatchEvent(new w.Event("resize"));
+      var phoneSvg=viz.querySelector("svg"),phoneTexts=Array.prototype.map.call(viz.querySelectorAll("svg text"),function(t){return t.getBoundingClientRect().height;});
+      var phoneGap=Math.round(viz.getBoundingClientRect().height-phoneSvg.getBoundingClientRect().height);
+      result(phoneTexts.length>0&&Math.min.apply(null,phoneTexts)>=9,"at phone width the 3D view keeps its names and captions readable",phoneTexts.map(Math.round).join(","));
+      result(phoneGap<=40,"at phone width the 3D view does not leave a tall empty band under the drawing",phoneGap+"px of padding");
+      var nameBoxes=Array.prototype.filter.call(viz.querySelectorAll("svg text"),function(t){return !/ cm$/.test(t.textContent);}).map(function(t){return t.getBoundingClientRect();});
+      var collisions=0;
+      for(var ni=0;ni<nameBoxes.length;ni++)for(var nj=ni+1;nj<nameBoxes.length;nj++){
+        var na=nameBoxes[ni],nb=nameBoxes[nj];
+        if(na.left<nb.right&&nb.left<na.right&&na.top<nb.bottom&&nb.top<na.bottom)collisions++;
+      }
+      result(nameBoxes.length>0&&collisions===0,"organizer names in the 3D view never overlap one another",collisions+" overlapping pair(s) among "+nameBoxes.length+" names");
+      // The floor and the two far walls are the first three shapes; together they span the storage's outline.
+      var shellBoxes=Array.prototype.slice.call(viz.querySelectorAll("svg polygon"),0,3).map(function(pg){return pg.getBBox();});
+      var shellWidth=Math.max.apply(null,shellBoxes.map(function(b){return b.x+b.width;}))-Math.min.apply(null,shellBoxes.map(function(b){return b.x;}));
+      result(shellWidth/Number(phoneSvg.getAttribute("viewBox").split(" ")[2])>=0.65,"at phone width the storage drawing uses most of the picture's width",Math.round(shellWidth)+" of "+phoneSvg.getAttribute("viewBox"));
+      frame.style.width="";frame.style.height="";
+      w.dispatchEvent(new w.Event("resize"));
       playButton.click();
       doc.querySelector('.tab[data-view="front"]').click();
       result(playButton.disabled===true&&assemblyCaption.hidden===true&&viz.querySelectorAll("svg [data-box]").length===0,"leaving the 3D tab ends assembly playback and disables its button");

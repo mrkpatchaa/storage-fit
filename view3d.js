@@ -145,17 +145,21 @@ function insideConvex(pt,pts){
 }
 // A box is named across the middle of its top face, shortened to fit. The name
 // is left out when a nearer box hides that spot, rather than drawn half-covered.
-function labelMarkup(top,text,nearer){
+const NAME_CHAR_PX=6.6,CAPTION_CHAR_PX=6.9;
+function labelPlacement(top,text,nearer){
   const cy=(top[0][1]+top[1][1]+top[2][1]+top[3][1])/4,chord=chordAt(top,cy);
-  if(!text||!chord)return "";
-  const room=Math.floor((chord[1]-chord[0])/6.4);
-  if(room<3)return "";
+  if(!text||!chord)return null;
+  const room=Math.floor((chord[1]-chord[0])/NAME_CHAR_PX);
+  if(room<3)return null;
   const shown=text.length>room?text.slice(0,room-1)+"…":text;
-  const cx=(chord[0]+chord[1])/2,reach=shown.length*2.9;
-  const hidden=[cx-reach,cx,cx+reach].some(x=>nearer.some(face=>insideConvex([x,cy],face)));
-  if(hidden)return "";
-  return `<text x="${cx.toFixed(2)}" y="${cy.toFixed(2)}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#1d1d1b" stroke="#fff" stroke-width="3" stroke-opacity=".7" paint-order="stroke" pointer-events="none">${esc(shown)}</text>`;
+  const cx=(chord[0]+chord[1])/2,reach=shown.length*NAME_CHAR_PX/2;
+  if([cx-reach,cx,cx+reach].some(x=>nearer.some(face=>insideConvex([x,cy],face))))return null;
+  return {x:cx,y:cy,text:shown,left:cx-reach-2,right:cx+reach+2,top:cy-8,bottom:cy+8};
 }
+function labelMarkup(l){
+  return `<text x="${l.x.toFixed(2)}" y="${l.y.toFixed(2)}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#1d1d1b" stroke="#fff" stroke-width="3" stroke-opacity=".7" paint-order="stroke" pointer-events="none">${esc(l.text)}</text>`;
+}
+const overlaps=(a,b)=>a.left<b.right&&b.left<a.right&&a.top<b.bottom&&b.top<a.bottom;
 function obstacleMarkup(entry,faces){
   const divider=entry.box.kind==="divider",color=divider?"#416b8e":"#b23c3c";
   const opacity={x:divider?.3:.16,y:divider?.36:.2,z:divider?.44:.26};
@@ -178,18 +182,55 @@ function revealedBoxes(boxes,reveal,H){
   return out;
 }
 
+// Picture size for a container: never wider than the container, so names and
+// captions keep their size on phones, and a little taller there to fill the space.
+function viewSize(containerWidth){
+  const width=Math.round(Math.max(300,Math.min(760,Number(containerWidth)||760)));
+  return {width,height:Math.round(width*(width<560?0.8:0.566))};
+}
+// A caption hangs off an anchor point, pushed away from the middle of the floor by a
+// fixed number of pixels. Its box is in pixels relative to the scaled anchor.
+function captionBox(anchor,centre,text,push){
+  const dx=anchor[0]-centre[0],dy=anchor[1]-centre[1],len=Math.hypot(dx,dy)||1;
+  const align=Math.abs(dx)<len*0.35?"middle":dx>0?"start":"end",w=text.length*CAPTION_CHAR_PX;
+  const ox=dx/len*push,oy=dy/len*push;
+  const left=align==="start"?ox:align==="end"?ox-w:ox-w/2;
+  return {anchor,text,align,ox,oy,left,right:left+w,top:oy-8,bottom:oy+8};
+}
+// Largest scale at which the storage outline and its captions fit the picture.
+function fitScale(outline,captions,width,height,margin){
+  const extent=s=>{
+    const xs=outline.map(p=>p[0]*s),ys=outline.map(p=>p[1]*s);
+    for(const c of captions){xs.push(c.anchor[0]*s+c.left,c.anchor[0]*s+c.right);ys.push(c.anchor[1]*s+c.top,c.anchor[1]*s+c.bottom)}
+    return {minX:Math.min(...xs),maxX:Math.max(...xs),minY:Math.min(...ys),maxY:Math.max(...ys)};
+  };
+  const fits=s=>{const e=extent(s);return e.maxX-e.minX<=width-2*margin&&e.maxY-e.minY<=height-2*margin};
+  let lo=0,hi=1;
+  while(fits(hi)&&hi<1e6)hi*=2;
+  for(let i=0;i<40;i++){const mid=(lo+hi)/2;if(fits(mid))lo=mid;else hi=mid}
+  return {scale:lo,extent:extent(lo)};
+}
+
 function render(scene,camera,options={}){
   const width=options.width||760,height=options.height||430;
   const W=scene.W,D=scene.D,H=scene.H,size={W,D,H},unit=scene.unit||"";
   const cam=clampCamera(camera),b=basis(cam),sides=visibleSides(cam);
-  const corners=[[0,0,0],[W,0,0],[W,D,0],[0,D,0],[0,0,H],[W,0,H],[W,D,H],[0,D,H]].map(c=>project(cam,size,...c));
-  const xs=corners.map(p=>p[0]),ys=corners.map(p=>p[1]);
-  const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
-  const scale=Math.min((width-2*64)/(maxX-minX||1),(height-2*36)/(maxY-minY||1));
-  const tx=(width-(minX+maxX)*scale)/2,ty=(height-(minY+maxY)*scale)/2;
-  const P=(x,y,z)=>{const p=project(cam,size,x,y,z);return [p[0]*scale+tx,p[1]*scale+ty]};
+  const raw=(x,y,z)=>project(cam,size,x,y,z);
+  const outline=[[0,0,0],[W,0,0],[W,D,0],[0,D,0],[0,0,H],[W,0,H],[W,D,H],[0,D,H]].map(c=>raw(...c));
 
   const farX=sides.x>0?0:W,farY=sides.y>0?0:D,nearX=W-farX,nearY=D-farY;
+  const centreRaw=raw(W/2,D/2,0),sideX=sides.x?nearX:W;
+  const postX=raw(nearX,farY,H/2)[0]>=raw(farX,nearY,H/2)[0]?[nearX,farY]:[farX,nearY];
+  // Seen from behind, the front edge runs along the foot of the far wall, so its caption moves up to that wall's rim.
+  const captions=[
+    captionBox(raw(W/2,0,sides.y>0?H:0),centreRaw,`Front · ${fmt(W)} ${unit}`.trim(),16),
+    captionBox(raw(sideX,D/2,0),centreRaw,`${fmt(D)} ${unit}`.trim(),16),
+    captionBox(raw(postX[0],postX[1],H/2),centreRaw,`${fmt(H)} ${unit}`.trim(),12)
+  ];
+  const {scale,extent}=fitScale(outline,captions,width,height,8);
+  const tx=(width-(extent.minX+extent.maxX))/2,ty=(height-(extent.minY+extent.maxY))/2;
+  const P=(x,y,z)=>{const p=raw(x,y,z);return [p[0]*scale+tx,p[1]*scale+ty]};
+
   const wall='fill="#ecece6" stroke="#b9bab3" stroke-width="1.2" stroke-linejoin="round"';
   const shell=poly([P(0,0,0),P(W,0,0),P(W,D,0),P(0,D,0)],'fill="#ffffff" stroke="#222" stroke-width="2" stroke-linejoin="round"')
     +(sides.x?poly([P(farX,0,0),P(farX,D,0),P(farX,D,H),P(farX,0,H)],wall):"")
@@ -201,33 +242,26 @@ function render(scene,camera,options={}){
   ];
   const drawn=drawOrder(solids.map(s=>s.box),cam).map(i=>({entry:solids[i],faces:facesOf(solids[i].box,P,sides)}));
   const body=drawn.map(d=>d.entry.obstacle?obstacleMarkup(d.entry,d.faces):boxMarkup(d.entry,d.faces,sides,b)).join("");
-  const labels=drawn.map((d,k)=>{
-    if(d.entry.obstacle||d.entry.progress<1)return "";
+  // Names are placed nearest first; a farther name that would collide with one already placed is left out.
+  const placed=[];
+  for(let k=drawn.length-1;k>=0;k--){
+    const d=drawn[k];
+    if(d.entry.obstacle||d.entry.progress<1)continue;
     const nearer=drawn.slice(k+1).filter(n=>!n.entry.obstacle).flatMap(n=>n.faces.map(f=>f.pts));
-    return labelMarkup(d.faces[d.faces.length-1].pts,String(d.entry.box.label||""),nearer);
-  }).join("");
+    const label=labelPlacement(d.faces[d.faces.length-1].pts,String(d.entry.box.label||""),nearer);
+    if(label&&!placed.some(other=>overlaps(label,other)))placed.push(label);
+  }
+  const labels=placed.reverse().map(labelMarkup).join("");
 
   // The open rim and the near corner posts stay as faint lines over the contents.
   const line=(p,q)=>`<line x1="${p[0].toFixed(2)}" y1="${p[1].toFixed(2)}" x2="${q[0].toFixed(2)}" y2="${q[1].toFixed(2)}" stroke="#222" stroke-opacity=".3" stroke-width="1.2"/>`;
   const rim=[[0,0],[W,0],[W,D],[0,D]].map((c,i,all)=>line(P(c[0],c[1],H),P(all[(i+1)%4][0],all[(i+1)%4][1],H))).join("");
   const posts=[[nearX,nearY],[nearX,farY],[farX,nearY]].map(c=>line(P(c[0],c[1],0),P(c[0],c[1],H))).join("");
 
-  const centre=P(W/2,D/2,0);
-  const caption=(at,text,push)=>{
-    const dx=at[0]-centre[0],dy=at[1]-centre[1],len=Math.hypot(dx,dy)||1;
-    const x=at[0]+dx/len*push,y=at[1]+dy/len*push;
-    const anchor=Math.abs(dx)<len*0.35?"middle":dx>0?"start":"end";
-    return `<text x="${x.toFixed(2)}" y="${y.toFixed(2)}" text-anchor="${anchor}" dominant-baseline="central" font-size="11" font-weight="700" fill="#6f716b" pointer-events="none">${esc(text)}</text>`;
-  };
-  const sideX=sides.x?nearX:W;
-  const postX=P(nearX,farY,H/2)[0]>=P(farX,nearY,H/2)[0]?[nearX,farY]:[farX,nearY];
-  // Seen from behind, the front edge runs along the foot of the far wall, so its caption moves up to that wall's rim.
-  const captions=caption(P(W/2,0,sides.y>0?H:0),`Front · ${fmt(W)} ${unit}`.trim(),16)
-    +caption(P(sideX,D/2,0),`${fmt(D)} ${unit}`.trim(),16)
-    +caption(P(postX[0],postX[1],H/2),`${fmt(H)} ${unit}`.trim(),12);
+  const captionMarkup=captions.map(c=>`<text x="${(c.anchor[0]*scale+tx+c.ox).toFixed(2)}" y="${(c.anchor[1]*scale+ty+c.oy).toFixed(2)}" text-anchor="${c.align}" dominant-baseline="central" font-size="11" font-weight="700" fill="#6f716b" pointer-events="none">${esc(c.text)}</text>`).join("");
 
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Interactive 3D view">${shell}${body}${rim}${posts}${labels}${captions}</svg>`;
+  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Interactive 3D view">${shell}${body}${rim}${posts}${labels}${captionMarkup}</svg>`;
 }
 
-root.StorageFit3D={defaultCamera,clampCamera,project,depth,visibleSides,drawOrder,assemblyOrder,assemblyFrame,tint,render};
+root.StorageFit3D={viewSize,defaultCamera,clampCamera,project,depth,visibleSides,drawOrder,assemblyOrder,assemblyFrame,tint,render};
 })(typeof window!=="undefined"?window:globalThis);

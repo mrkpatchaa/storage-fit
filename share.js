@@ -68,7 +68,7 @@ function svgIso(){
     W,D,H,unit:payload.u,
     boxes:placements().map(p=>({x:p.x,y:p.y,z:p.z,w:p.w,d:p.d,h:p.h,color:map.get(p.id).color,label:p.label||map.get(p.id).name})),
     obstacles:obstacles()
-  },camera);
+  },camera,StorageFit3D.viewSize($("shareViz").clientWidth&&$("shareViz").clientWidth-16));
 }
 function renderViz(){
   document.querySelectorAll("[data-share-view]").forEach(b=>b.classList.toggle("active",b.dataset.shareView===view));
@@ -127,5 +127,6 @@ if(result.error){
   viz.addEventListener("pointercancel",stopDrag);
   viz.addEventListener("lostpointercapture",stopDrag);
   $("shareReset3d").addEventListener("click",()=>{camera=StorageFit3D.defaultCamera();renderViz()});
+  window.addEventListener("resize",()=>{if(view==="iso"&&!drag)renderViz()});
 }
 })();

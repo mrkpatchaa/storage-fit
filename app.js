@@ -6533,7 +6533,8 @@ function isoScene(layout,W,D,H){
   };
 }
 function svgIso(layout,W,D,H,reveal=null){
-  return StorageFit3D.render(isoScene(layout,W,D,H),isoCamera,{reveal});
+  const viz=$("detailViz"),size=StorageFit3D.viewSize(viz.clientWidth&&viz.clientWidth-16);
+  return StorageFit3D.render(isoScene(layout,W,D,H),isoCamera,{reveal,...size});
 }
 function assemblyStepText(layout,order,step){
   const p=layout[order[step]];if(!p)return "";
@@ -7200,6 +7201,7 @@ $("reset3d").addEventListener("click",()=>{
   isoCamera=StorageFit3D.defaultCamera();
   if(detailView==="iso"&&!editMode)renderIsoViz();
 });
+window.addEventListener("resize",()=>{if(detailModalOpen&&detailView==="iso"&&!editMode&&!assemblyPlayback)renderIsoViz()});
 $("playAssembly").addEventListener("click",()=>{
   if(assemblyPlayback){endAssemblyPlayback();renderIsoViz()}
   else startAssemblyPlayback();
