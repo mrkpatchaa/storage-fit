@@ -2031,6 +2031,18 @@
       doc.getElementById("voiceMeasureStop").click();
       result(voicePanel.hidden===true,"closing the voice panel hides it");
       w.SpeechRecognition=realRecognition;w.webkitSpeechRecognition=realWebkitRecognition;
+
+      // Constraint editors at desktop width: every number must stay readable.
+      frame.style.width="1280px";frame.style.height="900px";
+      doc.getElementById("addObstacle").click();
+      doc.getElementById("addVerticalDivider").click();
+      function textRoom(input){var cs=w.getComputedStyle(input);return input.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);}
+      var cramped=Array.prototype.filter.call(doc.querySelectorAll("#obstacleList input[type=number], #dividerList input[type=number]"),function(input){return textRoom(input)<32;}).map(function(input){return (input.dataset.okey||input.dataset.dkey||"field")+" "+Math.round(textRoom(input))+"px";});
+      result(doc.querySelectorAll("#obstacleList input[type=number]").length>0&&cramped.length===0,"blocked-zone and divider number fields leave room for at least four characters",cramped.join(", "));
+      var lastObstacle=doc.querySelectorAll("#obstacleList [data-remove-obstacle]"),lastDivider=doc.querySelectorAll("#dividerList [data-remove-divider]");
+      if(lastObstacle.length)lastObstacle[lastObstacle.length-1].click();
+      if(lastDivider.length)lastDivider[lastDivider.length-1].click();
+      frame.style.width="";frame.style.height="";
     }catch(e){
       result(false,"test harness exception",e.message);
     }
