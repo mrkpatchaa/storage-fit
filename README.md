@@ -38,7 +38,7 @@ Colours are CSS custom properties in `styles.css`: the light values keep the ori
 
 ## Offline and install
 
-Storage Fit works without a connection once it has been opened online. A small service worker (`sw.js`) caches the planner, the share viewer, the 3D renderer, styles and icons. Online, every file still comes from the network first, so a new deploy is picked up on the next load, and each response refreshes the cache; offline, the cached copy is served and any other page falls back to the planner. Product imports and every other cross-origin request bypass it.
+Storage Fit works without a connection once it has been opened online. A small service worker (`sw.js`) caches the planner, the share viewer, the 3D renderer, styles and icons. Online, every file still comes from the network first, so a new deploy is picked up on the next load, and each response refreshes the cache. Offline, or when a weak connection has not answered within four seconds, the cached copy is served, and any other page falls back to the planner. Product imports and every other cross-origin request bypass it.
 
 With `manifest.webmanifest`, browsers that support it can install Storage Fit as a standalone app (Add to Home Screen on phones, Install app in Chrome and Edge). Planner data stays in the same browser storage, so installing does not move or copy it.
 

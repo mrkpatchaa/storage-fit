@@ -17,7 +17,8 @@ function result(ok, name, detail = "") {
 function loadWorker({ online = true, existingCaches = {} } = {}) {
   const listeners = {};
   const stores = new Map(Object.entries(existingCaches).map(([name, entries]) => [name, new Map(entries)]));
-  const network = { online, deploy: "v1", requests: [] };
+  const network = { online, hang: false, deploy: "v1", requests: [] };
+  const timers = [];
   const key = url => new URL(url, ORIGIN + "/").href;
   const withoutSearch = url => { const u = new URL(url, ORIGIN + "/"); u.search = ""; return u.href; };
   const cacheFor = name => {
@@ -44,6 +45,7 @@ function loadWorker({ online = true, existingCaches = {} } = {}) {
   async function fakeFetch(request) {
     const url = request.url || request;
     network.requests.push(url);
+    if (network.hang) return new Promise(() => {});
     if (!network.online) throw new TypeError("Failed to fetch");
     const file = path.join(root, new URL(url).pathname.replace(/^\/$/, "/index.html"));
     if (!fs.existsSync(file)) return new Response("missing", { status: 404 });
@@ -67,7 +69,12 @@ function loadWorker({ online = true, existingCaches = {} } = {}) {
       return undefined;
     }
   };
-  const context = { self, caches, fetch: fakeFetch, Request, Response, URL, Promise, console };
+  // Timers only fire when a test flushes them, standing in for a slow connection's wait.
+  const context = {
+    self, caches, fetch: fakeFetch, Request, Response, URL, Promise, console,
+    setTimeout: (fn, ms) => { timers.push({ fn, ms, live: true }); return timers.length; },
+    clearTimeout: id => { if (timers[id - 1]) timers[id - 1].live = false; }
+  };
   vm.createContext(context);
   vm.runInContext(fs.readFileSync(path.join(root, "sw.js"), "utf8"), context, { filename: "sw.js" });
 
@@ -76,24 +83,38 @@ function loadWorker({ online = true, existingCaches = {} } = {}) {
     listeners[type]({ waitUntil: p => { pending = p; } });
     await pending;
   }
-  async function request(url, { mode = "cors", method = "GET" } = {}) {
+  async function request(url, { mode = "cors", method = "GET", waitMs = 0 } = {}) {
     let responded = null;
-    const event = { request: { url: new URL(url, ORIGIN + "/").href, mode, method }, respondWith: r => { responded = r; } };
+    const extended = [];
+    const event = {
+      request: { url: new URL(url, ORIGIN + "/").href, mode, method },
+      respondWith: r => { responded = r; },
+      waitUntil: p => { extended.push(p); }
+    };
     listeners.fetch(event);
     if (!responded) return null;
-    const response = await responded;
-    return { status: response.status, body: await response.text() };
+    // Let the network attempt and cache lookups start, then let waitMs of time pass.
+    await new Promise(resolve => setImmediate(resolve));
+    for (const t of timers) if (t.live && t.ms <= waitMs) { t.live = false; t.fn(); }
+    // A worker that never answers must fail the test rather than let Node exit quietly.
+    const response = await Promise.race([responded, new Promise(resolve => setTimeout(() => resolve(null), 500))]);
+    if (!response) return { status: 0, body: "no response", extended: extended.length };
+    const body = await response.text();
+    await Promise.race([Promise.all(extended), new Promise(resolve => setImmediate(resolve))]);
+    return { status: response.status, body, extended: extended.length };
   }
   return { lifecycle, request, network, stores };
 }
 
+let reported = false;
+process.on("exit", code => { if (!reported && code === 0) { console.log("✗ the service worker tests stopped before reporting"); process.exitCode = 1; } });
 (async () => {
   const index = fs.readFileSync(path.join(root, "index.html"), "utf8");
   const share = fs.readFileSync(path.join(root, "share.html"), "utf8");
   const manifest = JSON.parse(fs.readFileSync(path.join(root, "manifest.webmanifest"), "utf8"));
   const referenced = new Set();
   for (const html of [index, share]) {
-    for (const m of html.matchAll(/(?:src|href)="([^"#:?]+)"/g)) referenced.add(m[1]);
+    for (const m of html.matchAll(/(?:src|href)="([^"#:?]+)(?:\?[^"]*)?"/g)) referenced.add(m[1]);
   }
   for (const icon of manifest.icons) referenced.add(icon.src);
 
@@ -108,6 +129,7 @@ function loadWorker({ online = true, existingCaches = {} } = {}) {
 
   worker.network.deploy = "v2";
   const fresh = await worker.request("app.js?v=2");
+  result(fresh && fresh.extended > 0, "the cache update for a fetched file is kept alive with waitUntil, so it is not lost when the worker stops");
   result(fresh && fresh.body === "v2:/app.js", "online, files come from the network so a new deploy is picked up immediately", JSON.stringify(fresh));
   worker.network.online = false;
   const offlineScript = await worker.request("app.js?v=3");
@@ -117,6 +139,14 @@ function loadWorker({ online = true, existingCaches = {} } = {}) {
   const offlineUnknown = await worker.request("rooms/kitchen", { mode: "navigate" });
   result(offlineUnknown && offlineUnknown.body === "v1:/index.html", "offline, any other page navigation falls back to the planner", JSON.stringify(offlineUnknown));
   worker.network.online = true;
+
+  // A weak connection that never answers: after a few seconds the cached copy is served.
+  worker.network.hang = true;
+  const slow = await worker.request("share.html", { mode: "navigate", waitMs: 5000 });
+  result(slow && slow.body === "v1:/share.html", "on a connection that does not answer, the cached copy is served after a few seconds", JSON.stringify(slow));
+  const tooSoon = await Promise.race([worker.request("share.html", { mode: "navigate", waitMs: 1000 }), new Promise(resolve => setTimeout(() => resolve("still waiting"), 50))]);
+  result(tooSoon === "still waiting", "a slow but answering connection still gets a second or two before the cache is used", JSON.stringify(tooSoon));
+  worker.network.hang = false;
 
   const before = worker.network.requests.length;
   const external = await worker.request("https://www.ikea.com/ma/en/p/sockerbit-storage-box-40522088/");
@@ -131,6 +161,7 @@ function loadWorker({ online = true, existingCaches = {} } = {}) {
 
   result(manifest.start_url && manifest.display === "standalone" && manifest.icons.some(i => i.sizes === "512x512") && manifest.icons.some(i => i.sizes === "192x192"), "the manifest makes the planner installable as a standalone app with 192 and 512 px icons");
 
+  reported = true;
   console.log(`Service worker tests passed: ${total - failures}/${total}`);
   process.exit(failures ? 1 : 0);
 })().catch(error => { console.error(error); process.exit(1); });
