@@ -4364,18 +4364,26 @@ function drawerLabelQr(url){
   const compact=StorageFitQR.encode(url,{ecc:"L"});
   return compact&&(!robust||compact.version<robust.version)?compact:robust;
 }
-function drawerLabelEntry(storageId,path,planName,layout,url){
+// A label that cannot get a link or QR code still prints, with a note instead of the code.
+function drawerLabelEntry(storageId,path,planName,layout,url,problem=""){
   const purposes=[...new Set((layout||[]).map(placementLabel).filter(Boolean))];
   const lines=purposes.length
     ? purposes
     : Object.entries(layoutCounts(layout||[])).map(([id,n])=>`${boxById(id)?.name||id} ×${n}`);
-  return {storageId,path,planName,lines,url,qr:drawerLabelQr(url)};
+  let qr=null;
+  if(url&&!problem){
+    try{qr=drawerLabelQr(url);if(!qr)problem="This plan is too large for a QR code. Use Export to share it."}
+    catch(e){problem="No QR code could be made for this plan."}
+  }
+  return {storageId,path,planName,lines,url,qr,problem};
 }
 async function drawerLabelEntries(){
   const entries=await Promise.all(chosenPlans().map(async plan=>{
     const context=projectStorageContext(plan.storageId);
-    const url=await shareUrlForPayload(sharePayloadForPlan(plan,context.path));
-    return {...drawerLabelEntry(plan.storageId,context.path,plan.name,plan.layout,url),sortKey:context.sortKey};
+    let url=null,problem="";
+    try{url=await shareUrlForPayload(sharePayloadForPlan(plan,context.path))}
+    catch(e){problem=`No QR code: ${e?.message||"this plan could not be turned into a link."}`}
+    return {...drawerLabelEntry(plan.storageId,context.path,plan.name,plan.layout,url,problem),sortKey:context.sortKey};
   }));
   return entries.sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
 }
@@ -4383,7 +4391,7 @@ function buildDrawerLabelSheet(entries){
   if(!entries.length)return false;
   const cards=entries.map(e=>{
     const shown=e.lines.slice(0,6),more=e.lines.length-shown.length;
-    const code=e.qr?StorageFitQR.svg(e.qr,{label:`Layout of ${e.path}`}):'<div class="drawerlabelnoqr">This plan is too large for a QR code. Use Export to share it.</div>';
+    const code=e.qr?StorageFitQR.svg(e.qr,{label:`Layout of ${e.path}`}):`<div class="drawerlabelnoqr">${esc(/qr code/i.test(e.problem)?e.problem:`No QR code: ${e.problem||"this plan could not be encoded."}`)}</div>`;
     return `<article class="drawerlabel">
       <div class="drawerlabelqr">${code}</div>
       <div class="drawerlabeltext">
@@ -7613,7 +7621,9 @@ $("printPlanBtn").addEventListener("click",()=>{
   window.print();
 });
 $("printDrawerLabelsBtn").addEventListener("click",async()=>{
-  if(!buildDrawerLabelSheet(await drawerLabelEntries())){alert("Choose a plan for at least one storage space first.");return}
+  let entries;
+  try{entries=await drawerLabelEntries()}catch(e){alert("Could not prepare the drawer labels.");return}
+  if(!buildDrawerLabelSheet(entries)){alert("Choose a plan for at least one storage space first.");return}
   window.print();
 });
 $("drawerLabelBtn").addEventListener("click",async()=>{

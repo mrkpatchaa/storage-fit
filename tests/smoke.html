@@ -2147,6 +2147,15 @@
         var single=doc.querySelectorAll("#printSheet .drawerlabel");
         result(printed===2&&single.length===1&&single[0].querySelector("svg path")!==null,"the selected layout can print a single drawer label");
         doc.getElementById("closeDetailModal").click();
+        // A label whose QR code cannot be made must not stop the others from printing.
+        var realEncode=w.StorageFitQR.encode;
+        w.StorageFitQR.encode=function(){throw new Error("encoder failure");};
+        var printing=nextPrint();
+        doc.getElementById("printDrawerLabelsBtn").click();
+        return printing.then(function(){w.StorageFitQR.encode=realEncode;},function(e){w.StorageFitQR.encode=realEncode;throw e;});
+      }).then(function(){
+        var cards=Array.prototype.slice.call(doc.querySelectorAll("#printSheet .drawerlabel"));
+        result(printed===3&&cards.length===labelCheck.entries.length&&cards.every(function(card){return !card.querySelector("svg")&&/no QR code/i.test(card.textContent)&&card.textContent.indexOf("→")>=0;}),"when a QR code cannot be made, every label still prints with its path and a note instead of failing silently",cards.length+" cards, "+printed+" prints");
         w.print=labelCheck.realPrint;
       });
     }
