@@ -4095,12 +4095,18 @@ function renderShoppingList(layout){
 function slugify(s){
   return String(s||"plan").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,60)||"storage-plan";
 }
-function base64UrlEncodeUtf8(text){
-  const bytes=new TextEncoder().encode(String(text)),chunk=0x8000;
+function bytesToBase64Url(bytes){
+  const chunk=0x8000;
   let binary="";
   for(let i=0;i<bytes.length;i+=chunk)binary+=String.fromCharCode(...bytes.subarray(i,i+chunk));
   return btoa(binary).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 }
+function base64UrlToBytes(value){
+  const raw=String(value||"").replace(/-/g,"+").replace(/_/g,"/");
+  const binary=atob(raw+"=".repeat((4-raw.length%4)%4));
+  return Uint8Array.from(binary,c=>c.charCodeAt(0));
+}
+function base64UrlEncodeUtf8(text){return bytesToBase64Url(new TextEncoder().encode(String(text)))}
 function base64UrlDecodeUtf8(value){
   const raw=String(value||"").replace(/-/g,"+").replace(/_/g,"/");
   const padded=raw+"=".repeat((4-raw.length%4)%4),binary=atob(padded),bytes=new Uint8Array(binary.length);
@@ -4152,11 +4158,32 @@ function currentSharePayload(){
     p:layout.map(p=>[p.typeId,round6(p.x),round6(p.y),round6(Number(p.z)||0),round6(p.w),round6(p.d),round6(p.h),placementLabel(p)])
   };
 }
-function currentShareUrl(baseHref=location.href){
-  const payload=currentSharePayload();if(!payload)return null;
-  const encoded=encodeSharePayload(payload),url=new URL("share.html",baseHref);
-  url.hash="p="+encoded;
+async function transformBytes(bytes,stream){
+  return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+}
+// Share links carry the plan in the URL fragment: "#z=" holds deflate-compressed
+// JSON, about half the length of the older plain "#p=" form, which still opens.
+async function shareUrlForPayload(payload,baseHref=location.href){
+  const error=validateSharePayload(payload);if(error)throw new Error(error);
+  const json=JSON.stringify(payload),url=new URL("share.html",baseHref);
+  url.hash=typeof CompressionStream==="function"
+    ?"z="+bytesToBase64Url(await transformBytes(new TextEncoder().encode(json),new CompressionStream("deflate-raw")))
+    :"p="+base64UrlEncodeUtf8(json);
   return url.toString();
+}
+async function decodeShareUrl(url){
+  const hash=new URL(url,location.href).hash;
+  if(hash.startsWith("#p="))return decodeSharePayload(hash.slice(3));
+  if(!hash.startsWith("#z="))return {error:"This link does not contain a shared Storage Fit plan.",payload:null};
+  try{
+    const json=new TextDecoder().decode(await transformBytes(base64UrlToBytes(hash.slice(3)),new DecompressionStream("deflate-raw")));
+    const payload=JSON.parse(json),error=validateSharePayload(payload);
+    return error?{error,payload:null}:{error:"",payload};
+  }catch(e){return {error:"This shared-plan link is damaged or incomplete.",payload:null}}
+}
+async function currentShareUrl(baseHref=location.href){
+  const payload=currentSharePayload();
+  return payload?shareUrlForPayload(payload,baseHref):null;
 }
 async function copyText(text){
   if(navigator.clipboard?.writeText){try{await navigator.clipboard.writeText(text);return true}catch(e){}}
@@ -4274,11 +4301,6 @@ function sharePayloadForPlan(plan,title){
     p:(plan.layout||[]).map(p=>[p.typeId,round6(p.x),round6(p.y),round6(Number(p.z)||0),round6(p.w),round6(p.d),round6(p.h),placementLabel(p)])
   };
 }
-function shareUrlForPayload(payload,baseHref=location.href){
-  const url=new URL("share.html",baseHref);
-  url.hash="p="+encodeSharePayload(payload);
-  return url.toString();
-}
 // Level M survives scuffed stickers; long links drop to L when that gives a smaller symbol.
 function drawerLabelQr(url){
   const robust=StorageFitQR.encode(url,{ecc:"M"});
@@ -4293,12 +4315,13 @@ function drawerLabelEntry(storageId,path,planName,layout,url){
     : Object.entries(layoutCounts(layout||[])).map(([id,n])=>`${boxById(id)?.name||id} ×${n}`);
   return {storageId,path,planName,lines,url,qr:drawerLabelQr(url)};
 }
-function drawerLabelEntries(){
-  return chosenPlans().map(plan=>{
+async function drawerLabelEntries(){
+  const entries=await Promise.all(chosenPlans().map(async plan=>{
     const context=projectStorageContext(plan.storageId);
-    const url=shareUrlForPayload(sharePayloadForPlan(plan,context.path));
+    const url=await shareUrlForPayload(sharePayloadForPlan(plan,context.path));
     return {...drawerLabelEntry(plan.storageId,context.path,plan.name,plan.layout,url),sortKey:context.sortKey};
-  }).sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
+  }));
+  return entries.sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
 }
 function buildDrawerLabelSheet(entries){
   if(!entries.length)return false;
@@ -7489,15 +7512,15 @@ $("printPlanBtn").addEventListener("click",()=>{
   if(!buildPrintSheet())return;
   window.print();
 });
-$("printDrawerLabelsBtn").addEventListener("click",()=>{
-  if(!buildDrawerLabelSheet(drawerLabelEntries())){alert("Choose a plan for at least one storage space first.");return}
+$("printDrawerLabelsBtn").addEventListener("click",async()=>{
+  if(!buildDrawerLabelSheet(await drawerLabelEntries())){alert("Choose a plan for at least one storage space first.");return}
   window.print();
 });
-$("drawerLabelBtn").addEventListener("click",()=>{
+$("drawerLabelBtn").addEventListener("click",async()=>{
   const layout=layouts[selectedLayout],s=storage();if(!layout||!s)return;
   const path=storageBreadcrumb(s);
   let url;
-  try{url=shareUrlForPayload({...currentSharePayload(),n:path.slice(0,160)})}catch(e){alert(e.message||"Could not create a label for this layout.");return}
+  try{url=await shareUrlForPayload({...currentSharePayload(),n:path.slice(0,160)})}catch(e){alert(e.message||"Could not create a label for this layout.");return}
   buildDrawerLabelSheet([drawerLabelEntry(s.id,path,capacityLayoutContext?"Capacity packing":`Layout ${selectedLayout+1}`,layout,url)]);
   window.print();
 });
@@ -7513,7 +7536,7 @@ $("exportPlanBtn").addEventListener("click",()=>{
 });
 $("sharePlanBtn").addEventListener("click",async()=>{
   let url;
-  try{url=currentShareUrl()}catch(e){alert(e.message||"Could not create a share link.");return}
+  try{url=await currentShareUrl()}catch(e){alert(e.message||"Could not create a share link.");return}
   if(!url)return;
   if(url.length>SHARE_LINK_LIMIT){
     alert("This layout is too large for a reliable share link. Use Export to share the full JSON plan instead.");
@@ -8157,6 +8180,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     voiceMeasuringActive,
     customBinDimensions,
     drawerLabelEntries,
+    shareUrlForPayload,
+    decodeShareUrl,
     accessPenalty,
     compareAccess,
     defaultEditSnapStep,

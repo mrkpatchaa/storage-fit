@@ -21,7 +21,7 @@
   for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);backup[k]=localStorage.getItem(k);}
   localStorage.clear();
 
-  var rows=[];
+  var rows=[],labelCheck=null;
   function result(ok,name,detail){rows.push({ok:ok,name:name,detail:detail||""});}
   function same(a,b){return JSON.stringify(a)===JSON.stringify(b);}
 
@@ -1943,28 +1943,13 @@
       doc.getElementById("closeDetailModal").click();
 
       // Drawer labels: save and choose the open layout, then print a QR label that opens it.
-      var realPrint=w.print,printed=0;w.print=function(){printed++;};
+      var realPrint=w.print;
       doc.querySelector("#gallery .layoutcard").click();
       doc.getElementById("savePlanBtn").click();
       var savedState=JSON.parse(w.localStorage.getItem("storage-fit-planner-v28")),labelPlan=savedState.savedPlans[savedState.savedPlans.length-1];
       doc.getElementById("closeDetailModal").click();
       doc.querySelector('[data-choose-plan="'+labelPlan.id+'"]').click();
-      var labelEntries=api.drawerLabelEntries(),labelEntry=labelEntries.filter(function(e){return e.storageId===labelPlan.storageId;})[0];
-      var decodedLabel=labelEntry&&api.decodeSharePayload(labelEntry.url.split("#p=")[1]);
-      result(!!labelEntry&&labelEntry.url.indexOf("share.html#p=")>0&&!decodedLabel.error&&same(decodedLabel.payload.p.map(function(r){return [r[0],r[1],r[2],r[4],r[5]];}),labelPlan.layout.map(function(q){return [q.typeId,q.x,q.y,q.w,q.d];})),"a drawer label links to a share view of exactly the storage's chosen plan",labelEntry?labelEntry.url.slice(0,60):"no entry");
-      result(decodedLabel.payload.n===labelEntry.path&&labelEntry.path.indexOf("→")>0,"a drawer label's shared view is titled with the storage's room and furniture path",decodedLabel.payload.n);
-      result(labelEntries.map(function(e){return e.path;}).join("|")===labelEntries.map(function(e){return e.path;}).sort(function(a,b){return a.toLocaleLowerCase().localeCompare(b.toLocaleLowerCase());}).join("|"),"drawer labels are listed in Room → Furniture → Storage order");
-      doc.getElementById("printDrawerLabelsBtn").click();
-      var labelCards=doc.querySelectorAll("#printSheet .drawerlabel"),firstCard=Array.prototype.filter.call(labelCards,function(card){return card.textContent.indexOf(labelEntry.path)>=0;})[0];
-      var expectedQr=w.StorageFitQR.svg(w.StorageFitQR.encode(labelEntry.url,{ecc:labelEntry.qr.ecc})).match(/ d="([^"]+)"/)[1];
-      result(printed===1&&labelCards.length===labelEntries.length&&!!firstCard&&firstCard.querySelector("svg path").getAttribute("d")===expectedQr,"Print drawer labels prints one card per chosen plan, each with a QR code of that card's link",labelCards.length+" cards, "+printed+" print");
-      result(labelEntry.qr.version<=25,"a typical plan's QR code stays small enough to print on a drawer label","version "+labelEntry.qr.version);
-      doc.querySelector("#gallery .layoutcard").click();
-      doc.getElementById("drawerLabelBtn").click();
-      var singleCards=doc.querySelectorAll("#printSheet .drawerlabel");
-      result(printed===2&&singleCards.length===1&&singleCards[0].querySelector("svg path")!==null,"the selected layout can print a single drawer label");
-      doc.getElementById("closeDetailModal").click();
-      w.print=realPrint;
+      var labelCheck={plan:labelPlan,realPrint:realPrint};
 
       // Speech recognisers return words or digits, so both must reach the same measurement.
       result(same(api.parseSpokenDimensions("sixty seven by twenty six by thirteen centimetres","cm"),[67,26,13]),"spoken number words separated by 'by' become width, depth and height");
@@ -2015,12 +2000,11 @@
       w.SpeechRecognition=realRecognition;w.webkitSpeechRecognition=realWebkitRecognition;
     }catch(e){
       result(false,"test harness exception",e.message);
-    }finally{
-      localStorage.clear();
-      Object.keys(backup).forEach(function(key){localStorage.setItem(key,backup[key]);});
     }
 
     function finish(){
+      localStorage.clear();
+      Object.keys(backup).forEach(function(key){localStorage.setItem(key,backup[key]);});
       var pass=rows.filter(function(x){return x.ok;}).length;
       var html="<p><strong>"+pass+"/"+rows.length+" passed</strong></p><ul>";
       html+=rows.map(function(r){
@@ -2034,7 +2018,54 @@
       document.body.dataset.smokeFailures=String(rows.length-pass);
     }
 
+    // Drawer labels build compressed share links, which is asynchronous.
+    function drawerLabelPhase(){
+      if(!labelCheck)return Promise.resolve();
+      var plan=labelCheck.plan,entry=null,printed=0,printWaiter=null;
+      w.print=function(){printed++;if(printWaiter)printWaiter();};
+      function nextPrint(){
+        return new Promise(function(resolve,reject){
+          var timer=setTimeout(function(){reject(new Error("window.print was not called"));},3000);
+          printWaiter=function(){clearTimeout(timer);resolve();};
+        });
+      }
+      return api.drawerLabelEntries().then(function(entries){
+        labelCheck.entries=entries;
+        entry=entries.filter(function(e){return e.storageId===plan.storageId;})[0];
+        result(!!entry&&entry.url.indexOf("share.html#z=")>0,"a drawer label links to the share viewer with a compressed plan",entry?entry.url.slice(0,60):"no entry");
+        result(entries.map(function(e){return e.path;}).join("|")===entries.map(function(e){return e.path;}).sort(function(a,b){return a.toLocaleLowerCase().localeCompare(b.toLocaleLowerCase());}).join("|"),"drawer labels are listed in Room → Furniture → Storage order");
+        return api.decodeShareUrl(entry.url);
+      }).then(function(decoded){
+        result(!decoded.error&&same(decoded.payload.p.map(function(r){return [r[0],r[1],r[2],r[4],r[5]];}),plan.layout.map(function(q){return [q.typeId,q.x,q.y,q.w,q.d];})),"a drawer label's link decodes to exactly the storage's chosen plan",decoded.error);
+        result(decoded.payload.n===entry.path&&entry.path.indexOf("→")>0,"a drawer label's shared view is titled with the storage's room and furniture path",decoded.payload.n);
+        var uncompressed=("#p="+api.encodeSharePayload(decoded.payload)).length,compressed=entry.url.length-entry.url.indexOf("#");
+        result(compressed<=uncompressed*0.7,"compressing the plan shortens a label's link by at least 30%",compressed+" vs "+uncompressed+" characters");
+        result(entry.qr.version<=16,"a typical plan's QR code stays small enough to print and scan on a drawer label","version "+entry.qr.version);
+        var printing=nextPrint();
+        doc.getElementById("printDrawerLabelsBtn").click();
+        return printing;
+      }).then(function(){
+        var cards=doc.querySelectorAll("#printSheet .drawerlabel"),card=Array.prototype.filter.call(cards,function(c){return c.textContent.indexOf(entry.path)>=0;})[0];
+        var expectedQr=w.StorageFitQR.svg(w.StorageFitQR.encode(entry.url,{ecc:entry.qr.ecc})).match(/ d="([^"]+)"/)[1];
+        result(printed===1&&cards.length===labelCheck.entries.length&&!!card&&card.querySelector("svg path").getAttribute("d")===expectedQr,"Print drawer labels prints one card per chosen plan, each with a QR code of that card's link",cards.length+" cards, "+printed+" print");
+        // Later tests moved the editor to other storages, so rebuild this storage's proposals first.
+        var picker=doc.getElementById("storageSelect");
+        picker.value=plan.storageId;picker.dispatchEvent(new w.Event("change",{bubbles:true}));
+        doc.getElementById("generateBtn").click();
+        doc.querySelector("#gallery .layoutcard").click();
+        var printing=nextPrint();
+        doc.getElementById("drawerLabelBtn").click();
+        return printing;
+      }).then(function(){
+        var single=doc.querySelectorAll("#printSheet .drawerlabel");
+        result(printed===2&&single.length===1&&single[0].querySelector("svg path")!==null,"the selected layout can print a single drawer label");
+        doc.getElementById("closeDetailModal").click();
+        w.print=labelCheck.realPrint;
+      });
+    }
+
     // The read-only share viewer is a separate page, so it is checked in its own frame before reporting.
+    function shareViewerPhase(){
     var shareLink="";
     try{
       shareLink=w.StorageFitTest.encodeSharePayload({
@@ -2045,6 +2076,12 @@
       });
     }catch(e){result(false,"share link for the viewer test could not be built",e.message);}
     if(!shareLink){finish();return;}
+    var sharedViewPayload={
+        v:1,n:"Shared drawer",u:"cm",g:"Best use of space",k:false,d:[60,40,20],z:[60,40,20],c:0,t:0,r:50,q:"usable floor",
+        o:[[0,50,0,10,10,20]],
+        i:[["a","Tray"],["b","Tin"]],
+        p:[["a",0,0,0,30,20,5,"Cutlery"],["a",0,20,0,30,20,5,""],["b",30,0,0,10,10,8,""]]
+      };
     var shareFrame=document.createElement("iframe");
     shareFrame.addEventListener("load",function(){
       try{
@@ -2067,10 +2104,25 @@
       }catch(e){
         result(false,"share viewer harness exception",e.message);
       }
-      finish();
+      Promise.resolve().then(function(){return api.shareUrlForPayload(sharedViewPayload,"http://example.test/index.html");}).then(function(compressedUrl){
+        var compressedFrame=document.createElement("iframe");
+        compressedFrame.addEventListener("load",function(){
+          // Decompression is asynchronous, so give the viewer a moment to render.
+          setTimeout(function(){
+            var cdoc=compressedFrame.contentWindow.document;
+            result(cdoc.getElementById("shareViewer").hidden===false&&cdoc.getElementById("shareTitle").textContent==="Shared drawer","the share viewer opens a compressed #z= link",cdoc.getElementById("shareErrorText").textContent);
+            finish();
+          },300);
+        },{once:true});
+        compressedFrame.src="../share.html#z="+compressedUrl.split("#z=")[1];
+        document.body.appendChild(compressedFrame);
+      }).catch(function(e){result(false,"compressed share link harness exception",e.message);finish();});
     },{once:true});
     shareFrame.src="../share.html#p="+shareLink;
     document.body.appendChild(shareFrame);
+    }
+
+    Promise.resolve().then(drawerLabelPhase).catch(function(e){result(false,"drawer label harness exception",e.message);}).then(shareViewerPhase);
   },{once:true});
 })();
 </script>

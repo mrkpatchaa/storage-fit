@@ -144,7 +144,7 @@ Once a storage space has a chosen plan, its contents can be found again without 
 
 Each label shows the Room → Furniture → Storage path, the plan name, the placement purposes (or the organizer mix when nothing is labelled), and a QR code. Scanning it with a phone camera opens the read-only share viewer for that exact layout, titled with the storage path, in 3D. The link is the same self-contained share link as **Share link**: the plan travels inside the URL fragment and nothing is uploaded. Because the share viewer is cached for offline use, a phone that has opened Storage Fit before can show the layout even without a connection.
 
-QR codes use error-correction level M, which tolerates scuffed stickers, and fall back to level L for long plans when that gives a smaller code. A typical drawer plan fits in a version-15 to version-25 code, which scans well printed about 4 cm wide. A plan whose link is too long for any QR code gets a note to use Export instead.
+QR codes use error-correction level M, which tolerates scuffed stickers, and fall back to level L for long plans when that gives a smaller code. Because share links are compressed, a typical drawer plan fits in a version-10 to version-16 code (57 to 81 modules), which scans well printed about 4 cm wide. A plan whose link is too long for any QR code gets a note to use Export instead.
 
 The encoder (`qr.js`) is written from the QR Code specification with no dependencies. Its tests compare whole symbols, across sizes up to version 40, with the output of an independent encoder.
 
@@ -685,7 +685,7 @@ It does **not** include:
 - recovery checkpoints;
 - other plans.
 
-The encoded plan is stored in the URL fragment (`#p=...`). URL fragments are handled by the browser and are not included in normal HTTP page requests to the server.
+The encoded plan is stored in the URL fragment. New links use `#z=...`: the plan's JSON compressed with deflate, which makes links about half as long (a typical drawer plan went from 755 to 397 characters). Older `#p=...` links, which hold the JSON uncompressed, still open. Browsers without the Compression Streams API create `#p=` links; very old browsers that cannot decompress show a message asking to update. URL fragments are handled by the browser and are not included in normal HTTP page requests to the server.
 
 Opening a shared link does not import, overwrite, or write planner data. The standalone viewer never uses `localStorage`.
 

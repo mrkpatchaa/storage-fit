@@ -26,11 +26,20 @@ function validate(p){
   for(const row of p.p)if(!Array.isArray(row)||row.length!==8||!ids.has(row[0])||row.slice(1,7).some(v=>!Number.isFinite(Number(v))||Number(v)<0)||typeof row[7]!=="string"||row[7].length>60)return "A placement is malformed.";
   return "";
 }
-function parse(){
-  const hash=location.hash.startsWith("#p=")?location.hash.slice(3):"";
-  if(!hash)return {error:"This link does not contain a shared Storage Fit plan."};
+// "#z=" links hold deflate-compressed JSON; older "#p=" links hold it uncompressed.
+async function parse(){
+  const hash=location.hash,form=hash.slice(0,3);
+  if((form!=="#p="&&form!=="#z=")||hash.length<=3)return {error:"This link does not contain a shared Storage Fit plan."};
+  if(form==="#z="&&typeof DecompressionStream!=="function")return {error:"This browser is too old to open compressed plan links. Update it and open the link again."};
   try{
-    const parsed=JSON.parse(decodeUtf8(hash)),error=validate(parsed);
+    let json;
+    if(form==="#p=")json=decodeUtf8(hash.slice(3));
+    else{
+      const raw=hash.slice(3).replace(/-/g,"+").replace(/_/g,"/"),binary=atob(raw+"=".repeat((4-raw.length%4)%4));
+      const stream=new Blob([Uint8Array.from(binary,c=>c.charCodeAt(0))]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      json=await new Response(stream).text();
+    }
+    const parsed=JSON.parse(json),error=validate(parsed);
     return error?{error}:{payload:parsed};
   }catch(e){return {error:"This shared-plan link is damaged or incomplete."}}
 }
@@ -99,7 +108,7 @@ async function copyCurrent(){
   setTimeout(()=>btn.textContent=old,1200);
 }
 
-const result=parse();
+parse().then(result=>{
 if(result.error){
   $("shareError").hidden=false;$("shareErrorText").textContent=result.error;
 }else{
@@ -129,6 +138,7 @@ if(result.error){
   $("shareReset3d").addEventListener("click",()=>{camera=StorageFit3D.defaultCamera();renderViz()});
   window.addEventListener("resize",()=>{if(view==="iso"&&!drag)renderViz()});
 }
+});
 if("serviceWorker" in navigator&&window.top===window&&location.protocol!=="file:"){
   navigator.serviceWorker.register("sw.js").catch(()=>{});
 }
