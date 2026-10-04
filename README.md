@@ -164,6 +164,20 @@ Inside the storage editor, **Save measured & next** closes the field-work loop: 
 
 Plain **Save** remains available and does not mark anything measured.
 
+## Voice measuring
+
+Measuring a whole home means holding a tape measure while typing on a phone. **🎙 Measure by voice** in **Measurement coverage** turns the measurement queue into a hands-free walkthrough:
+
+1. Storage Fit opens the first storage still to measure (rechecks first, as in the coverage list) and reads its Room → Furniture → Storage path aloud.
+2. Say the inside size, for example “sixty seven by twenty six by thirteen” or “60 wide, 45 deep, 16 high”. The values fill the storage editor and are read back.
+3. Say **save** (or yes, ok, oui) to save the dimensions, mark the storage **Measured**, and move to the next one. Say the size again to correct it, **skip** to leave a storage for later, **repeat** to hear the prompt again, or **stop** to end.
+
+Spoken numbers can be digits or words (“eight hundred and ten”, “sixty point five”, “forty and a half”), with “by”, “times” or no separator at all. Unit words (centimetres, millimetres, metres, inches) are converted per value into the project unit; with no unit, the project unit is assumed. Axis words such as width / depth / height or wide / deep / high put each value in its place in any order.
+
+Nothing is saved until you confirm, and the same Save / Skip / Stop actions are on screen if the room is too noisy. Prompts are spoken with listening paused, so the planner never hears itself. Skipped storages stay in the measurement queue.
+
+Voice input uses the browser’s speech recognition, available in Chrome, Edge and Safari; other browsers show a short explanation instead. Some browsers send audio to their speech service to recognise it.
+
 ## Home hierarchy
 
 Storage spaces are organized as:

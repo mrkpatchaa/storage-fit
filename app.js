@@ -2593,6 +2593,182 @@ function openMeasurementStorage(storageId){
   $("storageMeasurementStatus")?.scrollIntoView({behavior:"smooth",block:"center"});
   return true;
 }
+/* Voice measuring: speak a storage's inside size while holding the tape measure. */
+const SPOKEN_NUMBERS={zero:0,oh:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19,twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90};
+const SPOKEN_UNITS=[[/\b(?:centi(?:met(?:er|re)s?|mètres?)|cms?)\b/g,"cm"],[/\b(?:milli(?:met(?:er|re)s?|mètres?)|mms?)\b/g,"mm"],[/\b(?:inch(?:es)?|pouces?)\b/g,"in"],[/\b(?:met(?:er|re)s?|mètres?)\b/g,"m"]];
+const SPOKEN_COMMANDS=[
+  ["stop",/\b(?:stop|done|finish(?:ed)?|cancel|quit|exit|arr[eê]te[rz]?|termin[eé]|fini)\b/],
+  ["skip",/\b(?:skip|next|pass|suivant|passe[rz]?)\b/],
+  ["repeat",/\b(?:repeat|again|pardon|r[eé]p[eè]te[rz]?)\b/],
+  ["save",/\b(?:save|yes|yeah|yep|correct|confirm(?:ed)?|ok(?:ay)?|right|oui|enregistre[rz]?|valide[rz]?)\b/]
+];
+// Reads one spoken number starting at token i ("forty five", "eight hundred and ten",
+// "sixty point five", "forty and a half"). A word that cannot extend the number, such
+// as "forty" after "sixty", starts the next one.
+function readSpokenNumber(tokens,i){
+  const word=w=>Object.prototype.hasOwnProperty.call(SPOKEN_NUMBERS,w);
+  let j=i,value;
+  if(/^\d+(?:[.,]\d+)?$/.test(tokens[j]||"")){value=Number(tokens[j].replace(",","."));j++}
+  else if(word(tokens[j])||(tokens[j]==="a"&&tokens[j+1]==="hundred")){
+    let total=0,current=0,any=false;
+    while(j<tokens.length){
+      const w=tokens[j];
+      if(word(w)){
+        const n=SPOKEN_NUMBERS[w];
+        const fits=!any||(n>=10?current%100===0:n>0&&current%10===0);
+        if(!fits||(any&&n===0))break;
+        current+=n;any=true;j++;
+      }else if(w==="a"&&tokens[j+1]==="hundred"&&!any){current=1;any=true;j++}
+      else if(w==="hundred"&&any&&current%100!==0&&current<100){current*=100;j++}
+      else if(w==="thousand"&&any){total+=current*1000;current=0;j++}
+      else if(w==="and"&&any&&current%100===0&&word(tokens[j+1])){j++}
+      else break;
+    }
+    value=total+current;
+  }else return null;
+  if((tokens[j]==="point"||tokens[j]==="dot")&&j+1<tokens.length){
+    let digits="",k=j+1;
+    while(k<tokens.length&&(/^\d+$/.test(tokens[k])||(word(tokens[k])&&SPOKEN_NUMBERS[tokens[k]]<10))){digits+=/^\d+$/.test(tokens[k])?tokens[k]:SPOKEN_NUMBERS[tokens[k]];k++}
+    if(digits){value=Number(`${value}.${digits}`);j=k}
+  }else if(tokens[j]==="and"&&tokens[j+1]==="a"&&(tokens[j+2]==="half"||tokens[j+2]==="quarter")){
+    value+=tokens[j+2]==="half"?0.5:0.25;j+=3;
+  }
+  return {value,next:j};
+}
+function spokenText(text){
+  const tokens=String(text||"").toLowerCase().replace(/[,;:!?]+(?=\s|$)|\.(?=\s|$)/g," ").replace(/(\d)-(?=\d)/g,"$1 ").replace(/-/g," ").split(/\s+/).filter(Boolean);
+  const out=[];
+  for(let i=0;i<tokens.length;){
+    const n=readSpokenNumber(tokens,i);
+    if(n){out.push(String(round6(n.value)));i=n.next}else out.push(tokens[i++]);
+  }
+  let joined=out.join(" ");
+  for(const [pattern,unit] of SPOKEN_UNITS)joined=joined.replace(pattern,unit);
+  return joined;
+}
+// Width × depth × height in the project unit from a spoken phrase, or null.
+function parseSpokenDimensions(text,unit=state.unit){
+  const spoken=spokenText(text),number=String.raw`(\d+(?:\.\d+)?)(?:\s*(mm|cm|in|m)\b)?`;
+  // Nouns come before their value ("width 60"), adjectives after it ("60 wide").
+  const axes=[[["width","largeur"],["wide","large"]],[["depth","profondeur"],["deep","profond"]],[["height","hauteur"],["high","tall","haut"]]];
+  const labelled=axes.map(([nouns,adjectives])=>{
+    const m=new RegExp(String.raw`\b(?:${nouns.join("|")})\b(?:\s+(?:is|of))?\s*${number}`).exec(spoken)
+      ||new RegExp(String.raw`${number}\s*(?:${adjectives.join("|")})\b`).exec(spoken);
+    return m?`${m[1]}${m[2]?" "+m[2]:""}`:null;
+  });
+  if(labelled.every(Boolean))return parseQuickDimensions(labelled.join(" x "),unit);
+  const values=[...spoken.matchAll(new RegExp(number,"g"))].map(m=>`${m[1]}${m[2]?" "+m[2]:""}`);
+  return values.length===3?parseQuickDimensions(values.join(" x "),unit):null;
+}
+function spokenCommand(text){
+  if(parseSpokenDimensions(text))return null;
+  const spoken=String(text||"").toLowerCase();
+  return SPOKEN_COMMANDS.find(([,pattern])=>pattern.test(spoken))?.[0]||null;
+}
+const UNIT_WORDS={cm:"centimetres",mm:"millimetres",in:"inches"};
+let voiceSession=null;
+function voiceMeasuringActive(){return !!voiceSession}
+function voiceRecognitionClass(){return window.SpeechRecognition||window.webkitSpeechRecognition||null}
+function voiceTargets(){return measurementProgressData().pending.filter(row=>!voiceSession?.skipped.has(row.storageId))}
+function renderVoicePanel(message=""){
+  const panel=$("voiceMeasurePanel");if(!panel)return;
+  const s=voiceSession,row=s?measurementProgressData().rows.find(r=>r.storageId===s.storageId):null;
+  panel.hidden=false;
+  $("voiceMeasurePath").textContent=row?row.path:"";
+  $("voiceMeasureHeard").textContent=message||(s?.heard?`Heard: “${s.heard}”`:s?"Listening…":"");
+  $("voiceMeasureCandidate").textContent=s?.candidate?`${s.candidate.map(fmt).join(" × ")} ${state.unit} — say “save”, or measure again`:(s?"Say width by depth by height, for example “60 by 45 by 16”.":"");
+  $("voiceMeasureProgress").textContent=s?`${s.saved} saved · ${s.skipped.size} skipped · ${voiceTargets().length} left`:"";
+  $("voiceMeasureSave").disabled=!s?.candidate;
+  $("voiceMeasureSkip").disabled=!s;
+  $("voiceMeasureStop").textContent=s?"Stop":"Close";
+}
+// Prompts are read aloud with listening paused, so the planner never hears itself.
+function voiceSay(text){
+  const s=voiceSession;if(!s||!window.speechSynthesis||typeof SpeechSynthesisUtterance==="undefined")return;
+  s.speaking=true;try{s.recognition.abort()}catch(e){}
+  const utterance=new SpeechSynthesisUtterance(text),token=++s.speechToken;
+  const resume=()=>{
+    if(voiceSession!==s||s.speechToken!==token)return;
+    s.speaking=false;try{s.recognition.start()}catch(e){}
+  };
+  utterance.onend=resume;utterance.onerror=resume;
+  setTimeout(resume,1500+text.length*90);
+  window.speechSynthesis.cancel();window.speechSynthesis.speak(utterance);
+}
+function promptVoiceTarget(){
+  const row=measurementProgressData().rows.find(r=>r.storageId===voiceSession?.storageId);if(!row)return;
+  renderVoicePanel();
+  voiceSay(`${row.path.replace(/ → /g,", ")}. Say the width, depth and height.`);
+}
+function advanceVoiceMeasuring(){
+  const s=voiceSession;if(!s)return;
+  const next=voiceTargets()[0];
+  if(!next){
+    endVoiceMeasuring(`Done: ${s.saved} saved${s.skipped.size?`, ${s.skipped.size} skipped`:""}.`);
+    return;
+  }
+  s.storageId=next.storageId;s.candidate=null;s.heard="";
+  openMeasurementStorage(next.storageId);
+  promptVoiceTarget();
+}
+function saveVoiceCandidate(){
+  const s=voiceSession;if(!s?.candidate)return;
+  if(editingStorage!==s.storageId)openMeasurementStorage(s.storageId);
+  [["sw",0],["sd",1],["sh",2]].forEach(([id,i])=>{$(id).value=String(round6(s.candidate[i]))});
+  if(!saveStorageEditor({verify:true,advance:false}))return;
+  s.saved++;
+  advanceVoiceMeasuring();
+}
+function handleVoiceTranscript(text){
+  const s=voiceSession;if(!s)return;
+  s.heard=String(text||"").trim();
+  const command=spokenCommand(text);
+  if(command==="stop")return endVoiceMeasuring(`Stopped: ${s.saved} saved.`);
+  if(command==="repeat")return promptVoiceTarget();
+  if(command==="skip"){s.skipped.add(s.storageId);return advanceVoiceMeasuring()}
+  if(command==="save"){
+    if(s.candidate)return saveVoiceCandidate();
+    renderVoicePanel();return voiceSay("Say the width, depth and height first.");
+  }
+  const dims=parseSpokenDimensions(text,state.unit);
+  if(!dims||!dims.every(v=>v>0)){
+    renderVoicePanel();return voiceSay("I didn't catch three measurements. Say width by depth by height.");
+  }
+  s.candidate=dims;
+  [["sw",0],["sd",1],["sh",2]].forEach(([id,i])=>{const el=$(id);el.value=String(round6(dims[i]));el.classList.add("autofill");setTimeout(()=>el.classList.remove("autofill"),750)});
+  renderVoicePanel();
+  voiceSay(`${dims.map(fmt).join(" by ")} ${UNIT_WORDS[state.unit]||state.unit}. Say save, or measure again.`);
+}
+function startVoiceMeasuring(){
+  if(voiceSession)return;
+  const Recognition=voiceRecognitionClass();
+  if(!Recognition){renderVoicePanel("Voice input is not available in this browser. Chrome, Edge and Safari support it.");return}
+  if(!measurementProgressData().pending.length){renderVoicePanel("Every storage measurement is already current.");return}
+  const recognition=new Recognition();
+  recognition.lang=navigator.language||"en-US";recognition.continuous=true;recognition.interimResults=false;recognition.maxAlternatives=3;
+  voiceSession={recognition,storageId:"",candidate:null,heard:"",saved:0,skipped:new Set(),speaking:false,speechToken:0};
+  recognition.onresult=e=>{
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const result=e.results[i];if(!result.isFinal)continue;
+      const alternatives=Array.from(result,a=>a.transcript);
+      // Prefer the first alternative that is a command or a full measurement.
+      handleVoiceTranscript(alternatives.find(t=>spokenCommand(t)||parseSpokenDimensions(t,state.unit))||alternatives[0]);
+    }
+  };
+  recognition.onerror=e=>{
+    if(e.error==="not-allowed"||e.error==="service-not-allowed"||e.error==="audio-capture")endVoiceMeasuring("Microphone access is blocked. Allow it for this page to measure by voice.");
+  };
+  // Continuous recognition still ends after silence; keep listening until the session stops.
+  recognition.onend=()=>{if(voiceSession?.recognition===recognition&&!voiceSession.speaking){try{recognition.start()}catch(e){}}};
+  advanceVoiceMeasuring();
+  if(voiceSession)try{recognition.start()}catch(e){}
+}
+function endVoiceMeasuring(message=""){
+  const s=voiceSession;
+  voiceSession=null;
+  if(s){try{s.recognition.abort()}catch(e){}try{window.speechSynthesis?.cancel()}catch(e){}}
+  renderVoicePanel(message);
+}
 function renderMeasurementProgress(){
   const sec=$("measurementProgressSection"),summary=$("measurementProgressSummary"),stats=$("measurementProgressStats"),list=$("measurementProgressList"),next=$("openNextMeasurementBtn");
   if(!sec||!summary||!stats||!list||!next)return;
@@ -7506,6 +7682,13 @@ $("toggleStorageMeasured").addEventListener("click",()=>{
   markStorageMeasured(s);save();renderStorageMeasurementStatus();renderStorageList();
 });
 $("saveMeasuredNext").addEventListener("click",()=>saveStorageEditor({verify:true,advance:true}));
+$("voiceMeasureBtn").addEventListener("click",startVoiceMeasuring);
+$("voiceMeasureSave").addEventListener("click",saveVoiceCandidate);
+$("voiceMeasureSkip").addEventListener("click",()=>{if(voiceSession){voiceSession.skipped.add(voiceSession.storageId);advanceVoiceMeasuring()}});
+$("voiceMeasureStop").addEventListener("click",()=>{
+  if(voiceSession)endVoiceMeasuring(`Stopped: ${voiceSession.saved} saved.`);
+  else $("voiceMeasurePanel").hidden=true;
+});
 $("pasteBoxDimensions").addEventListener("click",()=>{
   const ok=pasteDimensionsIntoFields(["bw","bd","bh"],"organizer");if(!ok)return;
   const btn=$("pasteBoxDimensions"),old=btn.textContent;btn.textContent="Filled ✓";setTimeout(()=>{btn.textContent=old},1200);
@@ -7864,6 +8047,9 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     maxStackLevelAllows,
     normalizeStackLevel,
     openBinStl,
+    parseSpokenDimensions,
+    spokenCommand,
+    voiceMeasuringActive,
     customBinDimensions,
     accessPenalty,
     compareAccess,

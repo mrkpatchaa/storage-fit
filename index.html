@@ -185,6 +185,7 @@
           <div><h2>Measurement coverage</h2><div class="small">Physical checks for usable storage dimensions and modeled constraints.</div></div>
           <div class="savedtoolbar">
             <button class="btn soft" id="openNextMeasurementBtn" type="button">Open next</button>
+            <button class="btn soft" id="voiceMeasureBtn" type="button" title="Measure hands-free: say each storage's width, depth and height">🎙 Measure by voice</button>
             <div class="small" id="measurementProgressSummary">—</div>
           </div>
         </div>
@@ -518,6 +519,18 @@
     “All arrangements” here means distinct practical edge-aligned maximal layouts, not every possible millimetre shift. The search is capped to keep the browser responsive.
   </div>
 </div>
+
+<aside class="voicepanel" id="voiceMeasurePanel" hidden aria-label="Voice measuring">
+  <div class="voicehead"><strong>🎙 Voice measuring</strong><span class="small" id="voiceMeasureProgress"></span></div>
+  <div class="voicepath" id="voiceMeasurePath"></div>
+  <div class="voiceheard" id="voiceMeasureHeard" role="status" aria-live="polite"></div>
+  <div class="voicecandidate" id="voiceMeasureCandidate"></div>
+  <div class="voiceactions">
+    <button class="btn primary" id="voiceMeasureSave" type="button" disabled>Save</button>
+    <button class="btn soft" id="voiceMeasureSkip" type="button" disabled>Skip</button>
+    <button class="btn soft" id="voiceMeasureStop" type="button">Close</button>
+  </div>
+</aside>
 
 <section id="printSheet" aria-hidden="true"></section>
 

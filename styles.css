@@ -122,3 +122,11 @@ h1{font-size:clamp(30px,5vw,48px);line-height:1;letter-spacing:-.045em;margin:0}
 .sharecolumns{display:grid;grid-template-columns:1fr 1fr;gap:12px}.sharecolumns h2{font-size:15px;margin:0 0 10px}.shareitem{display:flex;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--line)}.shareitem:last-child{border-bottom:0}.shareitem i{width:14px;height:14px;border-radius:4px;flex:none}.shareitem span{display:flex;justify-content:space-between;gap:10px;width:100%}.shareitem small{color:var(--muted)}
 .shareprivacy{font-size:11px;line-height:1.5;color:var(--muted);max-width:820px;margin:14px auto 0;text-align:center}.shareerror{text-align:center;padding:28px}.shareerror h1{margin-top:0}
 @media(max-width:720px){.sharehero{display:grid}.sharestats,.sharecolumns{grid-template-columns:1fr}.shareviz{min-height:240px}.sharewrap{padding:16px 10px 36px}}
+.voicepanel{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:60;width:min(520px,calc(100% - 32px));background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:13px 15px;box-shadow:0 14px 40px rgba(0,0,0,.18);display:grid;gap:5px}
+.voicepanel[hidden]{display:none}
+.voicehead{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.voicepath{font-weight:800;font-size:14px;overflow-wrap:anywhere}
+.voiceheard{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.voicecandidate{font-size:13px;font-weight:700}
+.voiceactions{display:flex;gap:8px;margin-top:4px}
+.voiceactions .btn{flex:1}

@@ -1917,6 +1917,54 @@
       result(doc.querySelectorAll("#boxList .listitem").length===itemsBeforeBin+1&&doc.getElementById("boxList").textContent.indexOf("Custom bin 7 × 26 × 12")>=0&&doc.getElementById("boxName").value==="Custom bin 7 × 26 × 12","the custom bin joins the item library and opens in the item editor, ready for its print file");
       result(doc.getElementById("downloadBinStl").disabled===false,"the item editor offers a 3D-print file for the selected item");
       doc.getElementById("closeDetailModal").click();
+
+      // Speech recognisers return words or digits, so both must reach the same measurement.
+      result(same(api.parseSpokenDimensions("sixty seven by twenty six by thirteen centimetres","cm"),[67,26,13]),"spoken number words separated by 'by' become width, depth and height");
+      result(same(api.parseSpokenDimensions("eight hundred and ten by four hundred by four hundred seventy millimetres","cm"),[81,40,47]),"spoken hundreds and a spoken unit are converted to the project unit");
+      result(same(api.parseSpokenDimensions("sixty point five by forty and a half by 16","cm"),[60.5,40.5,16]),"spoken decimals and halves are understood");
+      result(same(api.parseSpokenDimensions("sixty forty-five sixteen","cm"),[60,45,16]),"three spoken numbers without separators are still read as three measurements");
+      result(same(api.parseSpokenDimensions("height 16 width 60 depth 45","cm"),[60,45,16])&&same(api.parseSpokenDimensions("60 wide 45 deep 16 high","cm"),[60,45,16]),"spoken axis names put each value in its place, in any order");
+      result(same(api.parseSpokenDimensions("38 centimetres by 760 millimetres by 0.3 metres","cm"),[38,76,30])&&same(api.parseSpokenDimensions("twenty four by eighteen by six inches","cm"),[60.96,45.72,15.24]),"spoken units are honoured per value or for the whole triplet");
+      result(api.parseSpokenDimensions("sixty by forty five","cm")===null&&api.parseSpokenDimensions("the second drawer","cm")===null,"speech without three measurements is not turned into dimensions");
+      result(api.spokenCommand("save")==="save"&&api.spokenCommand("yes please")==="save"&&api.spokenCommand("oui")==="save","saying save, yes or oui confirms the heard measurement");
+      result(api.spokenCommand("next")==="skip"&&api.spokenCommand("skip this one")==="skip"&&api.spokenCommand("say that again")==="repeat"&&api.spokenCommand("stop")==="stop","skip, repeat and stop are recognised as commands");
+      result(api.spokenCommand("60 by 45 by 16")===null&&api.spokenCommand("the second drawer")===null,"measurements and other speech are not mistaken for commands");
+
+      var voicePanel=doc.getElementById("voiceMeasurePanel"),voiceButton=doc.getElementById("voiceMeasureBtn");
+      var realRecognition=w.SpeechRecognition,realWebkitRecognition=w.webkitSpeechRecognition;
+      w.SpeechRecognition=undefined;w.webkitSpeechRecognition=undefined;
+      voiceButton.click();
+      result(voicePanel.hidden===false&&/not available/i.test(voicePanel.textContent)&&!api.voiceMeasuringActive(),"without speech recognition, Measure by voice explains that it is not available instead of failing silently");
+      doc.getElementById("voiceMeasureStop").click();
+      var recognisers=[];
+      function FakeRecognition(){this.started=0;this.aborted=0;recognisers.push(this);}
+      FakeRecognition.prototype.start=function(){this.started++;};
+      FakeRecognition.prototype.abort=function(){this.aborted++;};
+      FakeRecognition.prototype.stop=function(){this.aborted++;};
+      function hear(text){
+        var alternative=[{transcript:text,confidence:0.9}];alternative.isFinal=true;
+        recognisers[recognisers.length-1].onresult({resultIndex:0,results:[alternative]});
+      }
+      w.SpeechRecognition=FakeRecognition;
+      var queue=api.measurementProgressData().pending,unitFactor={cm:1,mm:10,"in":1/2.54}[doc.getElementById("unit").value];
+      voiceButton.click();
+      result(queue.length>0&&recognisers.length===1&&recognisers[0].started>0&&voicePanel.hidden===false&&doc.getElementById("voiceMeasurePath").textContent===queue[0].path,"Measure by voice starts listening on the first storage still to be measured",queue.length+" to measure");
+      hear("sixty seven by twenty six by thirteen centimetres");
+      var heardValues=[doc.getElementById("sw").value,doc.getElementById("sd").value,doc.getElementById("sh").value].map(Number);
+      var stillPending=api.measurementProgressData().pending.some(function(row){return row.storageId===queue[0].storageId;});
+      result(closeTo(heardValues[0],67*unitFactor)&&closeTo(heardValues[1],26*unitFactor)&&closeTo(heardValues[2],13*unitFactor)&&stillPending,"a spoken measurement fills the storage editor but is not saved until it is confirmed",JSON.stringify(heardValues));
+      hear("save");
+      var savedRow=api.measurementProgressData().rows.filter(function(row){return row.storageId===queue[0].storageId;})[0];
+      result(savedRow.status==="current"&&closeTo(savedRow.width,67*unitFactor)&&closeTo(savedRow.depth,26*unitFactor)&&closeTo(savedRow.height,13*unitFactor),"saying save stores the heard dimensions and marks the storage measured",JSON.stringify(savedRow));
+      if(queue.length>1){
+        result(doc.getElementById("voiceMeasurePath").textContent===queue[1].path&&queue[1].path.slice(-doc.getElementById("storageName").value.length)===doc.getElementById("storageName").value,"after saving, voice measuring moves on to the next storage in the queue",doc.getElementById("voiceMeasurePath").textContent);
+        for(var skipped=1;skipped<queue.length;skipped++)hear("skip");
+      }
+      result(!api.voiceMeasuringActive()&&/1 saved/.test(voicePanel.textContent)&&recognisers[0].aborted>0,"once every storage is saved or skipped, voice measuring stops listening and reports what was saved",voicePanel.textContent.replace(/\s+/g," ").trim());
+      result(queue.slice(1).every(function(row){return api.measurementProgressData().pending.some(function(left){return left.storageId===row.storageId;});}),"skipped storages stay in the measurement queue");
+      doc.getElementById("voiceMeasureStop").click();
+      result(voicePanel.hidden===true,"closing the voice panel hides it");
+      w.SpeechRecognition=realRecognition;w.webkitSpeechRecognition=realWebkitRecognition;
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{
