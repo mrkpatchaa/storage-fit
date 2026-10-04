@@ -6830,6 +6830,45 @@ function svgIso(layout,W,D,H,reveal=null){
   const viz=$("detailViz"),size=StorageFit3D.viewSize(viz.clientWidth&&viz.clientWidth-16);
   return StorageFit3D.render(isoScene(layout,W,D,H),isoCamera,{reveal,...size});
 }
+// A shareable picture of the open layout: title, the 3D view, organizer legend and contents.
+async function layoutPictureCanvas(){
+  const layout=layouts[selectedLayout],s=storage(),sz=currentUsableSize();if(!layout||!s||!sz)return null;
+  const width=1200,pad=48,font=getComputedStyle(document.body).fontFamily;
+  const drawW=width-2*pad,drawH=Math.round(drawW*430/760);
+  const svg=StorageFit3D.render(isoScene(layout,sz.W,sz.D,sz.H),isoCamera,{width:760,height:430}).replace("<svg ",'<svg style="color:#6f716b" ');
+  const image=new Image();
+  image.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
+  await image.decode();
+  const legend=Object.entries(layoutCounts(layout)).map(([id,n])=>({color:resolvedColor(colorFor(id)),text:`${boxById(id)?.name||id} ×${n}`}));
+  const purposes=[...new Set(layout.map(placementLabel).filter(Boolean))];
+  const legendRows=Math.ceil(legend.length/2);
+  const height=pad+78+drawH+20+legendRows*32+(purposes.length?36:0)+pad;
+  const canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;
+  const g=canvas.getContext("2d");
+  const fit=(text,max)=>{let t=String(text);while(t.length>1&&g.measureText(t).width>max)t=t.slice(0,-2)+"…";return t};
+  g.fillStyle="#ffffff";g.fillRect(0,0,width,height);
+  g.fillStyle="#1d1d1b";g.font=`800 30px ${font}`;g.textBaseline="top";
+  g.fillText(fit(storageBreadcrumb(s),drawW),pad,pad);
+  g.fillStyle="#6f716b";g.font=`500 18px ${font}`;
+  const stacked=layout.filter(p=>(Number(p.z)||0)>1e-9).length;
+  g.fillText(fit(`${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${state.unit} · ${(utilization(layout,sz.W,sz.D,sz.H)*100).toFixed(1)}% ${utilizationNoun(layout)} · ${layout.length} organizer${layout.length===1?"":"s"}${stacked?` · ${stacked} stacked`:""}`,drawW),pad,pad+42);
+  g.drawImage(image,pad,pad+78,drawW,drawH);
+  let y=pad+78+drawH+20;
+  g.font=`600 18px ${font}`;
+  legend.forEach((row,i)=>{
+    const x=pad+(i%2)*(drawW/2),rowY=y+Math.floor(i/2)*32;
+    g.fillStyle=row.color;g.fillRect(x,rowY+2,18,18);
+    g.fillStyle="#1d1d1b";g.fillText(fit(row.text,drawW/2-40),x+28,rowY);
+  });
+  y+=legendRows*32;
+  if(purposes.length){g.fillStyle="#1d1d1b";g.font=`500 18px ${font}`;g.fillText(fit(`Contents: ${purposes.join(" · ")}`,drawW),pad,y+8)}
+  g.fillStyle="#9a9c95";g.font=`600 14px ${font}`;g.textAlign="right";g.fillText("Storage Fit",width-pad,height-pad+14);
+  return canvas;
+}
+async function layoutPictureBlob(){
+  const canvas=await layoutPictureCanvas();
+  return canvas?new Promise(resolve=>canvas.toBlob(resolve,"image/png")):null;
+}
 function assemblyStepText(layout,order,step){
   const p=layout[order[step]];if(!p)return "";
   const z=Number(p.z)||0;
@@ -7529,6 +7568,23 @@ $("drawerLabelBtn").addEventListener("click",async()=>{
   buildDrawerLabelSheet([drawerLabelEntry(s.id,path,capacityLayoutContext?"Capacity packing":`Layout ${selectedLayout+1}`,layout,url)]);
   window.print();
 });
+$("savePictureBtn").addEventListener("click",async()=>{
+  const btn=$("savePictureBtn"),s=storage();if(btn.disabled||!s)return;
+  btn.disabled=true;
+  try{
+    const blob=await layoutPictureBlob();if(!blob)return;
+    const name=`${slugify(s.name)}-layout-${selectedLayout+1}.png`,file=new File([blob],name,{type:"image/png"});
+    // Phones open their share sheet (messages, mail, notes); elsewhere the PNG is downloaded.
+    if(typeof navigator.share==="function"&&navigator.canShare?.({files:[file]})){
+      try{await navigator.share({files:[file],title:storageBreadcrumb(s)});return}
+      catch(e){if(e?.name==="AbortError")return}
+    }
+    const url=URL.createObjectURL(blob),a=document.createElement("a");
+    a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }catch(e){alert("Could not create a picture of this layout.")}
+  finally{btn.disabled=false}
+});
 $("printLabelsBtn").addEventListener("click",()=>{
   if(!buildLabelPrintSheet()){alert("Add a purpose label to at least one placement first.");return}
   window.print();
@@ -8187,6 +8243,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     drawerLabelEntries,
     shareUrlForPayload,
     decodeShareUrl,
+    layoutPictureCanvas,
     accessPenalty,
     compareAccess,
     defaultEditSnapStep,

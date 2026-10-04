@@ -704,6 +704,10 @@ To avoid unreliable oversized URLs, Storage Fit limits generated share links to 
 CI syntax-checks both `app.js` and the standalone `share.js` viewer.
 
 
+## Save a picture
+
+**Picture** in the selected-layout toolbar turns the layout into a 1200-pixel-wide PNG for messages or notes: the Room → Furniture → Storage path, dimensions and utilization, the 3D view from the current camera angle, the organizer legend with counts, and the placement purposes. On phones and other browsers that support sharing files, it opens the system share sheet; elsewhere the PNG is downloaded. The picture always uses the light colours, whatever the theme.
+
 ## Furniture constraint templates
 
 Blocked zones can now be created from common furniture patterns instead of entering every rectangle manually.

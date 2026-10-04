@@ -2169,7 +2169,44 @@
     document.body.appendChild(shareFrame);
     }
 
-    Promise.resolve().then(drawerLabelPhase).catch(function(e){result(false,"drawer label harness exception",e.message);}).then(shareViewerPhase);
+    // Save picture renders the open layout to a PNG; capture the file instead of downloading it.
+    function picturePhase(){
+      var picker=doc.getElementById("storageSelect");
+      picker.value="s1";picker.dispatchEvent(new w.Event("change",{bubbles:true}));
+      doc.getElementById("generateBtn").click();
+      doc.querySelector("#gallery .layoutcard").click();
+      var realCreate=w.URL.createObjectURL,realClick=w.HTMLAnchorElement.prototype.click,captured=null;
+      // Without the Web Share API the picture is downloaded.
+      Object.defineProperty(w.navigator,"share",{value:undefined,configurable:true});
+      Object.defineProperty(w.navigator,"canShare",{value:undefined,configurable:true});
+      var saved=new Promise(function(resolve,reject){
+        var timer=setTimeout(function(){reject(new Error("no picture was saved"));},5000);
+        w.URL.createObjectURL=function(blob){captured={blob:blob};return "blob:captured";};
+        w.HTMLAnchorElement.prototype.click=function(){if(captured){captured.name=this.download;clearTimeout(timer);resolve();}};
+      });
+      doc.getElementById("savePictureBtn").click();
+      function restore(){w.URL.createObjectURL=realCreate;w.HTMLAnchorElement.prototype.click=realClick;delete w.navigator.share;delete w.navigator.canShare;}
+      return saved.then(function(){
+        restore();
+        return captured.blob.arrayBuffer();
+      },function(e){restore();throw e;}).then(function(buffer){
+        var bytes=new Uint8Array(buffer),view=new DataView(buffer);
+        var isPng=bytes[0]===0x89&&bytes[1]===0x50&&bytes[2]===0x4e&&bytes[3]===0x47;
+        result(isPng&&captured.blob.type==="image/png"&&/\.png$/.test(captured.name)&&view.getUint32(16)===1200,"Save picture produces a 1200-pixel-wide PNG file",captured.name+" "+captured.blob.type+" "+view.getUint32(16)+"×"+view.getUint32(20));
+        // Decoding the PNG back stalls under headless virtual time, so inspect the canvas it is made from.
+        return api.layoutPictureCanvas();
+      }).then(function(canvas){
+        // The drawing sits below the title; count pixels that are neither the white page nor near-white.
+        var area=canvas.getContext("2d").getImageData(100,180,1000,500).data,inked=0;
+        for(var i=0;i<area.length;i+=4)if(area[i]<235||area[i+1]<235||area[i+2]<235)inked++;
+        result(inked>20000,"the picture contains the drawn layout, not a blank image",inked+" coloured pixels");
+        doc.getElementById("closeDetailModal").click();
+      });
+    }
+
+    Promise.resolve().then(drawerLabelPhase).catch(function(e){result(false,"drawer label harness exception",e.message);})
+      .then(picturePhase).catch(function(e){result(false,"picture harness exception",e.message);})
+      .then(shareViewerPhase);
   },{once:true});
 })();
 </script>

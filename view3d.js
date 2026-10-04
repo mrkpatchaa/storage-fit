@@ -260,7 +260,7 @@ function render(scene,camera,options={}){
 
   const captionMarkup=captions.map(c=>`<text x="${(c.anchor[0]*scale+tx+c.ox).toFixed(2)}" y="${(c.anchor[1]*scale+ty+c.oy).toFixed(2)}" text-anchor="${c.align}" dominant-baseline="central" font-size="11" font-weight="700" fill="currentColor" pointer-events="none">${esc(c.text)}</text>`).join("");
 
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Interactive 3D view">${shell}${body}${rim}${posts}${labels}${captionMarkup}</svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${width} ${height}" font-family="Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,&quot;Segoe UI&quot;,sans-serif" role="img" aria-label="Interactive 3D view">${shell}${body}${rim}${posts}${labels}${captionMarkup}</svg>`;
 }
 
 root.StorageFit3D={viewSize,defaultCamera,clampCamera,project,depth,visibleSides,drawOrder,assemblyOrder,assemblyFrame,tint,render};
