@@ -8,11 +8,21 @@
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
+<script src="theme.js"></script>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div class="wrap">
-  <h1>Storage Fit Planner</h1>
+  <div class="pagehead">
+    <h1>Storage Fit Planner</h1>
+    <label class="themepick">Theme
+      <select class="picker" id="themeSelect" aria-label="Colour theme">
+        <option value="auto">Auto</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
+  </div>
   <p class="lead">Choose a storage space and the item types you want to use. The planner suggests the combinations and quantities that fit.</p>
 
   <div class="appgrid">

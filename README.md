@@ -26,6 +26,12 @@ Then open http://localhost:8080/.
 
 Using a local web server is preferable to opening index.html directly because browser storage and cross-origin behavior are more predictable.
 
+## Light and dark themes
+
+The **Theme** menu next to the title offers **Auto**, **Light** and **Dark**. Auto follows the system setting and switches live when it changes; a Light or Dark choice is remembered on this device (it is a viewing preference, so it is not part of backups). The share viewer follows the same setting.
+
+Colours are CSS custom properties in `styles.css`: the light values keep the original look exactly, and dark values apply to the screen only, so printed plans, checklists and labels always print in their light colours. Storage drawings keep a light "paper" floor in both themes. Dark-theme text meets the WCAG AA contrast ratio of 4.5:1, which the smoke tests check. `theme.js` runs before the stylesheet, so pages open in the right theme without a flash.
+
 ## Offline and install
 
 Storage Fit works without a connection once it has been opened online. A small service worker (`sw.js`) caches the planner, the share viewer, the 3D renderer, styles and icons. Online, every file still comes from the network first, so a new deploy is picked up on the next load, and each response refreshes the cache; offline, the cached copy is served and any other page falls back to the planner. Product imports and every other cross-origin request bypass it.

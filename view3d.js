@@ -258,7 +258,7 @@ function render(scene,camera,options={}){
   const rim=[[0,0],[W,0],[W,D],[0,D]].map((c,i,all)=>line(P(c[0],c[1],H),P(all[(i+1)%4][0],all[(i+1)%4][1],H))).join("");
   const posts=[[nearX,nearY],[nearX,farY],[farX,nearY]].map(c=>line(P(c[0],c[1],0),P(c[0],c[1],H))).join("");
 
-  const captionMarkup=captions.map(c=>`<text x="${(c.anchor[0]*scale+tx+c.ox).toFixed(2)}" y="${(c.anchor[1]*scale+ty+c.oy).toFixed(2)}" text-anchor="${c.align}" dominant-baseline="central" font-size="11" font-weight="700" fill="#6f716b" pointer-events="none">${esc(c.text)}</text>`).join("");
+  const captionMarkup=captions.map(c=>`<text x="${(c.anchor[0]*scale+tx+c.ox).toFixed(2)}" y="${(c.anchor[1]*scale+ty+c.oy).toFixed(2)}" text-anchor="${c.align}" dominant-baseline="central" font-size="11" font-weight="700" fill="currentColor" pointer-events="none">${esc(c.text)}</text>`).join("");
 
   return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Interactive 3D view">${shell}${body}${rim}${posts}${labels}${captionMarkup}</svg>`;
 }

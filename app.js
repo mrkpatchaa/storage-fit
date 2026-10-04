@@ -8210,6 +8210,9 @@ if(new URLSearchParams(location.search).has("smoke-test")){
   };
 }
 
+$("themeSelect").value=window.StorageFitTheme?.get()||"auto";
+$("themeSelect").addEventListener("change",()=>window.StorageFitTheme?.set($("themeSelect").value));
+
 // Offline support (sw.js). Frames, such as the smoke-test page, never install it.
 if("serviceWorker" in navigator&&window.top===window&&location.protocol!=="file:"){
   navigator.serviceWorker.register("sw.js").catch(()=>{});

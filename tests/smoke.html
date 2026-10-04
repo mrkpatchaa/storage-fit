@@ -1944,6 +1944,37 @@
       result(api.currentLayouts()[0].length===3&&doc.querySelectorAll("#boxList .listitem").length===itemsBeforeBin+1,"undoing a custom bin and adding it again reuses the bin already in the library instead of duplicating it",doc.querySelectorAll("#boxList .listitem").length+" items");
       doc.getElementById("closeDetailModal").click();
 
+      // Colour themes. Contrast follows WCAG 2: relative luminance of the computed colours.
+      function rgbOf(value){var m=String(value).match(/[\d.]+/g)||[];return {rgb:m.slice(0,3).map(Number),alpha:m.length>3?Number(m[3]):1};}
+      function luminance(rgb){return rgb.map(function(c){c/=255;return c<=0.03928?c/12.92:Math.pow((c+0.055)/1.055,2.4);}).reduce(function(sum,c,i){return sum+c*[0.2126,0.7152,0.0722][i];},0);}
+      function backgroundOf(el){
+        for(var node=el;node&&node.nodeType===1;node=node.parentElement){var bg=rgbOf(w.getComputedStyle(node).backgroundColor);if(bg.alpha>0.5)return bg.rgb;}
+        return rgbOf(w.getComputedStyle(doc.body).backgroundColor).rgb;
+      }
+      function contrastOf(el){
+        var a=luminance(rgbOf(w.getComputedStyle(el).color).rgb),b=luminance(backgroundOf(el));
+        return (Math.max(a,b)+0.05)/(Math.min(a,b)+0.05);
+      }
+      var themeSelect=doc.getElementById("themeSelect");
+      themeSelect.value="light";themeSelect.dispatchEvent(new w.Event("change",{bubbles:true}));
+      result(w.getComputedStyle(doc.body).backgroundColor==="rgb(245, 245, 241)"&&w.getComputedStyle(doc.querySelector(".card")).backgroundColor==="rgb(255, 255, 255)"&&w.getComputedStyle(doc.querySelector(".preview, .detailviz")).backgroundColor==="rgb(250, 250, 247)","the light theme keeps the original page, card and drawing colours",w.getComputedStyle(doc.body).backgroundColor);
+      themeSelect.value="dark";themeSelect.dispatchEvent(new w.Event("change",{bubbles:true}));
+      result(doc.documentElement.dataset.theme==="dark"&&luminance(rgbOf(w.getComputedStyle(doc.body).backgroundColor).rgb)<0.02&&luminance(rgbOf(w.getComputedStyle(doc.querySelector(".card")).backgroundColor).rgb)<0.03,"choosing Dark switches the page and its cards to dark colours",w.getComputedStyle(doc.body).backgroundColor);
+      result(w.localStorage.getItem("storage-fit-theme")==="dark","the chosen theme is remembered on this device");
+      var contrastChecks=[["page lead text",doc.querySelector(".lead")],["card heading",doc.querySelector(".card h2")],["muted card text",doc.querySelector(".card .small")],["primary button",doc.getElementById("generateBtn")],["badge",doc.getElementById("homeProgress")],["list item size",doc.querySelector(".listitem .dims")],["text field",doc.getElementById("storageName")]];
+      var weak=contrastChecks.filter(function(c){return !c[1]||contrastOf(c[1])<4.5;}).map(function(c){return c[0]+" "+(c[1]?contrastOf(c[1]).toFixed(2):"missing");});
+      result(weak.length===0,"dark-theme text meets the WCAG AA contrast ratio of 4.5:1",weak.join(", "));
+      var realMatch=w.matchMedia;
+      w.matchMedia=function(query){return {matches:/dark/.test(query),addEventListener:function(){}};};
+      themeSelect.value="auto";themeSelect.dispatchEvent(new w.Event("change",{bubbles:true}));
+      var autoDark=doc.documentElement.dataset.theme;
+      w.matchMedia=function(query){return {matches:false,addEventListener:function(){}};};
+      w.StorageFitTheme.apply();
+      var autoLight=doc.documentElement.dataset.theme;
+      w.matchMedia=realMatch;
+      result(autoDark==="dark"&&autoLight==="light"&&w.localStorage.getItem("storage-fit-theme")===null,"Auto follows the system's light or dark setting",autoDark+" / "+autoLight);
+      themeSelect.value="light";themeSelect.dispatchEvent(new w.Event("change",{bubbles:true}));
+
       // Drawer labels: save and choose the open layout, then print a QR label that opens it.
       var realPrint=w.print;
       doc.querySelector("#gallery .layoutcard").click();
