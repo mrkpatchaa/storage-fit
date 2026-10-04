@@ -1961,9 +1961,18 @@
       themeSelect.value="dark";themeSelect.dispatchEvent(new w.Event("change",{bubbles:true}));
       result(doc.documentElement.dataset.theme==="dark"&&luminance(rgbOf(w.getComputedStyle(doc.body).backgroundColor).rgb)<0.02&&luminance(rgbOf(w.getComputedStyle(doc.querySelector(".card")).backgroundColor).rgb)<0.03,"choosing Dark switches the page and its cards to dark colours",w.getComputedStyle(doc.body).backgroundColor);
       result(w.localStorage.getItem("storage-fit-theme")==="dark","the chosen theme is remembered on this device");
-      var contrastChecks=[["page lead text",doc.querySelector(".lead")],["card heading",doc.querySelector(".card h2")],["muted card text",doc.querySelector(".card .small")],["primary button",doc.getElementById("generateBtn")],["badge",doc.getElementById("homeProgress")],["list item size",doc.querySelector(".listitem .dims")],["text field",doc.getElementById("storageName")]];
-      var weak=contrastChecks.filter(function(c){return !c[1]||contrastOf(c[1])<4.5;}).map(function(c){return c[0]+" "+(c[1]?contrastOf(c[1]).toFixed(2):"missing");});
-      result(weak.length===0,"dark-theme text meets the WCAG AA contrast ratio of 4.5:1",weak.join(", "));
+      // Every visible element with its own text, outside drawings, is checked.
+      var weak=[],checkedText=0;
+      Array.prototype.forEach.call(doc.querySelectorAll("body *"),function(el){
+        if(!Array.prototype.some.call(el.childNodes,function(n){return n.nodeType===3&&n.textContent.trim();}))return;
+        var box=el.getBoundingClientRect();
+        if(!box.width||!box.height||el.closest("svg"))return;
+        checkedText++;
+        var ratio=contrastOf(el);
+        if(ratio<4.5)weak.push(el.tagName.toLowerCase()+"."+String(el.className).split(" ").join(".")+" "+ratio.toFixed(2)+" “"+el.textContent.trim().slice(0,20)+"”");
+      });
+      if(checkedText<50)weak.push("only "+checkedText+" text elements were visible to check");
+      result(weak.length===0,"all visible dark-theme text meets the WCAG AA contrast ratio of 4.5:1",checkedText+" checked; "+weak.slice(0,6).join(", "));
       var realMatch=w.matchMedia;
       w.matchMedia=function(query){return {matches:/dark/.test(query),addEventListener:function(){}};};
       themeSelect.value="auto";themeSelect.dispatchEvent(new w.Event("change",{bubbles:true}));
