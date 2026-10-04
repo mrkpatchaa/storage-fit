@@ -7,14 +7,18 @@ Storage Fit is a dependency-free browser tool for planning boxes and organizers 
 - Models your home as Room → Furniture → Storage space, while keeping reusable items in one shared library.
 - Supports opt-in true 3D stacking with per-item rules: stay upright, may sit on another item, and may support items above.
 - Generates practical maximal layouts with different optimization goals.
-- Shows front, top, side and draggable 3D views.
+- Shows front, top, side and a draggable solid 3D view, with step-by-step assembly playback.
 - Lets you drag, rotate, duplicate and remove items in a layout.
 - Models blocked zones such as rails, hinges and unusable corners.
-- Detects leftover rectangles and suggests saved items that fit them.
+- Detects leftover rectangles, suggests saved items that fit them, and can fill one with a made-to-measure bin plus its 3D-print file.
 - Imports public IKEA/product URLs when product metadata is available, previews the result before saving, and detects existing catalog items by SKU or canonical product URL.
 - Finds every storage space where a selected organizer can physically fit, using the same clearance, orientation, obstacle and divider rules as the planner.
 - Saves plans, builds inventory-aware shopping lists, prints/exports layouts, and backs up/restores all browser data.
 - Turns saved plans into a shortlist: rename them, add notes, mark a chosen plan, and compare up to three side-by-side.
+- Measures hands-free: say each storage's width, depth and height, and it is filled in, verified and the next one opened.
+- Prints drawer labels whose QR code opens that storage's layout in 3D on a phone.
+- Saves or shares a picture of a layout, and shares compact read-only links.
+- Works offline once opened, installs as an app, and follows the system's light or dark theme.
 
 ## Run locally
 
@@ -26,14 +30,37 @@ Then open http://localhost:8080/.
 
 Using a local web server is preferable to opening index.html directly because browser storage and cross-origin behavior are more predictable.
 
+## Light and dark themes
+
+The **Theme** menu next to the title offers **Auto**, **Light** and **Dark**. Auto follows the system setting and switches live when it changes; a Light or Dark choice is remembered on this device (it is a viewing preference, so it is not part of backups). The share viewer follows the same setting.
+
+Colours are CSS custom properties in `styles.css`: the light values keep the original look (only the muted grey and the warning amber are a shade darker), and dark values apply to the screen only, so printed plans, checklists and labels always print in their light colours. Storage drawings keep a light "paper" floor in both themes. Text in both themes meets the WCAG AA contrast ratio of 4.5:1; the smoke tests check every visible text element. `theme.js` runs before the stylesheet, so pages open in the right theme without a flash.
+
+## Offline and install
+
+Storage Fit works without a connection once it has been opened online. A small service worker (`sw.js`) caches the planner, the share viewer, the 3D renderer, styles and icons. Online, every file still comes from the network first, so a new deploy is picked up on the next load, and each response refreshes the cache. Offline, or when a weak connection has not answered within four seconds, the cached copy is served, and any other page falls back to the planner. Product imports and every other cross-origin request bypass it.
+
+With `manifest.webmanifest`, browsers that support it can install Storage Fit as a standalone app (Add to Home Screen on phones, Install app in Chrome and Edge). Planner data stays in the same browser storage, so installing does not move or copy it.
+
+Service workers need `https://` or `localhost`; opening `index.html` from the file system skips them. The worker is only registered by top-level pages, so the smoke-test page's frames never install it.
+
 ## Project structure
 
     .
     ├── index.html        Application shell
     ├── styles.css        Application styles
     ├── app.js            Planner, optimizer, import and persistence logic
+    ├── view3d.js         3D renderer shared by the planner and the share viewer
+    ├── qr.js             Dependency-free QR code encoder for drawer labels
+    ├── sw.js             Offline cache (service worker)
+    ├── manifest.webmanifest, icon.svg, icon-192.png, icon-512.png   Install metadata and icons
+    ├── share.html        Read-only shared-plan viewer
+    ├── share.js          Shared-plan viewer logic
     ├── tests/
-    │   └── smoke.html    Browser smoke tests for core helpers
+    │   ├── smoke.html             Browser smoke tests
+    │   ├── run-browser-smoke.sh   Headless-Chrome runner used by CI
+    │   ├── service-worker-test.js Offline-cache tests (plain Node, no dependencies)
+    │   └── qr-test.js             QR encoder tests against an independent encoder's output
     └── README.md
 
 The project intentionally remains plain HTML, CSS and JavaScript with no framework and no bundler.
@@ -43,6 +70,8 @@ The project intentionally remains plain HTML, CSS and JavaScript with no framewo
 Start the local server and open:
 
 http://localhost:8080/tests/smoke.html
+
+CI runs the same page headlessly with `bash tests/run-browser-smoke.sh` (set `CHROME_BIN` when Chrome is not on `PATH`, for example `CHROME_BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"` on macOS), and runs the offline-cache and QR tests with `node tests/service-worker-test.js` and `node tests/qr-test.js`.
 
 The smoke suite loads the real application through a test-only API and checks IKEA measurement parsing, article-number extraction, unit conversion, URL sanitization, backup validation, 3D collision detection, and full-footprint stack support. It snapshots and restores localStorage so the test page does not replace your planner data.
 
@@ -116,6 +145,19 @@ Duplicate matching prefers normalized SKU/article numbers and falls back to cano
 
 Retailer pages and cross-origin policies can change, so automatic import remains best-effort. The app never adds an imported item until you explicitly confirm it.
 
+## Drawer QR labels
+
+Once a storage space has a chosen plan, its contents can be found again without opening the planner: stick a label on the drawer and scan it.
+
+- **Install queue → Print drawer labels** prints one label for every storage space with a chosen plan, in Room → Furniture → Storage order.
+- **Selected layout → Drawer label** prints a label for the layout that is open.
+
+Each label shows the Room → Furniture → Storage path, the plan name, the placement purposes (or the organizer mix when nothing is labelled), and a QR code. Scanning it with a phone camera opens the read-only share viewer for that exact layout, titled with the storage path, in 3D. The link is the same self-contained share link as **Share link**: the plan travels inside the URL fragment and nothing is uploaded. Because the share viewer is cached for offline use, a phone that has opened Storage Fit before can show the layout even without a connection.
+
+QR codes use error-correction level M, which tolerates scuffed stickers, and fall back to level L for long plans when that gives a smaller code. Because share links are compressed, a typical drawer plan fits in a version-10 to version-16 code (57 to 81 modules), which scans well printed about 4 cm wide. A plan whose link is too long for any QR code gets a note to use Export instead.
+
+The encoder (`qr.js`) is written from the QR Code specification with no dependencies. Its tests compare whole symbols, across sizes up to version 40, with the output of an independent encoder.
+
 ## Paste manual dimensions
 
 Storage and organizer editors both have **Paste dimensions…** for measurements copied from notes, retailer specs, or a message.
@@ -159,6 +201,20 @@ The main workspace also includes **Measurement coverage**. It summarizes current
 Inside the storage editor, **Save measured & next** closes the field-work loop: it saves the visible storage name, furniture, Width / Depth / Height, applies the same constraint clamping as normal **Save**, marks the resulting physical geometry as measured, then opens the next unfinished measurement. If that was the final pending space, the button becomes **Save measured** and stays on the current storage. Width, depth, and height must all be greater than zero before a storage can be verified.
 
 Plain **Save** remains available and does not mark anything measured.
+
+## Voice measuring
+
+Measuring a whole home means holding a tape measure while typing on a phone. **🎙 Measure by voice** in **Measurement coverage** turns the measurement queue into a hands-free walkthrough:
+
+1. Storage Fit opens the first storage still to measure (rechecks first, as in the coverage list) and reads its Room → Furniture → Storage path aloud.
+2. Say the inside size, for example “sixty seven by twenty six by thirteen” or “60 wide, 45 deep, 16 high”. The values fill the storage editor and are read back.
+3. Say **save** (or yes, ok, oui) to save the dimensions, mark the storage **Measured**, and move to the next one. Say the size again to correct it, **skip** to leave a storage for later, **repeat** to hear the prompt again, or **stop** to end.
+
+Spoken numbers can be digits or words (“eight hundred and ten”, “sixty point five”, “forty and a half”), with “by”, “times” or no separator at all. Unit words (centimetres, millimetres, metres, inches) are converted per value into the project unit; with no unit, the project unit is assumed. Axis words such as width / depth / height or wide / deep / high put each value in its place in any order.
+
+Nothing is saved until you confirm, and the same Save / Skip / Stop actions are on screen if the room is too noisy. Prompts are spoken with listening paused, so the planner never hears itself. Skipped storages stay in the measurement queue.
+
+Voice input uses the browser’s speech recognition, available in Chrome, Edge and Safari; other browsers show a short explanation instead. Some browsers send audio to their speech service to recognise it.
 
 ## Home hierarchy
 
@@ -421,6 +477,10 @@ An optional **Highest stack level** limits how high that item itself may be plac
 - Level 3 = up to two supporting levels below it.
 - Blank = no item-specific level limit.
 
+A blank limit stays blank across reloads, and the limit only applies to items that can sit on another item: unticking **Can sit on another item** clears it, and a leftover value on such an item is not treated as a handling-rule change for saved plans. Level 1 on a stackable item means it never leaves the floor, so the item editor says so instead of letting stacking fail silently.
+
+Older versions saved a limit of 1 for every item after a reload, which quietly kept stackable items on the floor. The first time this version opens a project (or restores an older backup), it clears a limit of 1 from every item that may sit on another item, together with the copies kept in saved plans and distribution work, so those plans stay Current. It does this only once: a limit of 1 chosen afterwards is kept.
+
 This is a hard placement rule and is enforced by both optimizer search and manual editing. It works in addition to **Can sit on another item** and the global **Enable stacking** switch.
 
 ### Prefer near the front
@@ -637,7 +697,7 @@ It does **not** include:
 - recovery checkpoints;
 - other plans.
 
-The encoded plan is stored in the URL fragment (`#p=...`). URL fragments are handled by the browser and are not included in normal HTTP page requests to the server.
+The encoded plan is stored in the URL fragment. New links use `#z=...`: the plan's JSON compressed with deflate, which makes links about half as long (a typical drawer plan went from 755 to 397 characters). Older `#p=...` links, which hold the JSON uncompressed, still open. Browsers without the Compression Streams API create `#p=` links; very old browsers that cannot decompress show a message asking to update. URL fragments are handled by the browser and are not included in normal HTTP page requests to the server.
 
 Opening a shared link does not import, overwrite, or write planner data. The standalone viewer never uses `localStorage`.
 
@@ -649,6 +709,10 @@ To avoid unreliable oversized URLs, Storage Fit limits generated share links to 
 
 CI syntax-checks both `app.js` and the standalone `share.js` viewer.
 
+
+## Save a picture
+
+**Picture** in the selected-layout toolbar turns the layout into a 1200-pixel-wide PNG for messages or notes: the Room → Furniture → Storage path, dimensions and utilization, the 3D view from the current camera angle, the organizer legend with counts, and the placement purposes. On phones and other browsers that support sharing files, it opens the system share sheet; elsewhere the PNG is downloaded. The picture always uses the light colours, whatever the theme.
 
 ## Furniture constraint templates
 
@@ -1180,3 +1244,36 @@ The dashboard does not create a second inventory system: **Done** is still workf
 
 No schema migration is required; the app remains on V28.
 
+## Diversified layout search
+
+**Find arrangements** explores placements depth-first and stops at a cap to keep the browser responsive. On its own, a capped depth-first search only varies the last few placements of the first arrangement it builds, so whole quantity mixes are never reached. For the default shelf (81 × 40 × 27 cm) with the three default boxes, that meant a top proposal of 94.4% floor use while a plain 4 × 3 grid of twelve small boxes (96.3%) was never proposed.
+
+When the first pass is capped, Storage Fit now runs short extra passes in which each selected item type leads in turn, in both orders and with both floor orientations tried first. Their layouts are added to the first pass's results, never substituted for them, and a search that completes on its own runs no extra pass, so uncapped results are exactly what they were. The result message reports how many alternative item priorities were searched.
+
+Variants of one quantity mix are also curated differently:
+
+- when variants tie on the optimization goal, the most aligned arrangement (fewest distinct cut lines) is listed first;
+- a variant is kept only if at least a third of its placements (and at least two) sit somewhere clearly different from every variant already kept. The same box, turned the same way and shifted by less than about a third of its size, counts as the same place, so near-copies that nudge a box or slide a row no longer fill the gallery.
+
+The search remains deterministic, and Max quantities, blocked zones, dividers, fit tolerance and stacking rules apply to every pass.
+
+## 3D view and assembly playback
+
+The **3D** tab draws the storage as a solid, shaded scene instead of a see-through sketch:
+
+- organizers are opaque boxes painted back to front, so nearer boxes hide what is behind them;
+- the two far walls are drawn and the two near walls are left open, like a cut-away;
+- blocked zones stay translucent red and dividers translucent blue;
+- each organizer is named on its top face when that spot is visible, and the usable width, depth and height are captioned beside the drawing, with the front edge marked **Front**.
+
+The camera is orthographic and is not mirrored: seen from the front, the storage's left is on your left and its front edge is nearest to you, which matches standing at the open drawer or shelf. Drag to turn it; the storage follows the pointer. **Reset view** returns to the default three-quarter view from the front right.
+
+**▶ Assemble** plays the layout being loaded one organizer at a time: supports before the items stacked on them, and the back of each level before its front. A caption gives the current step with the organizer's distance from the left and from the front, and its height when stacked. Playback respects the reduced-motion preference by placing each organizer without the drop.
+
+The renderer lives in `view3d.js` and is shared with the read-only share viewer, whose 3D tab can now be turned the same way.
+
+## Printable custom bins
+
+When a leftover rectangle is at least 3 cm on both sides, its card offers **Custom bin**. This creates a made-to-measure organizer that fills the rectangle and stands as tall as the tallest organizer already in the layout (limited by the usable height), adds it to the item library, and places it in the layout in edit mode. It is a normal item afterwards: it can be renamed, priced, saved in plans and listed in shopping.
+
+The item editor has **Print file (STL)** for the selected item. It downloads a binary STL of an open-top bin with the item's outer Width × Depth × Height, converted to millimetres, with 1.6 mm walls and a 1.2 mm floor. The mesh is a closed, outward-facing surface, ready for a slicer. Items too small to leave a cavity are not exported.

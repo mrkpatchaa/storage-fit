@@ -4,11 +4,25 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Storage Fit Planner</title>
+<meta name="theme-color" content="#1d1d1b">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-192.png">
+<script src="theme.js"></script>
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 <div class="wrap">
-  <h1>Storage Fit Planner</h1>
+  <div class="pagehead">
+    <h1>Storage Fit Planner</h1>
+    <label class="themepick">Theme
+      <select class="picker" id="themeSelect" aria-label="Colour theme">
+        <option value="auto">Auto</option>
+        <option value="light">Light</option>
+        <option value="dark">Dark</option>
+      </select>
+    </label>
+  </div>
   <p class="lead">Choose a storage space and the item types you want to use. The planner suggests the combinations and quantities that fit.</p>
 
   <div class="appgrid">
@@ -125,7 +139,7 @@
             <label class="rulecard"><input id="boxFrontPriority" type="checkbox"><span><strong>Prefer near the front</strong><small>Rank easy-to-reach placements ahead of deeper ones.</small></span></label>
             <label class="rulecard"><input id="boxCanBeStacked" type="checkbox"><span><strong>Can sit on another item</strong><small>Allow this item above floor level.</small></span></label>
             <label class="rulecard"><input id="boxCanSupportStack" type="checkbox"><span><strong>Can support items above</strong><small>Its full top surface may be used as a shelf.</small></span></label>
-            <div class="rulecard rulecard-field"><span><strong>Highest stack level</strong><small>Optional. 1 = floor only, 2 = one level above floor.</small></span><input id="boxMaxStackLevel" type="number" min="1" max="9" step="1" placeholder="Any"></div>
+            <div class="rulecard rulecard-field"><span><strong>Highest stack level</strong><small id="boxMaxStackHint">Optional. 1 = floor only, 2 = one level above floor.</small></span><input id="boxMaxStackLevel" type="number" min="1" max="9" step="1" placeholder="Any"></div>
           </div>
           <div class="row3" style="margin-top:8px">
             <div class="field"><label for="boxPrice">Price (optional)</label><input id="boxPrice" type="number" min="0" step="0.01" placeholder="0.00"></div>
@@ -136,7 +150,7 @@
           <div class="field" style="margin-top:8px"><label for="boxSku">SKU / reference</label><input id="boxSku" type="text" placeholder="Optional"></div>
           <div class="field" style="margin-top:8px"><label for="boxUrl">Product link (optional)</label><input id="boxUrl" type="url" placeholder="https://…"></div>
           <div class="field" style="margin-top:8px"><label for="boxImage">Product image URL (optional)</label><input id="boxImage" type="url" placeholder="Automatically filled when available"></div>
-          <div class="actions"><button class="btn soft" id="saveBox" type="button">Save</button><button class="btn soft" id="findItemFits" type="button">Find spaces</button><button class="btn soft" id="findItemPlanRoom" type="button">Room in plans</button><button class="btn soft" id="showItemUsage" type="button">Used in plans</button><button class="btn danger" id="deleteBox" type="button">Delete</button></div>
+          <div class="actions"><button class="btn soft" id="saveBox" type="button">Save</button><button class="btn soft" id="findItemFits" type="button">Find spaces</button><button class="btn soft" id="findItemPlanRoom" type="button">Room in plans</button><button class="btn soft" id="showItemUsage" type="button">Used in plans</button><button class="btn soft" id="downloadBinStl" type="button" title="Download a 3D-printable open bin with this item's outer dimensions">Print file (STL)</button><button class="btn danger" id="deleteBox" type="button">Delete</button></div>
         </div>
       </section>
 
@@ -185,6 +199,7 @@
           <div><h2>Measurement coverage</h2><div class="small">Physical checks for usable storage dimensions and modeled constraints.</div></div>
           <div class="savedtoolbar">
             <button class="btn soft" id="openNextMeasurementBtn" type="button">Open next</button>
+            <button class="btn soft" id="voiceMeasureBtn" type="button" title="Measure hands-free: say each storage's width, depth and height">🎙 Measure by voice</button>
             <div class="small" id="measurementProgressSummary">—</div>
           </div>
         </div>
@@ -268,6 +283,7 @@
           <div><h2>Install queue</h2><div class="small">Owned inventory is allocated in queue order across chosen plans. Earlier unfinished spaces reserve shared stock first.</div></div>
           <div class="savedtoolbar">
             <span class="small" id="installProgressText"></span>
+            <button class="btn soft" id="printDrawerLabelsBtn" type="button" title="Print a QR label for every storage space with a chosen plan">Print drawer labels</button>
             <button class="btn soft" id="findMoreReadyBtn" type="button">Find more Ready</button>
             <button class="btn soft" id="analyzeUnlocksBtn" type="button">Analyze stock</button>
           </div>
@@ -405,8 +421,10 @@
               <button class="btn soft" id="applyMatchingBtn" type="button" disabled>Apply to matching</button>
               <button class="btn soft" id="printPlanBtn" type="button">Print plan</button>
               <button class="btn soft" id="printLabelsBtn" type="button" disabled>Print labels</button>
+              <button class="btn soft" id="drawerLabelBtn" type="button" title="Print a label with a QR code that opens this layout">Drawer label</button>
               <button class="btn soft" id="exportPlanBtn" type="button">Export</button>
               <button class="btn soft" id="sharePlanBtn" type="button">Share link</button>
+              <button class="btn soft" id="savePictureBtn" type="button" title="Save or share a picture of this layout">Picture</button>
             </div>
             <button class="btn" id="closeDetailModal" type="button">Close</button>
           </div>
@@ -418,6 +436,7 @@
           <button class="tab" type="button" data-view="iso">3D</button>
           <button class="tab" type="button" data-view="top">Top</button>
           <button class="tab" type="button" data-view="side">Side</button>
+          <button class="reset3d" id="playAssembly" type="button" disabled>▶ Assemble</button>
           <button class="reset3d" id="reset3d" type="button" disabled>Reset view</button>
         </div>
         <div class="editbar" id="editBar">
@@ -471,7 +490,10 @@
           <button class="btn primary" id="doneEdit" type="button">Done editing</button>
           <span class="editstatus" id="editStatus">Click or drag a box in Top view.</span>
         </div>
-        <div class="detailviz" id="detailViz"></div>
+        <div class="detailvizwrap">
+          <div class="assemblycaption" id="assemblyCaption" hidden></div>
+          <div class="detailviz" id="detailViz"></div>
+        </div>
         <div class="detailinfo">
           <div class="detailbox"><h3>Suggested quantities</h3><ul id="layoutItems"></ul></div>
           <div class="detailbox"><h3>Contents / labels</h3><div id="layoutLabels" class="placementlabels"></div></div>
@@ -515,8 +537,22 @@
   </div>
 </div>
 
+<aside class="voicepanel" id="voiceMeasurePanel" hidden aria-label="Voice measuring">
+  <div class="voicehead"><strong>🎙 Voice measuring</strong><span class="small" id="voiceMeasureProgress"></span></div>
+  <div class="voicepath" id="voiceMeasurePath"></div>
+  <div class="voiceheard" id="voiceMeasureHeard" role="status" aria-live="polite"></div>
+  <div class="voicecandidate" id="voiceMeasureCandidate"></div>
+  <div class="voiceactions">
+    <button class="btn primary" id="voiceMeasureSave" type="button" disabled>Save</button>
+    <button class="btn soft" id="voiceMeasureSkip" type="button" disabled>Skip</button>
+    <button class="btn soft" id="voiceMeasureStop" type="button">Close</button>
+  </div>
+</aside>
+
 <section id="printSheet" aria-hidden="true"></section>
 
+<script src="qr.js"></script>
+<script src="view3d.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

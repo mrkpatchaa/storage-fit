@@ -21,7 +21,7 @@
   for(var i=0;i<localStorage.length;i++){var k=localStorage.key(i);backup[k]=localStorage.getItem(k);}
   localStorage.clear();
 
-  var rows=[];
+  var rows=[],labelCheck=null;
   function result(ok,name,detail){rows.push({ok:ok,name:name,detail:detail||""});}
   function same(a,b){return JSON.stringify(a)===JSON.stringify(b);}
 
@@ -31,6 +31,43 @@
     try{
       var api=w.StorageFitTest;
       result(!!api,"smoke-test API is exposed only for the test page");
+      result(w.document.getElementById("boxMaxStackLevel").value==="","loading the planner keeps an item's blank stack-level limit blank instead of turning it into floor only",JSON.stringify(w.document.getElementById("boxMaxStackLevel").value));
+      result(api.normalizeStackLevel(null)===null&&api.normalizeStackLevel(undefined)===null&&api.normalizeStackLevel("")===null,"a missing or blank stack-level limit means no limit");
+      result(api.normalizeStackLevel(3)===3&&api.normalizeStackLevel("2")===2&&api.normalizeStackLevel(2.9)===2&&api.normalizeStackLevel(0)===1&&api.normalizeStackLevel(12)===9&&api.normalizeStackLevel("tall")===null,"a stored stack-level limit is read as a whole level from 1 to 9");
+      function legacySignature(level,stackable){return JSON.stringify([30,25,12,true,false,false,stackable,false,level]);}
+      function distributionFingerprint(itemLevel,planItemLevel){
+        return JSON.stringify(["b1",legacySignature(itemLevel,false),2,[false,0,0,true,false],[["s1","structure",["p1","layout","null",false,"current",[["b1",legacySignature(itemLevel,false)],["b2",legacySignature(planItemLevel,true)]]]]]]);
+      }
+      var legacyDistribution={boxes:[{id:"b1"}],ownedDistributionSessions:{b1:{itemId:"b1",fingerprint:distributionFingerprint(1,1),requested:2,allocations:[{storageId:"s1",assigned:2,result:{layout:[{},{}]}}]}}};
+      api.normalizeOwnedDistributionSessions(legacyDistribution);
+      result(legacyDistribution.ownedDistributionSessions.b1.fingerprint===distributionFingerprint(null,1),"a distribution session saved before blank stack limits were fixed keeps matching its unchanged plans, while a stackable item's real limit is kept");
+      function stackRules(level,stackable){return {w:30,d:25,h:12,uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:stackable,canSupportStack:true,maxStackLevel:level};}
+      function legacyFingerprint(levelS,levelT){
+        return JSON.stringify(["s",JSON.stringify([30,25,12,true,false,false,true,true,levelS]),2,[false,0,0,true,true],[["st1","structure",["p1","layout","null",true,"current",[["s",JSON.stringify([30,25,12,true,false,false,true,true,levelS])],["t",JSON.stringify([30,25,12,true,false,false,true,true,levelT])]]]]]]);
+      }
+      var stackMigration={
+        boxes:[Object.assign({id:"s",name:"Stackable"},stackRules(1,true)),Object.assign({id:"n",name:"Fixed"},stackRules(null,false)),Object.assign({id:"t",name:"Two high"},stackRules(2,true))],
+        savedPlans:[{id:"p1",itemSnapshots:{s:Object.assign({id:"s",name:"Stackable"},stackRules(1,true)),t:Object.assign({id:"t",name:"Two high"},stackRules(2,true))}}],
+        ownedDistributionSessions:{s:{itemId:"s",fingerprint:legacyFingerprint(1,2)}}
+      };
+      api.clearLegacyStackLimits(stackMigration);
+      result(stackMigration.boxes[0].maxStackLevel===null&&stackMigration.boxes[2].maxStackLevel===2,"a stack limit of 1 left on a stackable item by older versions is cleared, while other limits stay");
+      result(api.itemPlanningSignature(stackMigration.savedPlans[0].itemSnapshots.s)===api.itemPlanningSignature(stackMigration.boxes[0])&&stackMigration.savedPlans[0].itemSnapshots.t.maxStackLevel===2,"saved plans that use a cleared item keep matching it, so they do not turn to Review");
+      result(stackMigration.ownedDistributionSessions.s.fingerprint===legacyFingerprint(null,2),"distribution work that uses a cleared item stays current");
+      stackMigration.boxes[0].maxStackLevel=1;
+      api.clearLegacyStackLimits(stackMigration);
+      result(stackMigration.legacyStackLimitsCleared===true&&stackMigration.boxes[0].maxStackLevel===1,"the clean-up runs once, so a limit of 1 chosen afterwards is kept");
+      result(api.normalizeStackLevel(1,false)===null&&api.normalizeStackLevel(4,false)===null&&api.normalizeStackLevel(1,true)===1,"an item that cannot be stacked carries no stack-level limit, while a stackable item keeps its saved one");
+      var plainRuleItem={id:"rule",name:"Rule item",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:false,canSupportStack:false,maxStackLevel:null};
+      result(api.itemPlanningSignature(Object.assign({},plainRuleItem,{maxStackLevel:1}))===api.itemPlanningSignature(plainRuleItem),"a leftover stack-level limit on an item that cannot be stacked is not a handling-rule change for saved plans");
+      result(api.itemPlanningSignature(Object.assign({},plainRuleItem,{canBeStacked:true,maxStackLevel:1}))!==api.itemPlanningSignature(Object.assign({},plainRuleItem,{canBeStacked:true})),"changing the stack-level limit of a stackable item is still a handling-rule change for saved plans");
+      var stackableToggle=w.document.getElementById("boxCanBeStacked"),stackLevelInput=w.document.getElementById("boxMaxStackLevel"),stackLevelHint=w.document.getElementById("boxMaxStackHint");
+      stackableToggle.click();
+      stackLevelInput.value="1";stackLevelInput.dispatchEvent(new w.Event("input",{bubbles:true}));
+      var floorOnlyHint=stackLevelHint.textContent,floorOnlyWarned=stackLevelHint.classList.contains("warn");
+      stackLevelInput.value="";stackLevelInput.dispatchEvent(new w.Event("input",{bubbles:true}));
+      result(floorOnlyWarned&&/never be stacked/i.test(floorOnlyHint)&&!stackLevelHint.classList.contains("warn"),"the item editor warns that level 1 on a stackable item keeps it on the floor, and stops warning once the limit is cleared",floorOnlyHint);
+      stackableToggle.click();
       result(same(api.parseDimensionString("38 x 76 x 30 cm"),[38,76,30]),"compact dimensions");
       result(same(api.parseDimensionString("38 cm x 760 mm x 0.3 m"),[38,76,30]),"compact dimensions normalize a unit declared on each value");
       result(same(api.parseDimensionString("38 cm by 760 mm by 0.3 m"),[38,76,30]),"compact dimensions accept retailer-style by separators with mixed units");
@@ -1639,26 +1676,654 @@
         {typeId:"b3",name:"Small box",x:0,y:0,z:8,w:20,d:13,h:4}
       ]});
       result(w.document.getElementById("detailSubtitle").textContent.indexOf("1 stack · tallest level 3 · L1:1 / L2:1 / L3:1")>0,"capacity detail keeps the stack-structure explanation after opening");
+      var stackTexts=Array.prototype.filter.call(w.document.querySelectorAll("#detailViz svg text"),function(t){return /Small box/.test(t.textContent);}).map(function(t){return t.textContent;});
+      result(stackTexts.length===1&&/↑8/.test(stackTexts[0]),"the Top view names only the top box of a stack instead of printing three names on top of each other",JSON.stringify(stackTexts));
       api.openCapacityPacking("s1",{...ownedCapacitySubset,stackingEnabled:true});
       result(w.document.getElementById("detailSubtitle").textContent.indexOf("Owned-stock packing: 2 of 3 capacity.")===0,"owned capacity detail does not mislabel a stock-limited subset as the geometric maximum");
+
+      w.document.getElementById("closeDetailModal").click();
+      // The app iframe is normally 1px wide, so layout is measured at explicit realistic widths.
+      function sidebarOverflow(width){
+        frame.style.width=width+"px";frame.style.height="900px";
+        var side=w.document.querySelector(".sidebar"),root=w.document.documentElement;
+        // Content may neither leave the sidebar nor widen the page past the viewport.
+        var limit=Math.min(side.getBoundingClientRect().right,root.clientWidth),worst=root.scrollWidth-root.clientWidth;
+        Array.prototype.forEach.call(side.querySelectorAll("*"),function(el){
+          var r=el.getBoundingClientRect();
+          if(r.width>0)worst=Math.max(worst,r.right-limit);
+        });
+        frame.style.width="";frame.style.height="";
+        return Math.round(worst);
+      }
+      var desktopOverflow=sidebarOverflow(1280),tabletOverflow=sidebarOverflow(800),phoneOverflow=sidebarOverflow(400);
+      result(desktopOverflow<=0,"desktop sidebar content stays inside its column instead of sliding under the workspace",desktopOverflow>0?desktopOverflow+"px past the sidebar":"");
+      result(tabletOverflow<=0,"two-column tablet sidebar content stays inside the sidebar",tabletOverflow>0?tabletOverflow+"px past the sidebar":"");
+      result(phoneOverflow<=0,"phone-width sidebar content does not force horizontal scrolling",phoneOverflow>0?phoneOverflow+"px past the sidebar":"");
+
+      function searchTypes(overrides){
+        return [
+          Object.assign({id:"b1",name:"Box 30 × 25 × 12",max:null,oris:[[30,25,12],[25,30,12]]},(overrides||{}).b1),
+          Object.assign({id:"b2",name:"Box 32 × 25 × 12",max:null,oris:[[32,25,12],[25,32,12]]},(overrides||{}).b2),
+          Object.assign({id:"b3",name:"Small box 20 × 13 × 10",max:null,oris:[[20,13,10],[13,20,10]]},(overrides||{}).b3)
+        ];
+      }
+      function floorArea(layout){return layout.reduce(function(sum,p){return sum+p.w*p.d;},0);}
+      function typeCount(layout,id){return layout.filter(function(p){return p.typeId===id;}).length;}
+      var drawerSearch=api.searchMaximalLayouts([{id:"b1",name:"Box 30 × 25 × 12",max:null,oris:[[30,25,12]]}],67,26,13,[],0);
+      result(drawerSearch.truncated===false&&drawerSearch.passes===1&&drawerSearch.layouts.length===1&&same(drawerSearch.layouts[0].map(function(p){return [p.x,p.y];}),[[0,0],[30,0]]),"a search that completes still returns exactly the maximal layouts from one pass",JSON.stringify({truncated:drawerSearch.truncated,passes:drawerSearch.passes,layouts:drawerSearch.layouts.length}));
+      var shelfSearch=api.searchMaximalLayouts(searchTypes(),81,40,27,[],0);
+      var smallBoxGrid=shelfSearch.layouts.filter(function(l){return l.length===12&&typeCount(l,"b3")===12;});
+      result(shelfSearch.truncated===true&&shelfSearch.passes>1&&smallBoxGrid.length>0,"a capped search retries with each item type leading, so the 4 × 3 grid of small boxes is found",JSON.stringify({truncated:shelfSearch.truncated,passes:shelfSearch.passes,grids:smallBoxGrid.length}));
+      var shelfBestArea=Math.max.apply(null,shelfSearch.layouts.map(floorArea));
+      result(shelfBestArea>=3120,"a capped search reports at least the 3120 cm² twelve-box fill for the default shelf",String(shelfBestArea));
+      result(shelfSearch.nodes<=2*shelfSearch.firstNodes,"the extra priority passes of a capped search cost no more than its first pass",shelfSearch.firstNodes+" first-pass nodes, "+shelfSearch.nodes+" in total");
+      var manyTypes=[];
+      for(var mt=0;mt<40;mt++)manyTypes.push({id:"m"+mt,name:"Type "+mt,max:null,oris:[[6+mt%7,5+mt%5,4],[5+mt%5,6+mt%7,4]]});
+      var manySearch=api.searchMaximalLayouts(manyTypes,120,60,30,[],0);
+      result(manySearch.nodes<=2*manySearch.firstNodes,"with many item types the extra passes still cost no more than the first pass",manySearch.passes+" passes, "+manySearch.firstNodes+" first-pass nodes, "+manySearch.nodes+" in total");
+      var singlePass=api.searchMaximalLayouts(searchTypes(),81,40,27,[],0,{diversify:false});
+      var diversifiedKeys={};
+      shelfSearch.layouts.forEach(function(l){diversifiedKeys[api.canonicalPlanLayout(l)]=true;});
+      result(singlePass.passes===1&&singlePass.layouts.length>0&&singlePass.layouts.every(function(l){return diversifiedKeys[api.canonicalPlanLayout(l)];}),"priority passes add to the first pass instead of replacing its layouts");
+      var shelfAgain=api.searchMaximalLayouts(searchTypes(),81,40,27,[],0);
+      result(same(shelfAgain.layouts,shelfSearch.layouts),"repeating a capped search returns the same layouts in the same order");
+      var limitedSearch=api.searchMaximalLayouts(searchTypes({b3:{max:5}}),81,40,27,[],0);
+      result(limitedSearch.passes>1&&limitedSearch.layouts.every(function(l){return typeCount(l,"b3")<=5;}),"priority passes respect a Max quantity",JSON.stringify({passes:limitedSearch.passes,most:Math.max.apply(null,limitedSearch.layouts.map(function(l){return typeCount(l,"b3");}))}));
+      var blockedSearch=api.searchMaximalLayouts(searchTypes(),81,40,27,[{id:"corner",kind:"blocked",x:0,y:0,z:0,w:10,d:10,h:27}],0);
+      result(blockedSearch.passes>1&&blockedSearch.layouts.every(function(l){return l.every(function(p){return p.x>=10||p.y>=10;});}),"priority passes keep every placement out of a blocked zone",JSON.stringify({passes:blockedSearch.passes}));
+
+      var tidyPair=[{typeId:"t",x:0,y:0,z:0,w:10,d:10,h:5},{typeId:"t",x:10,y:0,z:0,w:10,d:10,h:5}];
+      var joggedPair=[{typeId:"t",x:0,y:0,z:0,w:10,d:10,h:5},{typeId:"t",x:10,y:3,z:0,w:10,d:10,h:5}];
+      result(api.layoutRaggedness(tidyPair)===5&&api.layoutRaggedness(joggedPair)===7,"raggedness counts distinct cut lines, so an aligned pair scores lower than a jogged pair",api.layoutRaggedness(tidyPair)+" / "+api.layoutRaggedness(joggedPair));
+      function row(xs,y){return xs.map(function(x){return {typeId:"t",x:x,y:y,z:0,w:10,d:10,h:5};});}
+      var variantA=row([0,10,20],0).concat(row([0,10,20],10));
+      var variantNudged=row([0,10,20],0).concat(row([0,10,21],10));
+      var variantOther=row([0,10,20],0).concat(row([30,40,50],0));
+      var keptVariants=api.distinctLayoutVariants([variantA,variantNudged,variantOther],4);
+      result(keptVariants.length===2&&keptVariants[0]===variantA&&keptVariants[1]===variantOther,"variant curation drops a layout that only nudges one box of an already kept variant",String(keptVariants.length));
+      result(api.distinctLayoutVariants([variantA,variantOther,variantNudged],1).length===1,"variant curation honours the variant limit");
+      var variantSlid=row([0,10,20],0).concat(row([1,11,21],10));
+      result(api.distinctLayoutVariants([variantA,variantSlid],4).length===1,"variant curation treats a row slid by a tenth of a box as the same arrangement");
+      var variantTurned=row([0,10,20],0).concat([{typeId:"t",x:0,y:10,z:0,w:5,d:20,h:5},{typeId:"t",x:5,y:10,z:0,w:5,d:20,h:5},{typeId:"t",x:10,y:10,z:0,w:5,d:20,h:5}]);
+      result(api.distinctLayoutVariants([variantA,variantTurned],4).length===2,"variant curation keeps a variant whose boxes are turned even where they cover the same floor");
+      var soloLeft=[{typeId:"t",x:0,y:0,z:0,w:10,d:10,h:5}],soloRight=[{typeId:"t",x:40,y:0,z:0,w:10,d:10,h:5}];
+      result(api.distinctLayoutVariants([soloLeft,soloRight],4).length===2,"variant curation still keeps single-item layouts that sit in different places");
+
+      var doc=w.document,stackToggle=doc.getElementById("enableStacking");
+      if(stackToggle.checked)stackToggle.click();
+      var storagePicker=doc.getElementById("storageSelect");
+      storagePicker.value="s2";storagePicker.dispatchEvent(new w.Event("change",{bubbles:true}));
+      Array.prototype.forEach.call(doc.querySelectorAll("#itemPicker input[type=checkbox]"),function(box){if(!box.checked)box.click();});
+      doc.getElementById("generateBtn").click();
+      var topCard=doc.querySelector("#gallery .layoutcard");
+      result(doc.getElementById("bestFill").textContent==="96.3%"&&!!topCard&&topCard.querySelector(".legend").textContent.indexOf("Small box 20 × 13 × 10 ×12")>=0,"Find arrangements ranks the twelve-box grid first for the default shelf and all three default items",doc.getElementById("bestFill").textContent+" · "+(topCard?topCard.querySelector(".legend").textContent.replace(/\s+/g," ").trim():"no card"));
+      result(doc.getElementById("searchState").textContent==="Capped"&&/item priorit/i.test(doc.getElementById("message").textContent),"a capped search explains that alternative item priorities were also searched",doc.getElementById("message").textContent);
+      function mixKey(layout){
+        var counts={};layout.forEach(function(p){counts[p.typeId]=(counts[p.typeId]||0)+1;});
+        return Object.keys(counts).sort().map(function(id){return id+":"+counts[id];}).join("|");
+      }
+      // A placement counts as shared when the other proposal has the same box, turned the same way, within a third of its size.
+      function sharedPlacements(a,b){
+        return a.filter(function(p){
+          return b.some(function(q){return q.typeId===p.typeId&&q.w===p.w&&q.d===p.d&&Math.abs(q.x-p.x)<p.w/3&&Math.abs(q.y-p.y)<p.d/3;});
+        }).length;
+      }
+      var proposals=api.currentLayouts(),proposalsByMix={},nearDuplicates=0;
+      proposals.forEach(function(l){(proposalsByMix[mixKey(l)]=proposalsByMix[mixKey(l)]||[]).push(l);});
+      Object.keys(proposalsByMix).forEach(function(key){
+        var group=proposalsByMix[key];
+        for(var gi=0;gi<group.length;gi++)for(var gj=gi+1;gj<group.length;gj++){
+          if(group[gi].length>=3&&sharedPlacements(group[gi],group[gj])>group[gi].length*2/3)nearDuplicates++;
+        }
+      });
+      result(proposals.length>0&&nearDuplicates===0,"proposals that share a quantity mix move at least a third of their boxes somewhere clearly different",nearDuplicates+" near-duplicate pair(s) among "+proposals.length+" proposals");
+      // Same mix means same floor area, so every variant of a mix ties on the "Best use of space" goal.
+      var untidyLeaders=Object.keys(proposalsByMix).filter(function(key){
+        var tidiestFound=Math.min.apply(null,shelfSearch.layouts.filter(function(l){return mixKey(l)===key;}).map(api.layoutRaggedness));
+        return api.layoutRaggedness(proposalsByMix[key][0])!==tidiestFound;
+      });
+      result(untidyLeaders.length===0,"each quantity mix leads with its most aligned arrangement when variants tie on the goal",untidyLeaders.length+" mix(es) lead with a more ragged variant: "+untidyLeaders.slice(0,3).join(" ; "));
+
+      var v3=w.StorageFit3D;
+      result(!!v3,"the planner page loads the shared 3D renderer");
+      function closeTo(a,b){return Math.abs(a-b)<1e-6;}
+      var room={W:100,D:60,H:40},frontCamera={azimuth:0,elevation:Math.PI/6};
+      var frontLeft=v3.project(frontCamera,room,0,0,0),frontRight=v3.project(frontCamera,room,100,0,0),backLeft=v3.project(frontCamera,room,0,60,0),topLeft=v3.project(frontCamera,room,0,0,40);
+      result(closeTo(frontLeft[0],-50)&&closeTo(frontRight[0],50),"a front-on 3D camera keeps the storage's left on the viewer's left",frontLeft[0]+" / "+frontRight[0]);
+      result(closeTo(frontLeft[1],15)&&closeTo(backLeft[1],-15),"a front-on 3D camera draws the front edge nearest the viewer and the back edge above it",frontLeft[1]+" / "+backLeft[1]);
+      result(closeTo(topLeft[1],15-40*Math.cos(Math.PI/6)),"height points up the screen in the 3D view",String(topLeft[1]));
+      result(same(v3.visibleSides({azimuth:0.7,elevation:0.5}),{x:1,y:-1})&&same(v3.visibleSides({azimuth:-0.7,elevation:0.5}),{x:-1,y:-1})&&same(v3.visibleSides({azimuth:Math.PI-0.7,elevation:0.5}),{x:1,y:1}),"the 3D view shows the side faces that face the camera: right and front from the front right, left and front from the front left, right and back from behind");
+      var frontBox={x:0,y:0,z:0,w:10,d:10,h:10},backBox={x:0,y:20,z:0,w:10,d:10,h:10},stackedBox={x:0,y:0,z:10,w:10,d:10,h:5};
+      var trio=[frontBox,backBox,stackedBox];
+      result(same(v3.drawOrder(trio,{azimuth:0.3,elevation:0.5}),[1,0,2]),"seen from the front, the back box is painted first, then the front box, then the box stacked on it",JSON.stringify(v3.drawOrder(trio,{azimuth:0.3,elevation:0.5})));
+      var behindOrder=v3.drawOrder(trio,{azimuth:Math.PI-0.3,elevation:0.5});
+      result(behindOrder.indexOf(0)<behindOrder.indexOf(1)&&behindOrder.indexOf(0)<behindOrder.indexOf(2),"seen from behind, the front box is painted before the back box and before the box stacked on it",JSON.stringify(behindOrder));
+      result(same(v3.assemblyOrder(trio),[1,0,2]),"assembly order loads the back of the floor first and stacked boxes after their supports",JSON.stringify(v3.assemblyOrder(trio)));
+      result(same(v3.assemblyFrame(3,0,500),{shown:0,progress:0,done:false})&&same(v3.assemblyFrame(3,750,500),{shown:1,progress:0.5,done:false})&&same(v3.assemblyFrame(3,1500,500),{shown:3,progress:0,done:true}),"assembly playback maps elapsed time to the boxes already placed and the progress of the arriving one");
+      var sceneBoxes=trio.map(function(b,i){return Object.assign({color:"#5d7fa3",label:"Box "+(i+1)},b);});
+      var scene={W:100,D:60,H:40,unit:"cm",boxes:sceneBoxes,obstacles:[{kind:"blocked",x:60,y:0,w:10,d:10,h:20},{kind:"divider",x:40,y:0,w:1,d:60,h:40}]};
+      function drawnBoxes(svg){
+        var holder=w.document.createElement("div");holder.innerHTML=svg;
+        return Array.prototype.map.call(holder.querySelectorAll("[data-box]"),function(g){return Number(g.getAttribute("data-box"));});
+      }
+      var fullSvg=v3.render(scene,{azimuth:0.3,elevation:0.5});
+      result(same(drawnBoxes(fullSvg),[1,0,2]),"the 3D render draws every organizer once, back to front",JSON.stringify(drawnBoxes(fullSvg)));
+      var captionHolder=w.document.createElement("div");captionHolder.innerHTML=fullSvg;
+      result(/front/i.test(captionHolder.textContent)&&captionHolder.textContent.indexOf("100 cm")>=0&&captionHolder.textContent.indexOf("60 cm")>=0&&captionHolder.textContent.indexOf("40 cm")>=0,"the 3D render marks the front edge and captions the usable width, depth and height",captionHolder.textContent.replace(/\s+/g," ").trim());
+      result(captionHolder.querySelectorAll("[data-obstacle]").length===2,"the 3D render draws blocked zones and dividers as solids");
+      result(same(drawnBoxes(v3.render(scene,{azimuth:0.3,elevation:0.5},{reveal:{order:[1,0,2],shown:1,progress:0}})),[1])&&same(drawnBoxes(v3.render(scene,{azimuth:0.3,elevation:0.5},{reveal:{order:[1,0,2],shown:1,progress:0.5}})).slice().sort(),[0,1]),"a partially revealed 3D render shows only the placed boxes plus the one arriving");
+
+      function svgTexts(svg){
+        var holder=w.document.createElement("div");holder.innerHTML=svg;
+        return Array.prototype.map.call(holder.querySelectorAll("text"),function(t){return t.textContent;});
+      }
+      // Seen low from the front, the tall front box hides the top of the low box behind it.
+      var hiddenTopScene={W:100,D:60,H:40,unit:"cm",obstacles:[],boxes:[
+        {x:0,y:0,z:0,w:10,d:10,h:20,color:"#5d7fa3",label:"Front box"},
+        {x:0,y:20,z:0,w:10,d:10,h:5,color:"#668a68",label:"Back box"}
+      ]};
+      var lowFrontTexts=svgTexts(v3.render(hiddenTopScene,{azimuth:0.001,elevation:0.2}));
+      result(lowFrontTexts.indexOf("Front box")>=0&&lowFrontTexts.indexOf("Back box")<0,"the 3D render leaves out the name of a box whose top is hidden behind a nearer box",JSON.stringify(lowFrontTexts));
+      // Captions belong beside the drawing: from any side, none may land on a wall, the floor or a box.
+      function captionsOnDrawing(camera){
+        var holder=w.document.createElement("div");holder.innerHTML=v3.render(scene,camera);
+        var polygons=Array.prototype.map.call(holder.querySelectorAll("polygon"),function(pg){
+          return pg.getAttribute("points").trim().split(/\s+/).map(function(pair){return pair.split(",").map(Number);});
+        });
+        function covers(poly,x,y){
+          var hit=false;
+          for(var i=0,j=poly.length-1;i<poly.length;j=i++){
+            if((poly[i][1]>y)!==(poly[j][1]>y)&&x<(poly[j][0]-poly[i][0])*(y-poly[i][1])/(poly[j][1]-poly[i][1])+poly[i][0])hit=!hit;
+          }
+          return hit;
+        }
+        return Array.prototype.filter.call(holder.querySelectorAll("text"),function(t){
+          if(!/ cm$/.test(t.textContent))return false;
+          var x=Number(t.getAttribute("x")),y=Number(t.getAttribute("y"));
+          return polygons.some(function(poly){return covers(poly,x,y);});
+        }).map(function(t){return t.textContent;});
+      }
+      var misplacedCaptions=[0.6,-0.6,Math.PI-0.4,0.4-Math.PI].map(function(azimuth){return captionsOnDrawing({azimuth:azimuth,elevation:0.6});});
+      result(misplacedCaptions.every(function(list){return list.length===0;}),"dimension captions stay beside the 3D drawing from the front, either side and behind",JSON.stringify(misplacedCaptions));
+
+      // The gallery still holds the default-shelf proposals; the first one is the 4 × 3 grid of twelve small boxes.
+      doc.querySelector("#gallery .layoutcard").click();
+      doc.querySelector('.tab[data-view="iso"]').click();
+      var viz=doc.getElementById("detailViz");
+      function solidCount(){return viz.querySelectorAll("svg [data-box]").length;}
+      function frontCaption(){
+        var node=Array.prototype.filter.call(viz.querySelectorAll("svg text"),function(t){return /^Front/.test(t.textContent);})[0];
+        return node?[Number(node.getAttribute("x")),Number(node.getAttribute("y"))]:[NaN,NaN];
+      }
+      function pointer(type,x,y){viz.dispatchEvent(new w.PointerEvent(type,{pointerId:7,clientX:x,clientY:y,bubbles:true,cancelable:true}));}
+      result(solidCount()===12,"the planner's 3D tab draws each organizer of the selected layout as a solid",String(solidCount()));
+      var restingMarkup=viz.innerHTML,restingFront=frontCaption();
+      pointer("pointerdown",300,200);pointer("pointermove",360,200);pointer("pointerup",360,200);
+      var swungFront=frontCaption();
+      result(swungFront[0]>restingFront[0],"dragging the 3D view to the right swings the front edge to the right with the pointer",restingFront[0]+" → "+swungFront[0]);
+      // The picture is refitted for every camera, so tilt is read from the floor's proportions rather than from a position.
+      function floorTilt(){
+        var pts=viz.querySelector("svg polygon").getAttribute("points").trim().split(/\s+/).map(function(pair){return pair.split(",").map(Number);});
+        var xs=pts.map(function(q){return q[0];}),ys=pts.map(function(q){return q[1];});
+        return (Math.max.apply(null,ys)-Math.min.apply(null,ys))/(Math.max.apply(null,xs)-Math.min.apply(null,xs));
+      }
+      var tiltBefore=floorTilt();
+      pointer("pointerdown",300,200);pointer("pointermove",300,260);pointer("pointerup",300,260);
+      result(floorTilt()>tiltBefore,"dragging the 3D view down raises the viewpoint so more of the floor shows",tiltBefore.toFixed(3)+" → "+floorTilt().toFixed(3));
+      doc.getElementById("reset3d").click();
+      result(viz.innerHTML===restingMarkup,"Reset view returns the 3D camera to where it started");
+      pointer("pointerdown",300,200);pointer("pointermove",360,200);pointer("pointerup",360,200);
+      doc.getElementById("editLayoutBtn").click();
+      doc.querySelector('.tab[data-view="iso"]').click();
+      doc.getElementById("reset3d").click();
+      var resetWhileEditing=viz.innerHTML===restingMarkup;
+      doc.getElementById("doneEdit").click();
+      doc.querySelector('.tab[data-view="iso"]').click();
+      result(resetWhileEditing,"Reset view also resets the 3D camera while editing the layout");
+      var playButton=doc.getElementById("playAssembly"),assemblyCaption=doc.getElementById("assemblyCaption");
+      playButton.click();
+      var solidsWhilePlaying=solidCount(),firstStep=assemblyCaption.textContent;
+      playButton.click();
+      result(solidsWhilePlaying<12&&firstStep.indexOf("Step 1 of 12")===0&&firstStep.indexOf("26 cm from the front")>0,"assembly playback starts with an empty storage and its first step loads the back row",solidsWhilePlaying+" solids · "+firstStep);
+      result(solidCount()===12&&assemblyCaption.hidden===true,"stopping assembly playback shows the complete layout again",solidCount()+" solids");
+      var realMatchMedia=w.matchMedia;
+      w.matchMedia=function(query){return {matches:/prefers-reduced-motion/.test(query)};};
+      playButton.click();
+      var calmGroups=viz.querySelectorAll("svg [data-box]");
+      var calmFirstFrame=calmGroups.length===1&&!calmGroups[0].hasAttribute("opacity");
+      playButton.click();
+      w.matchMedia=realMatchMedia;
+      result(calmFirstFrame,"with reduced motion preferred, each assembly step shows its organizer already in place instead of dropping it in",calmGroups.length+" solids in the first frame");
+      frame.style.width="400px";frame.style.height="900px";
+      w.dispatchEvent(new w.Event("resize"));
+      var phoneSvg=viz.querySelector("svg"),phoneTexts=Array.prototype.map.call(viz.querySelectorAll("svg text"),function(t){return t.getBoundingClientRect().height;});
+      var phoneGap=Math.round(viz.getBoundingClientRect().height-phoneSvg.getBoundingClientRect().height);
+      result(phoneTexts.length>0&&Math.min.apply(null,phoneTexts)>=9,"at phone width the 3D view keeps its names and captions readable",phoneTexts.map(Math.round).join(","));
+      result(phoneGap<=40,"at phone width the 3D view does not leave a tall empty band under the drawing",phoneGap+"px of padding");
+      var nameBoxes=Array.prototype.filter.call(viz.querySelectorAll("svg text"),function(t){return !/ cm$/.test(t.textContent);}).map(function(t){return t.getBoundingClientRect();});
+      var collisions=0;
+      for(var ni=0;ni<nameBoxes.length;ni++)for(var nj=ni+1;nj<nameBoxes.length;nj++){
+        var na=nameBoxes[ni],nb=nameBoxes[nj];
+        if(na.left<nb.right&&nb.left<na.right&&na.top<nb.bottom&&nb.top<na.bottom)collisions++;
+      }
+      result(nameBoxes.length>0&&collisions===0,"organizer names in the 3D view never overlap one another",collisions+" overlapping pair(s) among "+nameBoxes.length+" names");
+      // The floor and the two far walls are the first three shapes; together they span the storage's outline.
+      var shellBoxes=Array.prototype.slice.call(viz.querySelectorAll("svg polygon"),0,3).map(function(pg){return pg.getBBox();});
+      var shellWidth=Math.max.apply(null,shellBoxes.map(function(b){return b.x+b.width;}))-Math.min.apply(null,shellBoxes.map(function(b){return b.x;}));
+      result(shellWidth/Number(phoneSvg.getAttribute("viewBox").split(" ")[2])>=0.65,"at phone width the storage drawing uses most of the picture's width",Math.round(shellWidth)+" of "+phoneSvg.getAttribute("viewBox"));
+      frame.style.width="";frame.style.height="";
+      w.dispatchEvent(new w.Event("resize"));
+      playButton.click();
+      doc.querySelector('.tab[data-view="front"]').click();
+      result(playButton.disabled===true&&assemblyCaption.hidden===true&&viz.querySelectorAll("svg [data-box]").length===0,"leaving the 3D tab ends assembly playback and disables its button");
+      doc.getElementById("closeDetailModal").click();
+
+      // A 100 × 60 × 40 mm open bin with 2 mm walls and a 3 mm floor, read back from the binary STL.
+      var stl=api.openBinStl(100,60,40,2,3),stlView=new DataView(stl),stlTriangles=[];
+      for(var ti=0;ti<stlView.getUint32(80,true);ti++){
+        var base=84+ti*50,floats=[];
+        for(var fi=0;fi<12;fi++)floats.push(stlView.getFloat32(base+fi*4,true));
+        stlTriangles.push({normal:floats.slice(0,3),points:[floats.slice(3,6),floats.slice(6,9),floats.slice(9,12)]});
+      }
+      result(stl.byteLength===84+50*28&&stlTriangles.length===28,"an open bin is exported as a 28-triangle binary STL",stl.byteLength+" bytes, "+stlTriangles.length+" triangles");
+      var stlMin=[Infinity,Infinity,Infinity],stlMax=[-Infinity,-Infinity,-Infinity],stlVolume=0,stlEdges={},badNormals=0;
+      stlTriangles.forEach(function(t){
+        var a=t.points[0],b=t.points[1],c=t.points[2];
+        t.points.forEach(function(q){for(var k=0;k<3;k++){stlMin[k]=Math.min(stlMin[k],q[k]);stlMax[k]=Math.max(stlMax[k],q[k]);}});
+        var cross=[(b[1]-a[1])*(c[2]-a[2])-(b[2]-a[2])*(c[1]-a[1]),(b[2]-a[2])*(c[0]-a[0])-(b[0]-a[0])*(c[2]-a[2]),(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0])];
+        stlVolume+=(a[0]*(b[1]*c[2]-b[2]*c[1])-a[1]*(b[0]*c[2]-b[2]*c[0])+a[2]*(b[0]*c[1]-b[1]*c[0]))/6;
+        var length=Math.sqrt(t.normal[0]*t.normal[0]+t.normal[1]*t.normal[1]+t.normal[2]*t.normal[2]);
+        if(Math.abs(length-1)>1e-4||cross[0]*t.normal[0]+cross[1]*t.normal[1]+cross[2]*t.normal[2]<=0)badNormals++;
+        for(var e=0;e<3;e++){var from=t.points[e].join(","),to=t.points[(e+1)%3].join(",");stlEdges[from+">"+to]=(stlEdges[from+">"+to]||0)+1;}
+      });
+      result(same(stlMin,[0,0,0])&&same(stlMax,[100,60,40]),"the exported bin spans exactly its outer width, depth and height",JSON.stringify([stlMin,stlMax]));
+      result(Math.abs(stlVolume-41088)<0.5,"the exported bin encloses the outer block minus its cavity: 240000 − 96 × 56 × 37 = 41088 mm³ of material",String(stlVolume));
+      var openEdges=Object.keys(stlEdges).filter(function(key){var ends=key.split(">");return stlEdges[key]!==1||stlEdges[ends[1]+">"+ends[0]]!==1;});
+      result(openEdges.length===0&&badNormals===0,"the exported bin is a closed, consistently outward-facing surface a slicer can print",openEdges.length+" open edges, "+badNormals+" bad normals");
+      result(api.openBinStl(3,60,40,2,3)===null&&api.openBinStl(100,60,3,2,3)===null,"a bin too thin for its walls or too shallow for its floor is not exported");
+      result(same(api.customBinDimensions({w:21,d:40},[{h:12},{h:10}],27,0,10),{w:21,d:40,h:12})&&same(api.customBinDimensions({w:21,d:40},[{h:30}],27,0.5,10),{w:21,d:40,h:26.5})&&same(api.customBinDimensions({w:21,d:40},[],27,0,10),{w:21,d:40,h:10}),"a custom bin fills its gap and matches the tallest organizer in the layout, limited by the usable height");
+
+      // Default drawer with only the 30 × 25 × 12 box: two boxes leave a 7 × 26 strip that no saved item fits.
+      storagePicker.value="s1";storagePicker.dispatchEvent(new w.Event("change",{bubbles:true}));
+      Array.prototype.forEach.call(doc.querySelectorAll("#itemPicker input[type=checkbox]"),function(box){if(box.checked!==(box.dataset.type==="b1"))box.click();});
+      doc.getElementById("generateBtn").click();
+      var stripCard=Array.prototype.filter.call(doc.querySelectorAll("#gapList .gapcard"),function(card){return card.textContent.indexOf("7 × 26")>=0;})[0];
+      var itemsBeforeBin=doc.querySelectorAll("#boxList .listitem").length;
+      stripCard.querySelector("[data-gap-custom]").click();
+      var withBin=api.currentLayouts()[0],binPlacement=withBin[withBin.length-1];
+      result(withBin.length===3&&same([binPlacement.x,binPlacement.y,binPlacement.z,binPlacement.w,binPlacement.d,binPlacement.h],[60,0,0,7,26,12]),"Custom bin fills the leftover strip with a made-to-measure organizer as tall as its neighbours",JSON.stringify(binPlacement));
+      result(doc.querySelectorAll("#boxList .listitem").length===itemsBeforeBin+1&&doc.getElementById("boxList").textContent.indexOf("Custom bin 7 × 26 × 12")>=0&&doc.getElementById("boxName").value==="Custom bin 7 × 26 × 12","the custom bin joins the item library and opens in the item editor, ready for its print file");
+      result(doc.getElementById("downloadBinStl").disabled===false,"the item editor offers a 3D-print file for the selected item");
+      doc.getElementById("undoEdit").click();
+      var stripAgain=Array.prototype.filter.call(doc.querySelectorAll("#gapList .gapcard"),function(card){return card.textContent.indexOf("7 × 26")>=0;})[0];
+      stripAgain.querySelector("[data-gap-custom]").click();
+      result(api.currentLayouts()[0].length===3&&doc.querySelectorAll("#boxList .listitem").length===itemsBeforeBin+1,"undoing a custom bin and adding it again reuses the bin already in the library instead of duplicating it",doc.querySelectorAll("#boxList .listitem").length+" items");
+      doc.getElementById("closeDetailModal").click();
+
+      // Colour themes. Contrast follows WCAG 2: relative luminance of the computed colours.
+      function rgbOf(value){var m=String(value).match(/[\d.]+/g)||[];return {rgb:m.slice(0,3).map(Number),alpha:m.length>3?Number(m[3]):1};}
+      function luminance(rgb){return rgb.map(function(c){c/=255;return c<=0.03928?c/12.92:Math.pow((c+0.055)/1.055,2.4);}).reduce(function(sum,c,i){return sum+c*[0.2126,0.7152,0.0722][i];},0);}
+      function backgroundOf(el){
+        for(var node=el;node&&node.nodeType===1;node=node.parentElement){var bg=rgbOf(w.getComputedStyle(node).backgroundColor);if(bg.alpha>0.5)return bg.rgb;}
+        return rgbOf(w.getComputedStyle(doc.body).backgroundColor).rgb;
+      }
+      function contrastOf(el){
+        var a=luminance(rgbOf(w.getComputedStyle(el).color).rgb),b=luminance(backgroundOf(el));
+        return (Math.max(a,b)+0.05)/(Math.min(a,b)+0.05);
+      }
+      var themeSelect=doc.getElementById("themeSelect");
+      themeSelect.value="light";themeSelect.dispatchEvent(new w.Event("change",{bubbles:true}));
+      result(w.getComputedStyle(doc.body).backgroundColor==="rgb(245, 245, 241)"&&w.getComputedStyle(doc.querySelector(".card")).backgroundColor==="rgb(255, 255, 255)"&&w.getComputedStyle(doc.querySelector(".preview, .detailviz")).backgroundColor==="rgb(250, 250, 247)","the light theme keeps the original page, card and drawing colours",w.getComputedStyle(doc.body).backgroundColor);
+      themeSelect.value="dark";themeSelect.dispatchEvent(new w.Event("change",{bubbles:true}));
+      result(doc.documentElement.dataset.theme==="dark"&&luminance(rgbOf(w.getComputedStyle(doc.body).backgroundColor).rgb)<0.02&&luminance(rgbOf(w.getComputedStyle(doc.querySelector(".card")).backgroundColor).rgb)<0.03,"choosing Dark switches the page and its cards to dark colours",w.getComputedStyle(doc.body).backgroundColor);
+      result(w.localStorage.getItem("storage-fit-theme")==="dark","the chosen theme is remembered on this device");
+      // Every visible element with its own text, outside drawings, is checked.
+      function weakText(){
+        var weak=[],checked=0;
+        Array.prototype.forEach.call(doc.querySelectorAll("body *"),function(el){
+          if(!Array.prototype.some.call(el.childNodes,function(n){return n.nodeType===3&&n.textContent.trim();}))return;
+          var box=el.getBoundingClientRect();
+          if(!box.width||!box.height||el.closest("svg"))return;
+          checked++;
+          var ratio=contrastOf(el);
+          if(ratio<4.5)weak.push(el.tagName.toLowerCase()+"."+String(el.className).split(" ").join(".")+" "+ratio.toFixed(2)+" “"+el.textContent.trim().slice(0,20)+"”");
+        });
+        if(checked<50)weak.push("only "+checked+" text elements were visible to check");
+        return {weak:weak,checked:checked};
+      }
+      var darkScan=weakText(),weak=darkScan.weak,checkedText=darkScan.checked;
+      result(weak.length===0,"all visible dark-theme text meets the WCAG AA contrast ratio of 4.5:1",checkedText+" checked; "+weak.slice(0,6).join(", "));
+      var realMatch=w.matchMedia;
+      w.matchMedia=function(query){return {matches:/dark/.test(query),addEventListener:function(){}};};
+      themeSelect.value="auto";themeSelect.dispatchEvent(new w.Event("change",{bubbles:true}));
+      var autoDark=doc.documentElement.dataset.theme;
+      w.matchMedia=function(query){return {matches:false,addEventListener:function(){}};};
+      w.StorageFitTheme.apply();
+      var autoLight=doc.documentElement.dataset.theme;
+      w.matchMedia=realMatch;
+      result(autoDark==="dark"&&autoLight==="light"&&w.localStorage.getItem("storage-fit-theme")===null,"Auto follows the system's light or dark setting",autoDark+" / "+autoLight);
+      themeSelect.value="light";themeSelect.dispatchEvent(new w.Event("change",{bubbles:true}));
+      var lightScan=weakText();
+      result(lightScan.weak.length===0,"all visible light-theme text meets the WCAG AA contrast ratio of 4.5:1",lightScan.checked+" checked; "+lightScan.weak.slice(0,6).join(", "));
+
+      // Drawer labels: save and choose the open layout, then print a QR label that opens it.
+      var realPrint=w.print;
+      doc.querySelector("#gallery .layoutcard").click();
+      doc.getElementById("savePlanBtn").click();
+      var savedState=JSON.parse(w.localStorage.getItem("storage-fit-planner-v28")),labelPlan=savedState.savedPlans[savedState.savedPlans.length-1];
+      doc.getElementById("closeDetailModal").click();
+      doc.querySelector('[data-choose-plan="'+labelPlan.id+'"]').click();
+      var labelCheck={plan:labelPlan,realPrint:realPrint};
+
+      // Speech recognisers return words or digits, so both must reach the same measurement.
+      result(same(api.parseSpokenDimensions("sixty seven by twenty six by thirteen centimetres","cm"),[67,26,13]),"spoken number words separated by 'by' become width, depth and height");
+      result(same(api.parseSpokenDimensions("eight hundred and ten by four hundred by four hundred seventy millimetres","cm"),[81,40,47]),"spoken hundreds and a spoken unit are converted to the project unit");
+      result(same(api.parseSpokenDimensions("sixty point five by forty and a half by 16","cm"),[60.5,40.5,16]),"spoken decimals and halves are understood");
+      result(same(api.parseSpokenDimensions("sixty forty-five sixteen","cm"),[60,45,16]),"three spoken numbers without separators are still read as three measurements");
+      result(same(api.parseSpokenDimensions("height 16 width 60 depth 45","cm"),[60,45,16])&&same(api.parseSpokenDimensions("60 wide 45 deep 16 high","cm"),[60,45,16]),"spoken axis names put each value in its place, in any order");
+      result(same(api.parseSpokenDimensions("38 centimetres by 760 millimetres by 0.3 metres","cm"),[38,76,30])&&same(api.parseSpokenDimensions("twenty four by eighteen by six inches","cm"),[60.96,45.72,15.24]),"spoken units are honoured per value or for the whole triplet");
+      result(api.parseSpokenDimensions("sixty by forty five","cm")===null&&api.parseSpokenDimensions("the second drawer","cm")===null,"speech without three measurements is not turned into dimensions");
+      result(api.spokenCommand("save")==="save"&&api.spokenCommand("yes please")==="save"&&api.spokenCommand("oui")==="save","saying save, yes or oui confirms the heard measurement");
+      result(api.spokenCommand("next")==="skip"&&api.spokenCommand("skip this one")==="skip"&&api.spokenCommand("say that again")==="repeat"&&api.spokenCommand("stop")==="stop","skip, repeat and stop are recognised as commands");
+      result(api.spokenCommand("60 by 45 by 16")===null&&api.spokenCommand("the second drawer")===null,"measurements and other speech are not mistaken for commands");
+      result(api.spokenCommand("no that's not right")==="reject"&&api.spokenCommand("not correct")==="reject"&&api.spokenCommand("don't save")==="reject"&&api.spokenCommand("that's wrong")==="reject"&&api.spokenCommand("non")==="reject","a negative answer rejects the heard measurement instead of saving it");
+      result(api.spokenCommand("save and next")==="save"&&api.spokenCommand("save it and go to the next one")==="save","saving phrases that mention moving on still save");
+      result(api.spokenCommand("okay 60 by 45")===null&&api.spokenCommand("yes sixty")===null,"speech that contains numbers is never taken as a command");
+      // Results are in the project unit (cm here); the second argument is only the unit assumed when none is said.
+      result(same(api.parseSpokenDimensions("60 by 45 by 16 in centimetres","mm"),[60,45,16])&&same(api.parseSpokenDimensions("60 by 45 by 16","mm"),[6,4.5,1.6]),"'in centimetres' sets the unit instead of being read as inches");
+      result(same(api.parseSpokenDimensions("depth 45 width 60 and 16","cm"),[60,45,16])&&same(api.parseSpokenDimensions("16 high by 60 by 45","cm"),[60,45,16]),"partly labelled measurements put labelled values in place and fill the rest in order");
+      result(same(api.parseSpokenDimensions("1,200 by 600 by 400","mm"),[120,60,40])&&same(api.parseSpokenDimensions("60,5 by 40 by 16","cm"),[60.5,40,16]),"thousands separators and decimal commas are both understood");
+
+      var voicePanel=doc.getElementById("voiceMeasurePanel"),voiceButton=doc.getElementById("voiceMeasureBtn");
+      var realRecognition=w.SpeechRecognition,realWebkitRecognition=w.webkitSpeechRecognition;
+      w.SpeechRecognition=undefined;w.webkitSpeechRecognition=undefined;
+      voiceButton.click();
+      result(voicePanel.hidden===false&&/not available/i.test(voicePanel.textContent)&&!api.voiceMeasuringActive(),"without speech recognition, Measure by voice explains that it is not available instead of failing silently");
+      doc.getElementById("voiceMeasureStop").click();
+      var recognisers=[];
+      function FakeRecognition(){this.started=0;this.aborted=0;recognisers.push(this);}
+      FakeRecognition.prototype.start=function(){this.started++;};
+      FakeRecognition.prototype.abort=function(){this.aborted++;};
+      FakeRecognition.prototype.stop=function(){this.aborted++;};
+      function hearAlternatives(texts){
+        var alternatives=texts.map(function(text){return {transcript:text,confidence:0.9};});alternatives.isFinal=true;
+        recognisers[recognisers.length-1].onresult({resultIndex:0,results:[alternatives]});
+      }
+      function hear(text){hearAlternatives([text]);}
+      function editorValues(){return [doc.getElementById("sw").value,doc.getElementById("sd").value,doc.getElementById("sh").value].map(Number);}
+      w.SpeechRecognition=FakeRecognition;
+      var queue=api.measurementProgressData().pending,unitFactor={cm:1,mm:10,"in":1/2.54}[doc.getElementById("unit").value];
+      voiceButton.click();
+      result(queue.length>0&&recognisers.length===1&&recognisers[0].started>0&&voicePanel.hidden===false&&doc.getElementById("voiceMeasurePath").textContent===queue[0].path,"Measure by voice starts listening on the first storage still to be measured",queue.length+" to measure");
+      hear("sixty seven by twenty six by thirteen centimetres");
+      var heardValues=[doc.getElementById("sw").value,doc.getElementById("sd").value,doc.getElementById("sh").value].map(Number);
+      var stillPending=api.measurementProgressData().pending.some(function(row){return row.storageId===queue[0].storageId;});
+      result(closeTo(heardValues[0],67*unitFactor)&&closeTo(heardValues[1],26*unitFactor)&&closeTo(heardValues[2],13*unitFactor)&&stillPending,"a spoken measurement fills the storage editor but is not saved until it is confirmed",JSON.stringify(heardValues));
+      Object.defineProperty(w,"speechSynthesis",{value:{speaking:true,speak:function(){},cancel:function(){}},configurable:true});
+      hear("ninety by ninety by ninety centimetres");
+      var whileTalking=[doc.getElementById("sw").value,doc.getElementById("sd").value,doc.getElementById("sh").value].map(Number);
+      delete w.speechSynthesis;
+      result(closeTo(whileTalking[0],67*unitFactor)&&closeTo(whileTalking[2],13*unitFactor),"speech heard while the planner is still talking is ignored, so it never acts on its own read-back",JSON.stringify(whileTalking));
+      hearAlternatives(["that's wrong","that's right"]);
+      var rejected=editorValues();
+      result(closeTo(rejected[0],queue[0].width)&&closeTo(rejected[1],queue[0].depth)&&closeTo(rejected[2],queue[0].height)&&api.measurementProgressData().pending.some(function(row){return row.storageId===queue[0].storageId;}),"saying it is wrong discards the heard measurement, restores the saved size and saves nothing, even when a lower-ranked guess sounds like yes",JSON.stringify(rejected));
+      hear("sixty seven by twenty six by thirteen centimetres");
+      var depthInput=doc.getElementById("sd");depthInput.value=String(27*unitFactor);depthInput.dispatchEvent(new w.Event("input",{bubbles:true}));
+      hear("save");
+      var savedRow=api.measurementProgressData().rows.filter(function(row){return row.storageId===queue[0].storageId;})[0];
+      result(savedRow.status==="current"&&closeTo(savedRow.width,67*unitFactor)&&closeTo(savedRow.depth,27*unitFactor)&&closeTo(savedRow.height,13*unitFactor),"saying save stores what the editor shows, including a typed correction, and marks the storage measured",JSON.stringify(savedRow));
+      if(queue.length>1){
+        result(doc.getElementById("voiceMeasurePath").textContent===queue[1].path&&queue[1].path.slice(-doc.getElementById("storageName").value.length)===doc.getElementById("storageName").value,"after saving, voice measuring moves on to the next storage in the queue",doc.getElementById("voiceMeasurePath").textContent);
+        var otherItem=doc.querySelector('#storageList [data-s="'+queue[0].storageId+'"]');
+        if(otherItem)otherItem.click();
+        hear("seventy by fifty by twenty centimetres");
+        var firstAfter=api.measurementProgressData().rows.filter(function(row){return row.storageId===queue[0].storageId;})[0];
+        result(!!otherItem&&queue[1].path.slice(-doc.getElementById("storageName").value.length)===doc.getElementById("storageName").value&&closeTo(editorValues()[0],70*unitFactor)&&closeTo(firstAfter.width,67*unitFactor),"a measurement heard after opening another storage goes back to the storage being measured",doc.getElementById("storageName").value);
+        for(var skipped=1;skipped<queue.length;skipped++)hear("skip");
+      }
+      result(!api.voiceMeasuringActive()&&/1 saved/.test(voicePanel.textContent)&&recognisers[0].aborted>0,"once every storage is saved or skipped, voice measuring stops listening and reports what was saved",voicePanel.textContent.replace(/\s+/g," ").trim());
+      result(queue.slice(1).every(function(row){return api.measurementProgressData().pending.some(function(left){return left.storageId===row.storageId;});}),"skipped storages stay in the measurement queue");
+      doc.getElementById("voiceMeasureStop").click();
+      result(voicePanel.hidden===true,"closing the voice panel hides it");
+      if(queue.length>1){
+        voiceButton.click();
+        recognisers[recognisers.length-1].onerror({error:"network"});
+        result(!api.voiceMeasuringActive()&&/connection|network/i.test(voicePanel.textContent),"a network failure in speech recognition stops voice measuring and says why",voicePanel.textContent.replace(/\s+/g," ").trim());
+        doc.getElementById("voiceMeasureStop").click();
+        voiceButton.click();
+        var looping=recognisers[recognisers.length-1];
+        for(var restart=0;restart<8;restart++)looping.onend();
+        result(!api.voiceMeasuringActive()&&looping.started<8,"recognition that keeps ending without hearing anything stops instead of restarting forever",looping.started+" starts");
+        doc.getElementById("voiceMeasureStop").click();
+        voiceButton.click();
+        hear("seventy by fifty by twenty centimetres");
+        doc.getElementById("deleteStorage").click();
+        hear("save");
+        var survivor=api.measurementProgressData().rows.filter(function(row){return row.storageId===queue[0].storageId;})[0];
+        result(!api.voiceMeasuringActive()&&closeTo(survivor.width,67*unitFactor)&&closeTo(survivor.depth,27*unitFactor),"saying save after the measured storage was deleted saves nothing to another storage",JSON.stringify([survivor.width,survivor.depth,survivor.height]));
+        doc.getElementById("voiceMeasureStop").click();
+      }
+      w.SpeechRecognition=realRecognition;w.webkitSpeechRecognition=realWebkitRecognition;
+
+      // Constraint editors at desktop width: every number must stay readable.
+      frame.style.width="1280px";frame.style.height="900px";
+      doc.getElementById("addObstacle").click();
+      doc.getElementById("addVerticalDivider").click();
+      function textRoom(input){var cs=w.getComputedStyle(input);return input.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);}
+      var cramped=Array.prototype.filter.call(doc.querySelectorAll("#obstacleList input[type=number], #dividerList input[type=number]"),function(input){return textRoom(input)<32;}).map(function(input){return (input.dataset.okey||input.dataset.dkey||"field")+" "+Math.round(textRoom(input))+"px";});
+      result(doc.querySelectorAll("#obstacleList input[type=number]").length>0&&cramped.length===0,"blocked-zone and divider number fields leave room for at least four characters",cramped.join(", "));
+      var lastObstacle=doc.querySelectorAll("#obstacleList [data-remove-obstacle]"),lastDivider=doc.querySelectorAll("#dividerList [data-remove-divider]");
+      if(lastObstacle.length)lastObstacle[lastObstacle.length-1].click();
+      if(lastDivider.length)lastDivider[lastDivider.length-1].click();
+      frame.style.width="";frame.style.height="";
     }catch(e){
       result(false,"test harness exception",e.message);
-    }finally{
-      localStorage.clear();
-      Object.keys(backup).forEach(function(key){localStorage.setItem(key,backup[key]);});
     }
 
-    var pass=rows.filter(function(x){return x.ok;}).length;
-    var html="<p><strong>"+pass+"/"+rows.length+" passed</strong></p><ul>";
-    html+=rows.map(function(r){
-      return '<li class="'+(r.ok?"pass":"fail")+'">'+(r.ok?"✓":"✗")+" "+r.name+(r.detail?" — <code>"+r.detail+"</code>":"")+"</li>";
-    }).join("");
-    html+="</ul>";
-    document.getElementById("results").innerHTML=html;
-    document.body.dataset.smokeComplete="true";
-    document.body.dataset.smokePassed=String(pass);
-    document.body.dataset.smokeTotal=String(rows.length);
-    document.body.dataset.smokeFailures=String(rows.length-pass);
+    function finish(){
+      localStorage.clear();
+      Object.keys(backup).forEach(function(key){localStorage.setItem(key,backup[key]);});
+      var pass=rows.filter(function(x){return x.ok;}).length;
+      var html="<p><strong>"+pass+"/"+rows.length+" passed</strong></p><ul>";
+      html+=rows.map(function(r){
+        return '<li class="'+(r.ok?"pass":"fail")+'">'+(r.ok?"✓":"✗")+" "+r.name+(r.detail?" — <code>"+r.detail+"</code>":"")+"</li>";
+      }).join("");
+      html+="</ul>";
+      document.getElementById("results").innerHTML=html;
+      document.body.dataset.smokeComplete="true";
+      document.body.dataset.smokePassed=String(pass);
+      document.body.dataset.smokeTotal=String(rows.length);
+      document.body.dataset.smokeFailures=String(rows.length-pass);
+    }
+
+    // Drawer labels build compressed share links, which is asynchronous.
+    function drawerLabelPhase(){
+      if(!labelCheck)return Promise.resolve();
+      var plan=labelCheck.plan,entry=null,printed=0,printWaiter=null;
+      w.print=function(){printed++;if(printWaiter)printWaiter();};
+      function nextPrint(){
+        return new Promise(function(resolve,reject){
+          var timer=setTimeout(function(){reject(new Error("window.print was not called"));},3000);
+          printWaiter=function(){clearTimeout(timer);resolve();};
+        });
+      }
+      return api.drawerLabelEntries().then(function(entries){
+        labelCheck.entries=entries;
+        entry=entries.filter(function(e){return e.storageId===plan.storageId;})[0];
+        result(!!entry&&entry.url.indexOf("share.html#z=")>0,"a drawer label links to the share viewer with a compressed plan",entry?entry.url.slice(0,60):"no entry");
+        result(entries.map(function(e){return e.path;}).join("|")===entries.map(function(e){return e.path;}).sort(function(a,b){return a.toLocaleLowerCase().localeCompare(b.toLocaleLowerCase());}).join("|"),"drawer labels are listed in Room → Furniture → Storage order");
+        return api.decodeShareUrl(entry.url);
+      }).then(function(decoded){
+        result(!decoded.error&&same(decoded.payload.p.map(function(r){return [r[0],r[1],r[2],r[4],r[5]];}),plan.layout.map(function(q){return [q.typeId,q.x,q.y,q.w,q.d];})),"a drawer label's link decodes to exactly the storage's chosen plan",decoded.error);
+        result(decoded.payload.n===entry.path&&entry.path.indexOf("→")>0,"a drawer label's shared view is titled with the storage's room and furniture path",decoded.payload.n);
+        var uncompressed=("#p="+api.encodeSharePayload(decoded.payload)).length,compressed=entry.url.length-entry.url.indexOf("#");
+        result(compressed<=uncompressed*0.7,"compressing the plan shortens a label's link by at least 30%",compressed+" vs "+uncompressed+" characters");
+        result(entry.qr.version<=16,"a typical plan's QR code stays small enough to print and scan on a drawer label","version "+entry.qr.version);
+        var printing=nextPrint();
+        doc.getElementById("printDrawerLabelsBtn").click();
+        return printing;
+      }).then(function(){
+        var cards=doc.querySelectorAll("#printSheet .drawerlabel"),card=Array.prototype.filter.call(cards,function(c){return c.textContent.indexOf(entry.path)>=0;})[0];
+        var expectedQr=w.StorageFitQR.svg(w.StorageFitQR.encode(entry.url,{ecc:entry.qr.ecc})).match(/ d="([^"]+)"/)[1];
+        result(printed===1&&cards.length===labelCheck.entries.length&&!!card&&card.querySelector("svg path").getAttribute("d")===expectedQr,"Print drawer labels prints one card per chosen plan, each with a QR code of that card's link",cards.length+" cards, "+printed+" print");
+        // Later tests moved the editor to other storages, so rebuild this storage's proposals first.
+        var picker=doc.getElementById("storageSelect");
+        picker.value=plan.storageId;picker.dispatchEvent(new w.Event("change",{bubbles:true}));
+        doc.getElementById("generateBtn").click();
+        doc.querySelector("#gallery .layoutcard").click();
+        var printing=nextPrint();
+        doc.getElementById("drawerLabelBtn").click();
+        return printing;
+      }).then(function(){
+        var single=doc.querySelectorAll("#printSheet .drawerlabel");
+        result(printed===2&&single.length===1&&single[0].querySelector("svg path")!==null,"the selected layout can print a single drawer label");
+        doc.getElementById("closeDetailModal").click();
+        // A label whose QR code cannot be made must not stop the others from printing.
+        var realEncode=w.StorageFitQR.encode;
+        w.StorageFitQR.encode=function(){throw new Error("encoder failure");};
+        var printing=nextPrint();
+        doc.getElementById("printDrawerLabelsBtn").click();
+        return printing.then(function(){w.StorageFitQR.encode=realEncode;},function(e){w.StorageFitQR.encode=realEncode;throw e;});
+      }).then(function(){
+        var cards=Array.prototype.slice.call(doc.querySelectorAll("#printSheet .drawerlabel"));
+        result(printed===3&&cards.length===labelCheck.entries.length&&cards.every(function(card){return !card.querySelector("svg")&&/no QR code/i.test(card.textContent)&&card.textContent.indexOf("→")>=0;}),"when a QR code cannot be made, every label still prints with its path and a note instead of failing silently",cards.length+" cards, "+printed+" prints");
+        w.print=labelCheck.realPrint;
+      });
+    }
+
+    // The read-only share viewer is a separate page, so it is checked in its own frame before reporting.
+    function shareViewerPhase(){
+    var shareLink="";
+    try{
+      shareLink=w.StorageFitTest.encodeSharePayload({
+        v:1,n:"Shared drawer",u:"cm",g:"Best use of space",k:false,d:[60,40,20],z:[60,40,20],c:0,t:0,r:50,q:"usable floor",
+        o:[[0,50,0,10,10,20]],
+        i:[["a","Tray"],["b","Tin"]],
+        p:[["a",0,0,0,30,20,5,"Cutlery"],["a",0,20,0,30,20,5,""],["b",30,0,0,10,10,8,""],["b",30,0,8,10,10,8,"Spare tin"]]
+      });
+    }catch(e){result(false,"share link for the viewer test could not be built",e.message);}
+    if(!shareLink){finish();return;}
+    var sharedViewPayload={
+        v:1,n:"Shared drawer",u:"cm",g:"Best use of space",k:false,d:[60,40,20],z:[60,40,20],c:0,t:0,r:50,q:"usable floor",
+        o:[[0,50,0,10,10,20]],
+        i:[["a","Tray"],["b","Tin"]],
+        p:[["a",0,0,0,30,20,5,"Cutlery"],["a",0,20,0,30,20,5,""],["b",30,0,0,10,10,8,""],["b",30,0,8,10,10,8,"Spare tin"]]
+      };
+    var shareFrame=document.createElement("iframe");
+    shareFrame.addEventListener("load",function(){
+      try{
+        var sw=shareFrame.contentWindow,sdoc=sw.document,shareViz=sdoc.getElementById("shareViz");
+        result(sdoc.getElementById("shareViewer").hidden===false&&sdoc.getElementById("shareTitle").textContent==="Shared drawer","the share viewer opens a valid shared-plan link");
+        sdoc.querySelector('[data-share-view="iso"]').click();
+        result(shareViz.querySelectorAll("svg [data-box]").length===4&&shareViz.querySelectorAll("svg [data-obstacle]").length===1,"the share viewer's 3D tab draws every shared organizer and blocked zone as a solid",shareViz.querySelectorAll("svg [data-box]").length+" boxes");
+        function sharedFrontX(){
+          var node=Array.prototype.filter.call(shareViz.querySelectorAll("svg text"),function(t){return /^Front/.test(t.textContent);})[0];
+          return node?Number(node.getAttribute("x")):NaN;
+        }
+        function sharePointer(type,x,y){shareViz.dispatchEvent(new sw.PointerEvent(type,{pointerId:9,clientX:x,clientY:y,bubbles:true,cancelable:true}));}
+        var sharedResting=shareViz.innerHTML,sharedFrontBefore=sharedFrontX();
+        sharePointer("pointerdown",200,200);sharePointer("pointermove",260,200);sharePointer("pointerup",260,200);
+        result(sharedFrontX()>sharedFrontBefore,"the shared 3D view can be dragged round like the planner's",sharedFrontBefore+" → "+sharedFrontX());
+        sdoc.getElementById("shareReset3d").click();
+        result(shareViz.innerHTML===sharedResting,"the share viewer's Reset view returns its 3D camera to where it started");
+        sdoc.querySelector('[data-share-view="top"]').click();
+        result(sdoc.getElementById("shareReset3d").disabled===true&&shareViz.querySelectorAll("svg [data-box]").length===0,"the share viewer only offers Reset view on its 3D tab");
+        var sharedTopTexts=Array.prototype.map.call(shareViz.querySelectorAll("svg text"),function(t){return t.textContent;}).filter(function(t){return /tin/i.test(t);});
+        result(sharedTopTexts.length===1&&/Spare tin/.test(sharedTopTexts[0]),"the shared Top view names only the top box of a stack",JSON.stringify(sharedTopTexts));
+      }catch(e){
+        result(false,"share viewer harness exception",e.message);
+      }
+      Promise.resolve().then(function(){return api.shareUrlForPayload(sharedViewPayload,"http://example.test/index.html");}).then(function(compressedUrl){
+        var compressedFrame=document.createElement("iframe");
+        compressedFrame.addEventListener("load",function(){
+          // Decompression is asynchronous, so give the viewer a moment to render.
+          setTimeout(function(){
+            var cdoc=compressedFrame.contentWindow.document;
+            result(cdoc.getElementById("shareViewer").hidden===false&&cdoc.getElementById("shareTitle").textContent==="Shared drawer","the share viewer opens a compressed #z= link",cdoc.getElementById("shareErrorText").textContent);
+            finish();
+          },300);
+        },{once:true});
+        compressedFrame.src="../share.html#z="+compressedUrl.split("#z=")[1];
+        document.body.appendChild(compressedFrame);
+      }).catch(function(e){result(false,"compressed share link harness exception",e.message);finish();});
+    },{once:true});
+    shareFrame.src="../share.html#p="+shareLink;
+    document.body.appendChild(shareFrame);
+    }
+
+    // Save picture renders the open layout to a PNG; capture the file instead of downloading it.
+    function picturePhase(){
+      var picker=doc.getElementById("storageSelect");
+      picker.value="s1";picker.dispatchEvent(new w.Event("change",{bubbles:true}));
+      doc.getElementById("generateBtn").click();
+      doc.querySelector("#gallery .layoutcard").click();
+      var realCreate=w.URL.createObjectURL,realClick=w.HTMLAnchorElement.prototype.click,captured=null;
+      // Without the Web Share API the picture is downloaded.
+      Object.defineProperty(w.navigator,"share",{value:undefined,configurable:true});
+      Object.defineProperty(w.navigator,"canShare",{value:undefined,configurable:true});
+      var saved=new Promise(function(resolve,reject){
+        var timer=setTimeout(function(){reject(new Error("no picture was saved"));},5000);
+        w.URL.createObjectURL=function(blob){captured={blob:blob};return "blob:captured";};
+        w.HTMLAnchorElement.prototype.click=function(){if(captured){captured.name=this.download;clearTimeout(timer);resolve();}};
+      });
+      doc.getElementById("savePictureBtn").click();
+      function restore(){w.URL.createObjectURL=realCreate;w.HTMLAnchorElement.prototype.click=realClick;delete w.navigator.share;delete w.navigator.canShare;}
+      return saved.then(function(){
+        restore();
+        return captured.blob.arrayBuffer();
+      },function(e){restore();throw e;}).then(function(buffer){
+        var bytes=new Uint8Array(buffer),view=new DataView(buffer);
+        var isPng=bytes[0]===0x89&&bytes[1]===0x50&&bytes[2]===0x4e&&bytes[3]===0x47;
+        result(isPng&&captured.blob.type==="image/png"&&/\.png$/.test(captured.name)&&view.getUint32(16)===1200,"Save picture produces a 1200-pixel-wide PNG file",captured.name+" "+captured.blob.type+" "+view.getUint32(16)+"×"+view.getUint32(20));
+        // Decoding the PNG back stalls under headless virtual time, so inspect the canvas it is made from.
+        return api.layoutPictureCanvas();
+      }).then(function(canvas){
+        // The drawing sits below the title; count pixels that are neither the white page nor near-white.
+        var area=canvas.getContext("2d").getImageData(100,180,1000,500).data,inked=0;
+        for(var i=0;i<area.length;i+=4)if(area[i]<235||area[i+1]<235||area[i+2]<235)inked++;
+        result(inked>20000,"the picture contains the drawn layout, not a blank image",inked+" coloured pixels");
+        doc.getElementById("closeDetailModal").click();
+      });
+    }
+
+    // Share link must start its clipboard write inside the click (Safari refuses one started after an await).
+    function copyLinkPhase(){
+      doc.getElementById("generateBtn").click();
+      doc.querySelector("#gallery .layoutcard").click();
+      var writes=[],inClick=false;
+      function FakeItem(data){this.data=data;}
+      var realItem=w.ClipboardItem,realPrompt=w.prompt,realAlert=w.alert,dialogs=[];
+      w.ClipboardItem=FakeItem;
+      // Native dialogs would block the headless run forever.
+      w.prompt=function(message){dialogs.push(message);return null;};
+      w.alert=function(message){dialogs.push(message);};
+      Object.defineProperty(w.navigator,"clipboard",{value:{
+        write:function(items){writes.push({items:items,inClick:inClick});return Promise.resolve();},
+        writeText:function(){return Promise.reject(new Error("writeText should not be needed"));}
+      },configurable:true});
+      inClick=true;doc.getElementById("sharePlanBtn").click();inClick=false;
+      function restore(){w.ClipboardItem=realItem;w.prompt=realPrompt;w.alert=realAlert;delete w.navigator.clipboard;}
+      // Keep the stubs until the click handler has finished, so no real dialog can open.
+      var button=doc.getElementById("sharePlanBtn"),startLabel=button.textContent;
+      return new Promise(function(resolve){
+        var waited=0,timer=setInterval(function(){
+          waited+=20;
+          if(button.textContent!==startLabel||waited>=3000){clearInterval(timer);resolve();}
+        },20);
+      }).then(function(){
+        if(!writes.length)return {text:"",dialogs:dialogs.slice()};
+        return Promise.resolve(writes[0].items[0].data["text/plain"]).then(function(blob){return blob.text();}).then(function(text){return {text:text,dialogs:dialogs.slice()};});
+      }).then(function(outcome){
+        restore();
+        result(writes.length===1&&writes[0].inClick&&/share\.html#z=/.test(outcome.text)&&outcome.dialogs.length===0,"Share link starts its clipboard write inside the click, then fills it with the compressed link",writes.length+" writes, dialogs: "+outcome.dialogs.length+" "+outcome.text.slice(0,40));
+        doc.getElementById("closeDetailModal").click();
+      },function(e){restore();throw e;});
+    }
+
+    Promise.resolve().then(drawerLabelPhase).catch(function(e){result(false,"drawer label harness exception",e.message);})
+      .then(picturePhase).catch(function(e){result(false,"picture harness exception",e.message);})
+      .then(copyLinkPhase).catch(function(e){result(false,"copy link harness exception",e.message);})
+      .then(shareViewerPhase);
   },{once:true});
 })();
 </script>

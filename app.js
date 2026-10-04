@@ -7,6 +7,12 @@ const PREV_KEYS = ["storage-fit-planner-v27","storage-fit-planner-v26","storage-
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
+const PRIORITY_PASS_NODE_LIMIT = 2000;
+const PRIORITY_PASS_MIN_NODES = 200;
+const PRIORITY_PASS_LAYOUT_LIMIT = 12;
+const CUSTOM_BIN_MIN_SIDE_CM = 3;
+const BIN_WALL_MM = 1.6;
+const BIN_FLOOR_MM = 1.2;
 const SHARE_LINK_LIMIT = 12000;
 const EDIT_HISTORY_LIMIT = 60;
 const CAPACITY_SEARCH_LIMIT = 25000;
@@ -43,6 +49,7 @@ let pendingImport = null;
 let capacityLayoutContext = null;
 let savedPlanSourceContext = null;
 let installUnlockAnalysisCache = null;
+let assemblyPlayback = null;
 
 state.itemLimits = state.itemLimits || {};
 state.fitTolerance = Math.max(0, Number(state.fitTolerance)||0);
@@ -74,8 +81,9 @@ for(const b of state.boxes){
   b.frontPriority = !!b.frontPriority;
   b.canBeStacked = !!b.canBeStacked;
   b.canSupportStack = !!b.canSupportStack;
-  b.maxStackLevel = Number.isFinite(Number(b.maxStackLevel)) ? Math.max(1,Math.min(9,Math.floor(Number(b.maxStackLevel)))) : null;
+  b.maxStackLevel = normalizeStackLevel(b.maxStackLevel,b.canBeStacked);
 }
+clearLegacyStackLimits(state);
 for(const s of state.storages){
   if(!Array.isArray(s.obstacles)) s.obstacles=[];
   if(!Array.isArray(s.dividers)) s.dividers=[];
@@ -107,6 +115,13 @@ for(const p of state.savedPlans){
   p.validatedAt=p.validatedAt||p.savedAt||new Date().toISOString();
 }
 
+// Blank means "no limit". Number(null) is 0, so null must be handled before the numeric clamp.
+// A level only applies to items that can be stacked at all.
+function normalizeStackLevel(value,canBeStacked=true){
+  if(!canBeStacked||value===null||value===undefined||value==="")return null;
+  const level=Number(value);
+  return Number.isFinite(level)?Math.max(1,Math.min(9,Math.floor(level))):null;
+}
 function defaults(){
   return {
     unit:"cm",clearance:0.5,fitTolerance:0,editSnapStep:0.5,editShowGrid:true,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanIds:{},shoppingBought:{},installedPlanIds:{},installOrder:[],ownedDistributionSessions:{},
@@ -159,7 +174,7 @@ function normalizeOwnedDistributionSessions(target){
     }
     session.id=String(session.id||uid("dist"));
     session.createdAt=String(session.createdAt||new Date().toISOString());
-    session.fingerprint=String(session.fingerprint||"");
+    session.fingerprint=canonicalDistributionFingerprint(String(session.fingerprint||""));
     session.requested=Math.max(0,Math.floor(Number(session.requested)||0));
     session.assigned=Math.max(0,Math.floor(Number(session.assigned)||0));
     session.remaining=Math.max(0,Math.floor(Number(session.remaining)||0));
@@ -185,6 +200,55 @@ function normalizeOwnedDistributionSessions(target){
   return target.ownedDistributionSessions;
 }
 
+// Fingerprints embed item planning signatures. Older versions stored a stack-level
+// limit of 1 for items that cannot be stacked; normalize it the way signatures are
+// computed now, so unchanged distribution work does not turn stale after an upgrade.
+// Rewrites the stack limit inside every item signature of a fingerprint: the
+// distributed item's own and those of the items in each chosen plan.
+function mapFingerprintStackLevels(fingerprint,level){
+  const signature=(id,value)=>{
+    try{
+      const rules=JSON.parse(value);
+      if(!Array.isArray(rules)||rules.length!==9)return value;
+      rules[8]=level(id,rules[8],!!rules[6]);
+      return JSON.stringify(rules);
+    }catch(e){return value}
+  };
+  try{
+    const parts=JSON.parse(fingerprint);
+    if(!Array.isArray(parts)||parts.length!==5)return fingerprint;
+    parts[1]=signature(parts[0],parts[1]);
+    for(const storage of Array.isArray(parts[4])?parts[4]:[]){
+      const plan=storage?.[2];
+      if(Array.isArray(plan)&&Array.isArray(plan[5]))plan[5]=plan[5].map(rule=>Array.isArray(rule)?[rule[0],signature(rule[0],rule[1])]:rule);
+    }
+    return JSON.stringify(parts);
+  }catch(e){return fingerprint}
+}
+function canonicalDistributionFingerprint(fingerprint){
+  return mapFingerprintStackLevels(fingerprint,(id,value,canBeStacked)=>normalizeStackLevel(value,canBeStacked));
+}
+// Versions before the blank-limit fix saved a highest stack level of 1 for every item
+// after a reload. On an item that may sit on another item, "floor only" contradicts
+// its own rule, so those limits are cleared once, together with the copies kept in
+// saved plans and distribution work. A limit of 1 chosen afterwards is kept.
+function clearLegacyStackLimits(target){
+  if(target.legacyStackLimitsCleared)return [];
+  const cleared=new Set();
+  for(const b of target.boxes||[]){
+    if(b&&b.canBeStacked&&Number(b.maxStackLevel)===1){b.maxStackLevel=null;cleared.add(b.id)}
+  }
+  for(const plan of target.savedPlans||[]){
+    for(const [id,snap] of Object.entries(plan?.itemSnapshots||{})){
+      if(cleared.has(id)&&snap&&Number(snap.maxStackLevel)===1)snap.maxStackLevel=null;
+    }
+  }
+  for(const session of Object.values(target.ownedDistributionSessions||{})){
+    if(session&&typeof session.fingerprint==="string")session.fingerprint=mapFingerprintStackLevels(session.fingerprint,(id,value)=>cleared.has(id)&&Number(value)===1?null:value);
+  }
+  target.legacyStackLimitsCleared=true;
+  return [...cleared];
+}
 function normalizeInstallState(target){
   target.installedPlanIds=target.installedPlanIds&&typeof target.installedPlanIds==="object"&&!Array.isArray(target.installedPlanIds)?target.installedPlanIds:{};
   target.installOrder=Array.isArray(target.installOrder)?target.installOrder.filter(Boolean):[];
@@ -1688,6 +1752,7 @@ function openDetailModal(){
 }
 function closeDetailModal(){
   detailModalOpen=false;
+  endAssemblyPlayback();
   $("detailModal").classList.remove("open");
   $("detailModal").setAttribute("aria-hidden","true");
   document.body.classList.remove("modal-open");
@@ -2579,6 +2644,238 @@ function openMeasurementStorage(storageId){
   $("storageMeasurementStatus")?.scrollIntoView({behavior:"smooth",block:"center"});
   return true;
 }
+/* Voice measuring: speak a storage's inside size while holding the tape measure. */
+const SPOKEN_NUMBERS={zero:0,oh:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19,twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90};
+const SPOKEN_UNITS=[[/\b(?:centi(?:met(?:er|re)s?|mètres?)|cms?)\b/g,"cm"],[/\b(?:milli(?:met(?:er|re)s?|mètres?)|mms?)\b/g,"mm"],[/\b(?:inch(?:es)?|pouces?)\b/g,"inches"],[/\b(?:met(?:er|re)s?|mètres?)\b/g,"m"]];
+// Checked in order: a negative answer wins over "right" in "that's not right", and
+// saving wins over "next" in "save and next" (saving moves on anyway).
+const SPOKEN_COMMANDS=[
+  ["reject",/\b(?:no|nope|not|don'?t|do not|wrong|incorrect|non|pas|faux)\b/],
+  ["save",/\b(?:save|yes|yeah|yep|correct|confirm(?:ed)?|ok(?:ay)?|right|oui|enregistre[rz]?|valide[rz]?)\b/],
+  ["stop",/\b(?:stop|done|finish(?:ed)?|cancel|quit|exit|arr[eê]te[rz]?|termin[eé]|fini)\b/],
+  ["skip",/\b(?:skip|next|pass|suivant|passe[rz]?)\b/],
+  ["repeat",/\b(?:repeat|again|pardon|r[eé]p[eè]te[rz]?)\b/]
+];
+// Reads one spoken number starting at token i ("forty five", "eight hundred and ten",
+// "sixty point five", "forty and a half"). A word that cannot extend the number, such
+// as "forty" after "sixty", starts the next one.
+function readSpokenNumber(tokens,i){
+  const word=w=>Object.prototype.hasOwnProperty.call(SPOKEN_NUMBERS,w);
+  let j=i,value;
+  if(/^\d{1,3}(?:,\d{3})+$/.test(tokens[j]||"")){value=Number(tokens[j].replace(/,/g,""));j++}
+  else if(/^\d+(?:[.,]\d+)?$/.test(tokens[j]||"")){value=Number(tokens[j].replace(",","."));j++}
+  else if((word(tokens[j])&&tokens[j]!=="oh")||(tokens[j]==="a"&&tokens[j+1]==="hundred")){
+    let total=0,current=0,any=false;
+    while(j<tokens.length){
+      const w=tokens[j];
+      if(word(w)){
+        const n=SPOKEN_NUMBERS[w];
+        const fits=!any||(n>=10?current%100===0:n>0&&current%10===0);
+        if(!fits||(any&&n===0))break;
+        current+=n;any=true;j++;
+      }else if(w==="a"&&tokens[j+1]==="hundred"&&!any){current=1;any=true;j++}
+      else if(w==="hundred"&&any&&current%100!==0&&current<100){current*=100;j++}
+      else if(w==="thousand"&&any){total+=current*1000;current=0;j++}
+      else if(w==="and"&&any&&current%100===0&&word(tokens[j+1])){j++}
+      else break;
+    }
+    value=total+current;
+  }else return null;
+  if((tokens[j]==="point"||tokens[j]==="dot")&&j+1<tokens.length){
+    let digits="",k=j+1;
+    while(k<tokens.length&&(/^\d+$/.test(tokens[k])||(word(tokens[k])&&SPOKEN_NUMBERS[tokens[k]]<10))){digits+=/^\d+$/.test(tokens[k])?tokens[k]:SPOKEN_NUMBERS[tokens[k]];k++}
+    if(digits){value=Number(`${value}.${digits}`);j=k}
+  }else if(tokens[j]==="and"&&tokens[j+1]==="a"&&(tokens[j+2]==="half"||tokens[j+2]==="quarter")){
+    value+=tokens[j+2]==="half"?0.5:0.25;j+=3;
+  }
+  return {value,next:j};
+}
+function spokenText(text){
+  const tokens=String(text||"").toLowerCase().replace(/[,;:!?]+(?=\s|$)|\.(?=\s|$)/g," ").replace(/(\d)-(?=\d)/g,"$1 ").replace(/-/g," ").split(/\s+/).filter(Boolean);
+  const out=[];
+  for(let i=0;i<tokens.length;){
+    const n=readSpokenNumber(tokens,i);
+    if(n){out.push(String(round6(n.value)));i=n.next}else out.push(tokens[i++]);
+  }
+  let joined=out.join(" ");
+  for(const [pattern,unit] of SPOKEN_UNITS)joined=joined.replace(pattern,unit);
+  return joined;
+}
+// Width × depth × height in the project unit from a spoken phrase, or null.
+function parseSpokenDimensions(text,unit=state.unit){
+  const spoken=spokenText(text),units="(mm|cm|inches|m)";
+  const values=[...spoken.matchAll(new RegExp(String.raw`(\d+(?:\.\d+)?)(?:\s*${units}\b)?`,"g"))]
+    .map(m=>({start:m.index,end:m.index+m[0].length,value:m[1],unit:m[2]||""}));
+  if(values.length!==3)return null;
+  // A unit said once ("16 in centimetres", "60 centimetres by 45 by 16") applies to every value.
+  const said=new Set(values.map(v=>v.unit).filter(Boolean));
+  if(said.size>1&&values.some(v=>!v.unit))return null;
+  if(!said.size){
+    const loose=new Set([...spoken.matchAll(new RegExp(String.raw`\b${units}\b`,"g"))].map(m=>m[1]));
+    if(loose.size===1)values.forEach(v=>{v.unit=[...loose][0]});
+  }else if(said.size===1)values.forEach(v=>{v.unit=v.unit||[...said][0]});
+  // Nouns come before their value ("width 60"), adjectives after it ("60 wide"); unlabelled values fill the rest in order.
+  const axes=[[["width","largeur"],["wide","large"]],[["depth","profondeur"],["deep","profond"]],[["height","hauteur"],["high","tall","haut"]]];
+  const slots=[null,null,null];
+  values.forEach((v,i)=>{
+    const before=spoken.slice(i?values[i-1].end:0,v.start),after=spoken.slice(v.end,i<2?values[i+1].start:spoken.length);
+    const axis=axes.findIndex(([nouns,adjectives])=>
+      new RegExp(String.raw`\b(?:${nouns.join("|")})\b(?:\s+(?:is|of))?\s*$`).test(before)||new RegExp(String.raw`^\s*(?:${adjectives.join("|")})\b`).test(after));
+    if(axis>=0){if(slots[axis])return slots.fill(undefined);slots[axis]=v}
+  });
+  if(slots.includes(undefined))return null;
+  values.filter(v=>!slots.includes(v)).forEach(v=>{slots[slots.indexOf(null)]=v});
+  return parseQuickDimensions(slots.map(v=>`${v.value}${v.unit?" "+(v.unit==="inches"?"in":v.unit):""}`).join(" x "),unit);
+}
+function spokenCommand(text){
+  const raw=String(text||"").toLowerCase();
+  // Speech with a number in it is a (perhaps partial) measurement, never a command.
+  // "one" in "this one" or "the next one" is a pronoun, not a number.
+  if(/\d/.test(spokenText(raw.replace(/\b(this|that|the|next|last|other)\s+one\b/g,"$1"))))return null;
+  return SPOKEN_COMMANDS.find(([,pattern])=>pattern.test(raw))?.[0]||null;
+}
+const UNIT_WORDS={cm:"centimetres",mm:"millimetres",in:"inches"};
+let voiceSession=null;
+function voiceMeasuringActive(){return !!voiceSession}
+function voiceRecognitionClass(){return window.SpeechRecognition||window.webkitSpeechRecognition||null}
+function voiceTargets(){return measurementProgressData().pending.filter(row=>!voiceSession?.skipped.has(row.storageId))}
+function renderVoicePanel(message=""){
+  const panel=$("voiceMeasurePanel");if(!panel)return;
+  const s=voiceSession,row=s?measurementProgressData().rows.find(r=>r.storageId===s.storageId):null;
+  panel.hidden=false;
+  $("voiceMeasurePath").textContent=row?row.path:"";
+  $("voiceMeasureHeard").textContent=message||(s?.heard?`Heard: “${s.heard}”`:s?"Listening…":"");
+  $("voiceMeasureCandidate").textContent=s?.candidate?`${s.candidate.map(fmt).join(" × ")} ${state.unit} — say “save”, or measure again`:(s?"Say width by depth by height, for example “60 by 45 by 16”.":"");
+  $("voiceMeasureProgress").textContent=s?`${s.saved} saved · ${s.skipped.size} skipped · ${voiceTargets().length} left`:"";
+  $("voiceMeasureSave").disabled=!s?.candidate;
+  $("voiceMeasureSkip").disabled=!s;
+  $("voiceMeasureStop").textContent=s?"Stop":"Close";
+}
+// Prompts are read aloud with listening paused, so the planner never hears itself.
+function voiceSay(text){
+  const s=voiceSession;if(!s||!window.speechSynthesis||typeof SpeechSynthesisUtterance==="undefined")return;
+  s.speaking=true;try{s.recognition.abort()}catch(e){}
+  const utterance=new SpeechSynthesisUtterance(text),token=++s.speechToken;
+  const resume=()=>{
+    if(voiceSession!==s||s.speechToken!==token)return;
+    s.speaking=false;try{s.recognition.start()}catch(e){}
+  };
+  utterance.onend=resume;utterance.onerror=resume;
+  setTimeout(resume,1500+text.length*90);
+  window.speechSynthesis.cancel();window.speechSynthesis.speak(utterance);
+}
+function promptVoiceTarget(){
+  const row=measurementProgressData().rows.find(r=>r.storageId===voiceSession?.storageId);if(!row)return;
+  renderVoicePanel();
+  voiceSay(`${row.path.replace(/ → /g,", ")}. Say the width, depth and height.`);
+}
+function advanceVoiceMeasuring(){
+  const s=voiceSession;if(!s)return;
+  const next=voiceTargets()[0];
+  if(!next){
+    endVoiceMeasuring(`Done: ${s.saved} saved${s.skipped.size?`, ${s.skipped.size} skipped`:""}.`);
+    return;
+  }
+  s.storageId=next.storageId;s.candidate=null;s.heard="";
+  openMeasurementStorage(next.storageId);
+  promptVoiceTarget();
+}
+function fillVoiceFields(dims){
+  [["sw",0],["sd",1],["sh",2]].forEach(([id,i])=>{const el=$(id);el.value=String(round6(dims[i]));el.classList.add("autofill");setTimeout(()=>el.classList.remove("autofill"),750)});
+}
+// The editor must show the storage being measured; returns false when it no longer exists.
+function showVoiceTarget(){
+  const s=voiceSession;
+  if(!state.storages.some(x=>x.id===s.storageId))return false;
+  if(editingStorage!==s.storageId)openMeasurementStorage(s.storageId);
+  return editingStorage===s.storageId;
+}
+function saveVoiceCandidate(){
+  const s=voiceSession;if(!s?.candidate)return;
+  if(!state.storages.some(x=>x.id===s.storageId)){
+    s.candidate=null;voiceSay("That storage was deleted, so nothing was saved.");
+    return advanceVoiceMeasuring();
+  }
+  // The editor already shows the heard size, plus any correction typed since; only
+  // refill it when another storage was opened in the meantime.
+  if(editingStorage!==s.storageId){
+    if(!showVoiceTarget())return;
+    fillVoiceFields(s.candidate);
+  }
+  if(!saveStorageEditor({verify:true,advance:false}))return;
+  s.saved++;
+  advanceVoiceMeasuring();
+}
+function handleVoiceTranscript(text){
+  const s=voiceSession;if(!s)return;
+  s.heard=String(text||"").trim();
+  const command=spokenCommand(text);
+  if(command==="stop")return endVoiceMeasuring(`Stopped: ${s.saved} saved.`);
+  if(command==="reject"){
+    s.candidate=null;
+    if(showVoiceTarget())loadStorageEditor();
+    renderVoicePanel();return voiceSay("Okay, nothing saved. Measure it again.");
+  }
+  if(command==="repeat")return promptVoiceTarget();
+  if(command==="skip"){s.skipped.add(s.storageId);return advanceVoiceMeasuring()}
+  if(command==="save"){
+    if(s.candidate)return saveVoiceCandidate();
+    renderVoicePanel();return voiceSay("Say the width, depth and height first.");
+  }
+  const dims=parseSpokenDimensions(text,state.unit);
+  if(!dims||!dims.every(v=>v>0)){
+    renderVoicePanel();return voiceSay("I didn't catch three measurements. Say width by depth by height.");
+  }
+  if(!showVoiceTarget()){s.candidate=null;return advanceVoiceMeasuring()}
+  s.candidate=dims;
+  fillVoiceFields(dims);
+  renderVoicePanel();
+  voiceSay(`${dims.map(fmt).join(" by ")} ${UNIT_WORDS[state.unit]||state.unit}. Say save, or measure again.`);
+}
+function startVoiceMeasuring(){
+  if(voiceSession)return;
+  const Recognition=voiceRecognitionClass();
+  if(!Recognition){renderVoicePanel("Voice input is not available in this browser. Chrome, Edge and Safari support it.");return}
+  if(!measurementProgressData().pending.length){renderVoicePanel("Every storage measurement is already current.");return}
+  const recognition=new Recognition();
+  recognition.lang=navigator.language||"en-US";recognition.continuous=true;recognition.interimResults=false;recognition.maxAlternatives=3;
+  voiceSession={recognition,storageId:"",candidate:null,heard:"",saved:0,skipped:new Set(),speaking:false,speechToken:0,recentEnds:[]};
+  recognition.onresult=e=>{
+    // Never act on speech heard while a prompt is still being read aloud: it may be the read-back itself.
+    if(window.speechSynthesis?.speaking)return;
+    if(voiceSession)voiceSession.recentEnds=[];
+    for(let i=e.resultIndex;i<e.results.length;i++){
+      const result=e.results[i];if(!result.isFinal)continue;
+      const alternatives=Array.from(result,a=>a.transcript);
+      // Commands come only from the best guess, so a lower-ranked "yes" cannot save;
+      // for a measurement, the first guess that holds three values is used.
+      handleVoiceTranscript(spokenCommand(alternatives[0])?alternatives[0]:alternatives.find(t=>parseSpokenDimensions(t,state.unit))||alternatives[0]);
+    }
+  };
+  recognition.onerror=e=>{
+    if(e.error==="not-allowed"||e.error==="service-not-allowed"||e.error==="audio-capture")endVoiceMeasuring("Microphone access is blocked. Allow it for this page to measure by voice.");
+    else if(e.error==="network")endVoiceMeasuring("Speech recognition could not reach its service. Check the connection and try again.");
+    else if(e.error==="language-not-supported")endVoiceMeasuring(`Speech recognition does not support this browser's language (${recognition.lang}).`);
+  };
+  // Continuous recognition still ends after silence, so keep listening until the session
+  // stops, but give up when it keeps ending immediately without hearing anything.
+  recognition.onend=()=>{
+    const s=voiceSession;
+    if(s?.recognition!==recognition||s.speaking)return;
+    const now=Date.now();
+    s.recentEnds=s.recentEnds.filter(t=>now-t<10000).concat(now);
+    if(s.recentEnds.length>5)return endVoiceMeasuring("Voice input keeps stopping. Check the microphone and try again.");
+    try{recognition.start()}catch(e){}
+  };
+  advanceVoiceMeasuring();
+  if(voiceSession)try{recognition.start()}catch(e){}
+}
+function endVoiceMeasuring(message=""){
+  const s=voiceSession;
+  voiceSession=null;
+  if(s){try{s.recognition.abort()}catch(e){}try{window.speechSynthesis?.cancel()}catch(e){}}
+  renderVoicePanel(message);
+}
 function renderMeasurementProgress(){
   const sec=$("measurementProgressSection"),summary=$("measurementProgressSummary"),stats=$("measurementProgressStats"),list=$("measurementProgressList"),next=$("openNextMeasurementBtn");
   if(!sec||!summary||!stats||!list||!next)return;
@@ -3197,6 +3494,7 @@ function loadBoxEditor(){
   $("findItemFits").disabled=!b;
   $("findItemPlanRoom").disabled=!b;
   $("showItemUsage").disabled=!b;
+  $("downloadBinStl").disabled=!b;
   $("boxName").value=b?.name||"";$("bw").value=b?.w??"";$("bd").value=b?.d??"";$("bh").value=b?.h??"";
   $("boxPrice").value=b?.price||"";$("boxCurrency").value=b?.currency||"MAD";$("boxOwnedQty").value=b?.ownedQty??0;$("boxSku").value=b?.sku||"";$("boxUrl").value=b?.url||"";$("boxImage").value=b?.image||"";
   $("boxUprightOnly").checked=b?.uprightOnly!==false;
@@ -3208,11 +3506,17 @@ function loadBoxEditor(){
   syncStackRuleControls();
   renderBoxStockSummary();
 }
+const STACK_LEVEL_HINT="Optional. 1 = floor only, 2 = one level above floor.";
 function syncStackRuleControls(){
   const enabled=$("boxCanBeStacked").checked;
   $("boxMaxStackLevel").disabled=!enabled;
+  // "Can sit on another item" with level 1 never stacks; say so instead of failing silently.
+  const floorOnly=enabled&&Number($("boxMaxStackLevel").value)===1;
+  $("boxMaxStackHint").textContent=floorOnly?"Level 1 keeps this item on the floor, so it will never be stacked. Clear the field to allow stacking.":STACK_LEVEL_HINT;
+  $("boxMaxStackHint").classList.toggle("warn",floorOnly);
 }
 $("boxCanBeStacked").addEventListener("change",syncStackRuleControls);
+$("boxMaxStackLevel").addEventListener("input",syncStackRuleControls);
 function itemRuleText(b){
   const tags=[];
   if(b?.floorRotationLocked)tags.push("rotation locked");
@@ -3874,12 +4178,18 @@ function renderShoppingList(layout){
 function slugify(s){
   return String(s||"plan").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,60)||"storage-plan";
 }
-function base64UrlEncodeUtf8(text){
-  const bytes=new TextEncoder().encode(String(text)),chunk=0x8000;
+function bytesToBase64Url(bytes){
+  const chunk=0x8000;
   let binary="";
   for(let i=0;i<bytes.length;i+=chunk)binary+=String.fromCharCode(...bytes.subarray(i,i+chunk));
   return btoa(binary).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 }
+function base64UrlToBytes(value){
+  const raw=String(value||"").replace(/-/g,"+").replace(/_/g,"/");
+  const binary=atob(raw+"=".repeat((4-raw.length%4)%4));
+  return Uint8Array.from(binary,c=>c.charCodeAt(0));
+}
+function base64UrlEncodeUtf8(text){return bytesToBase64Url(new TextEncoder().encode(String(text)))}
 function base64UrlDecodeUtf8(value){
   const raw=String(value||"").replace(/-/g,"+").replace(/_/g,"/");
   const padded=raw+"=".repeat((4-raw.length%4)%4),binary=atob(padded),bytes=new Uint8Array(binary.length);
@@ -3931,11 +4241,32 @@ function currentSharePayload(){
     p:layout.map(p=>[p.typeId,round6(p.x),round6(p.y),round6(Number(p.z)||0),round6(p.w),round6(p.d),round6(p.h),placementLabel(p)])
   };
 }
-function currentShareUrl(baseHref=location.href){
-  const payload=currentSharePayload();if(!payload)return null;
-  const encoded=encodeSharePayload(payload),url=new URL("share.html",baseHref);
-  url.hash="p="+encoded;
+async function transformBytes(bytes,stream){
+  return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(stream)).arrayBuffer());
+}
+// Share links carry the plan in the URL fragment: "#z=" holds deflate-compressed
+// JSON, about half the length of the older plain "#p=" form, which still opens.
+async function shareUrlForPayload(payload,baseHref=location.href){
+  const error=validateSharePayload(payload);if(error)throw new Error(error);
+  const json=JSON.stringify(payload),url=new URL("share.html",baseHref);
+  url.hash=typeof CompressionStream==="function"
+    ?"z="+bytesToBase64Url(await transformBytes(new TextEncoder().encode(json),new CompressionStream("deflate-raw")))
+    :"p="+base64UrlEncodeUtf8(json);
   return url.toString();
+}
+async function decodeShareUrl(url){
+  const hash=new URL(url,location.href).hash;
+  if(hash.startsWith("#p="))return decodeSharePayload(hash.slice(3));
+  if(!hash.startsWith("#z="))return {error:"This link does not contain a shared Storage Fit plan.",payload:null};
+  try{
+    const json=new TextDecoder().decode(await transformBytes(base64UrlToBytes(hash.slice(3)),new DecompressionStream("deflate-raw")));
+    const payload=JSON.parse(json),error=validateSharePayload(payload);
+    return error?{error,payload:null}:{error:"",payload};
+  }catch(e){return {error:"This shared-plan link is damaged or incomplete.",payload:null}}
+}
+async function currentShareUrl(baseHref=location.href){
+  const payload=currentSharePayload();
+  return payload?shareUrlForPayload(payload,baseHref):null;
 }
 async function copyText(text){
   if(navigator.clipboard?.writeText){try{await navigator.clipboard.writeText(text);return true}catch(e){}}
@@ -3974,6 +4305,41 @@ function downloadJson(filename,data){
   a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),500);
 }
+// Binary STL of an open-top bin, in millimetres: outer block w × d × h with a
+// cavity that leaves `wall` on each side and `floor` underneath. Returns null
+// when the walls or floor would leave no cavity.
+function openBinStl(w,d,h,wall,floor){
+  if(!(wall>0&&floor>0&&w-2*wall>=1&&d-2*wall>=1&&h-floor>=1))return null;
+  const ring=(inset,z)=>[[inset,inset,z],[w-inset,inset,z],[w-inset,d-inset,z],[inset,d-inset,z]];
+  const base=ring(0,0),top=ring(0,h),lip=ring(wall,h),pit=ring(wall,floor);
+  const triangles=[];
+  // Corners are listed anticlockwise as seen from outside the solid.
+  const quad=(a,b,c,e)=>{triangles.push([a,b,c],[a,c,e])};
+  quad(base[0],base[3],base[2],base[1]);
+  quad(pit[0],pit[1],pit[2],pit[3]);
+  for(let i=0;i<4;i++){
+    const j=(i+1)%4;
+    quad(base[i],base[j],top[j],top[i]);
+    quad(top[i],top[j],lip[j],lip[i]);
+    quad(lip[i],lip[j],pit[j],pit[i]);
+  }
+  const buffer=new ArrayBuffer(84+50*triangles.length),view=new DataView(buffer);
+  const title="Storage Fit custom bin";
+  for(let i=0;i<title.length;i++)view.setUint8(i,title.charCodeAt(i));
+  view.setUint32(80,triangles.length,true);
+  triangles.forEach(([a,b,c],index)=>{
+    const u=[b[0]-a[0],b[1]-a[1],b[2]-a[2]],v=[c[0]-a[0],c[1]-a[1],c[2]-a[2]];
+    const n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]],length=Math.hypot(...n)||1;
+    [n.map(x=>x/length),a,b,c].flat().forEach((value,k)=>view.setFloat32(84+index*50+k*4,value,true));
+  });
+  return buffer;
+}
+// A made-to-measure bin for a leftover rectangle: it fills the gap and stands as
+// tall as the tallest organizer already in the layout, within the usable height.
+function customBinDimensions(gap,layout,H,tolerance,fallbackHeight){
+  const tallest=Math.max(0,...(layout||[]).map(p=>Number(p.h)||0));
+  return {w:round6(gap.w),d:round6(gap.d),h:round6(Math.min(tallest||fallbackHeight,H-tolerance))};
+}
 function printablePlacementLabels(layout,itemLookup=boxById){
   return (layout||[]).map((p,index)=>{
     const purpose=placementLabel(p);if(!purpose)return null;
@@ -4000,6 +4366,72 @@ function buildPrintSheet(){
     <table><thead><tr><th>Item</th><th>Use</th><th>Owned</th><th>Buy</th><th>Unit price</th><th>Subtotal</th></tr></thead>
     <tbody>${rows.map(r=>`<tr><td>${esc(r.name)}${r.sku?` · ${esc(r.sku)}`:""}${r.url&&r.buyQty?`<br><a href="${esc(r.url)}">${esc(r.url)}</a>`:""}</td><td>${r.qty}</td><td>${r.ownedUsed}</td><td>${r.buyQty}</td><td>${r.buyQty&&r.price>0?money(r.price,r.currency):"—"}</td><td>${r.buyQty&&r.price>0?money(r.subtotal,r.currency):r.buyQty?"—":"✓"}</td></tr>`).join("")}</tbody></table>
     <div class="printtotal">Additional purchase estimate: ${esc(totalsText(layout))}</div>
+  </div>`;
+  return true;
+}
+// Drawer labels: a QR code that opens the storage's layout in the share viewer.
+function sharePayloadForPlan(plan,title){
+  const m=planMetrics(plan),s=m.storage,settings=plan.settings||{};
+  const c=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
+  const ids=[...new Set((plan.layout||[]).map(p=>p.typeId))];
+  return {
+    v:1,n:String(title||m.storagePath).slice(0,160),u:state.unit,g:goalLabel(plan.goal||state.optimizeGoal),k:!!plan.stacking,
+    d:[round6(s.w),round6(s.d),round6(s.h)],z:[round6(m.W),round6(m.D),round6(m.H)],
+    c:round6(c),t:round6(Math.max(0,Number(settings.fitTolerance)||0)),
+    r:Number(m.utilizationPct.toFixed(2)),q:m.utilizationKind,
+    o:usableObstaclesFor(s,c).map(o=>[o.kind==="divider"?1:0,round6(o.x),round6(o.y),round6(o.w),round6(o.d),round6(o.h)]),
+    i:ids.map(id=>[id,String(boxById(id)?.name||plan.itemSnapshots?.[id]?.name||id).slice(0,200)]),
+    p:(plan.layout||[]).map(p=>[p.typeId,round6(p.x),round6(p.y),round6(Number(p.z)||0),round6(p.w),round6(p.d),round6(p.h),placementLabel(p)])
+  };
+}
+// Level M survives scuffed stickers; long links drop to L when that gives a smaller symbol.
+function drawerLabelQr(url){
+  const robust=StorageFitQR.encode(url,{ecc:"M"});
+  if(robust&&robust.version<=12)return robust;
+  const compact=StorageFitQR.encode(url,{ecc:"L"});
+  return compact&&(!robust||compact.version<robust.version)?compact:robust;
+}
+// A label that cannot get a link or QR code still prints, with a note instead of the code.
+function drawerLabelEntry(storageId,path,planName,layout,url,problem=""){
+  const purposes=[...new Set((layout||[]).map(placementLabel).filter(Boolean))];
+  const lines=purposes.length
+    ? purposes
+    : Object.entries(layoutCounts(layout||[])).map(([id,n])=>`${boxById(id)?.name||id} ×${n}`);
+  let qr=null;
+  if(url&&!problem){
+    try{qr=drawerLabelQr(url);if(!qr)problem="This plan is too large for a QR code. Use Export to share it."}
+    catch(e){problem="No QR code could be made for this plan."}
+  }
+  return {storageId,path,planName,lines,url,qr,problem};
+}
+async function drawerLabelEntries(){
+  const entries=await Promise.all(chosenPlans().map(async plan=>{
+    const context=projectStorageContext(plan.storageId);
+    let url=null,problem="";
+    try{url=await shareUrlForPayload(sharePayloadForPlan(plan,context.path))}
+    catch(e){problem=`No QR code: ${e?.message||"this plan could not be turned into a link."}`}
+    return {...drawerLabelEntry(plan.storageId,context.path,plan.name,plan.layout,url,problem),sortKey:context.sortKey};
+  }));
+  return entries.sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
+}
+function buildDrawerLabelSheet(entries){
+  if(!entries.length)return false;
+  const cards=entries.map(e=>{
+    const shown=e.lines.slice(0,6),more=e.lines.length-shown.length;
+    const code=e.qr?StorageFitQR.svg(e.qr,{label:`Layout of ${e.path}`}):`<div class="drawerlabelnoqr">${esc(/qr code/i.test(e.problem)?e.problem:`No QR code: ${e.problem||"this plan could not be encoded."}`)}</div>`;
+    return `<article class="drawerlabel">
+      <div class="drawerlabelqr">${code}</div>
+      <div class="drawerlabeltext">
+        <div class="drawerlabelpath">${esc(e.path)}</div>
+        <div class="drawerlabelplan">${esc(e.planName)}</div>
+        <ul>${shown.map(line=>`<li>${esc(line)}</li>`).join("")}${more>0?`<li>+${more} more</li>`:""}</ul>
+        <div class="drawerlabelhint">${e.qr?"Scan with a phone camera to see the layout in 3D":""}</div>
+      </div>
+    </article>`;
+  }).join("");
+  $("printSheet").innerHTML=`<div class="drawerlabelsheet">
+    <div class="labelsheethead"><h1>Drawer labels</h1><div class="printmeta">${entries.length} label${entries.length===1?"":"s"} · stick each one on its drawer, shelf or door</div></div>
+    <div class="drawerlabelgrid">${cards}</div>
   </div>`;
   return true;
 }
@@ -4397,7 +4829,7 @@ function itemPlanningSnapshot(b){
     frontPriority:!!b.frontPriority,
     canBeStacked:!!b.canBeStacked,
     canSupportStack:!!b.canSupportStack,
-    maxStackLevel:b.maxStackLevel==null?null:Math.max(1,Math.min(9,Math.floor(Number(b.maxStackLevel)||1)))
+    maxStackLevel:normalizeStackLevel(b.maxStackLevel,!!b.canBeStacked)
   };
 }
 function itemPlanningSignature(item){
@@ -4762,6 +5194,7 @@ function renderInstallDashboard(){
   const ready=entries.filter(e=>e.status==="ready").length;
   const waiting=entries.filter(e=>e.status==="waiting").length;
   const stale=entries.filter(e=>e.status==="stale").length;
+  $("printDrawerLabelsBtn").disabled=!chosenPlans().length;
   $("installProgressText").textContent=`${installed}/${entries.length} installed`;
   const findMoreReadyBtn=$("findMoreReadyBtn");
   if(findMoreReadyBtn){findMoreReadyBtn.disabled=waiting===0||ready+waiting<2;findMoreReadyBtn.onclick=findMoreReadyInstallOrder}
@@ -6147,6 +6580,77 @@ function canPlaceAny(placed,types,W,D){
   return false;
 }
 
+// One depth-first pass over edge-aligned placements, trying item types in the
+// given priority order. Maximal layouts are added to the shared `found` map.
+function searchLayoutPass(types,W,D,H,obstacles,gap,found,{nodeLimit,leafLimit=Infinity,freshLimit=Infinity}){
+  const visited=new Set();
+  let nodes=0,truncated=false,fresh=0;
+  function recurse(placed,counts){
+    nodes++;
+    if(nodes>nodeLimit){truncated=true;return}
+    const sig=canonicalLayout(placed)+"|"+Object.keys(counts).sort().map(k=>`${k}:${counts[k]}`).join(",");
+    if(visited.has(sig))return;visited.add(sig);
+
+    let extended=false;
+    for(const t of types){
+      const used=counts[t.id]||0;
+      if(t.max!==null && used>=t.max) continue;
+      for(const o of t.oris){
+        for(const p of candidatePlacementsFor(placed,t,o,W,D,H,obstacles,gap)){
+          extended=true;
+          recurse([...placed,p],{...counts,[t.id]:used+1});
+          if(truncated)return;
+          if(found.size>=leafLimit||fresh>=freshLimit){truncated=true;return}
+        }
+      }
+    }
+    if(!extended && placed.length){
+      const key=canonicalLayout(placed);
+      if(!found.has(key)){found.set(key,placed.map(p=>({...p})));fresh++}
+    }
+  }
+  recurse([],{});
+  return {nodes,truncated};
+}
+// Every rotation of the selected order and of its reverse, each with the item
+// orientations as given and flipped, so every type leads at least one pass.
+function searchPriorityOrders(types){
+  const seen=new Set(),orders=[];
+  const add=order=>{
+    const key=order.map(t=>`${t.id}:${t.oris.map(o=>o.join("x")).join("/")}`).join(">");
+    if(!seen.has(key)){seen.add(key);orders.push(order)}
+  };
+  const reversed=types.slice().reverse();
+  for(const base of [types,reversed]){
+    for(let i=0;i<base.length;i++){
+      const order=[...base.slice(i),...base.slice(0,i)];
+      add(order);
+      add(order.map(t=>({...t,oris:t.oris.slice().reverse()})));
+    }
+  }
+  return orders;
+}
+function searchMaximalLayouts(types,W,D,H,obstacles,gap,options={}){
+  const found=new Map();
+  const first=searchLayoutPass(types,W,D,H,obstacles,gap,found,{nodeLimit:SEARCH_LIMIT,leafLimit:LAYOUT_LIMIT*4});
+  let nodes=first.nodes,passes=1;
+  // A capped depth-first pass only varies the last few placements of its first
+  // arrangement, so whole quantity mixes stay unexplored. Short extra passes
+  // led by each other item type recover them; a completed pass needs none.
+  // Together the extra passes may spend at most what the first pass spent, so the
+  // search never takes more than about twice as long as before.
+  if(first.truncated&&options.diversify!==false){
+    const budget=Math.min(SEARCH_LIMIT/2,first.nodes);
+    const orders=searchPriorityOrders(types).slice(1,1+Math.floor(budget/PRIORITY_PASS_MIN_NODES));
+    const nodeLimit=Math.min(PRIORITY_PASS_NODE_LIMIT,Math.floor(budget/Math.max(1,orders.length))-1);
+    for(const order of orders){
+      nodes+=searchLayoutPass(order,W,D,H,obstacles,gap,found,{nodeLimit,freshLimit:PRIORITY_PASS_LAYOUT_LIMIT}).nodes;
+      passes++;
+    }
+  }
+  return {layouts:[...found.values()],truncated:first.truncated,nodes,firstNodes:first.nodes,passes};
+}
+
 function findLayouts(){
   capacityLayoutContext=null;
   savedPlanSourceContext=null;
@@ -6174,46 +6678,21 @@ function findLayouts(){
 
   $("searchState").textContent="Searching…";
   showMessage(`Finding proposals optimized for “${goalLabel()}”…`,"");
-  const found=new Map(),visited=new Set();
-  let nodes=0,truncated=false;
-
-  function recurse(placed,counts){
-    nodes++;
-    if(nodes>SEARCH_LIMIT){truncated=true;return}
-    const sig=canonicalLayout(placed)+"|"+Object.keys(counts).sort().map(k=>`${k}:${counts[k]}`).join(",");
-    if(visited.has(sig))return;visited.add(sig);
-
-    let extended=false;
-    for(const t of types){
-      const used=counts[t.id]||0;
-      if(t.max!==null && used>=t.max) continue;
-      for(const o of t.oris){
-        for(const p of candidatePlacementsFor(placed,t,o,W,D,H,obstacles,gap)){
-          extended=true;
-          recurse([...placed,p],{...counts,[t.id]:used+1});
-          if(found.size>=LAYOUT_LIMIT*4){truncated=true;return}
-        }
-      }
-    }
-    if(!extended && placed.length){
-      const key=canonicalLayout(placed);
-      if(!found.has(key))found.set(key,placed.map(p=>({...p})));
-    }
-  }
-  recurse([],{});
+  const search=searchMaximalLayouts(types,W,D,H,obstacles,gap);
+  let truncated=search.truncated;
 
   // Group by suggested quantities, but preserve a few distinct geometries for
   // each mix. This removes the flood of near-duplicates without hiding useful
   // alternatives such as front-loaded vs side-loaded arrangements.
   const grouped=new Map();
-  for(const layout of found.values()){
+  for(const layout of search.layouts){
     const sig=countSignature(layout);
     if(!grouped.has(sig)) grouped.set(sig,[]);
     grouped.get(sig).push(layout);
   }
-  for(const variants of grouped.values())variants.sort((a,b)=>compareLayoutsForGoal(a,b,W,D));
+  for(const variants of grouped.values())variants.sort((a,b)=>compareLayoutsForGoal(a,b,W,D)||layoutRaggedness(a)-layoutRaggedness(b));
 
-  layouts=[...grouped.values()].flatMap(variants=>variants.slice(0,4));
+  layouts=[...grouped.values()].flatMap(variants=>distinctLayoutVariants(variants,4));
   layouts.sort((a,b)=>compareLayoutsForGoal(a,b,W,D) || countSignature(a).localeCompare(countSignature(b)));
 
   if(layouts.length>LAYOUT_LIMIT){
@@ -6237,7 +6716,7 @@ function findLayouts(){
       blockedCount?`${blockedCount} blocked zone${blockedCount===1?"":"s"} avoided`:"",
       dividerCount?`${dividerCount} divider${dividerCount===1?"":"s"} respected`:""
     ].filter(Boolean).join(" · ");
-    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${costNote}${handlingNote}Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${state.enableStacking?"Stacking rules enabled. ":""}${constraintNote?`${constraintNote}. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?"Results are capped to keep the browser responsive.":""}`,"good");
+    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${costNote}${handlingNote}Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${state.enableStacking?"Stacking rules enabled. ":""}${constraintNote?`${constraintNote}. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?`Results are capped to keep the browser responsive${search.passes>1?`; ${search.passes-1} alternative item priorities were also searched so every item type leads some proposals`:""}.`:""}`,"good");
   }
   selectedLayout=0;selectedGap=-1;currentGaps=[];
   editMode=false;
@@ -6246,6 +6725,42 @@ function findLayouts(){
 
 function distinctTypes(layout){
   return new Set(layout.map(p=>p.typeId)).size;
+}
+// Distinct cut lines across the layout: fewer means edges line up more.
+function layoutRaggedness(layout){
+  const xs=new Set(),ys=new Set();
+  for(const p of layout){xs.add(round6(p.x));xs.add(round6(p.x+p.w));ys.add(round6(p.y));ys.add(round6(p.y+p.d))}
+  return xs.size+ys.size;
+}
+// The same box, turned the same way, sharing at least half of the two boxes'
+// combined volume: a shift of up to a third of the box along one axis.
+function placementsCoincide(p,q){
+  if(p.typeId!==q.typeId||Math.abs(p.w-q.w)>1e-6||Math.abs(p.d-q.d)>1e-6||Math.abs(p.h-q.h)>1e-6)return false;
+  const pz=Number(p.z)||0,qz=Number(q.z)||0;
+  const ox=Math.min(p.x+p.w,q.x+q.w)-Math.max(p.x,q.x),oy=Math.min(p.y+p.d,q.y+q.d)-Math.max(p.y,q.y),oz=Math.min(pz+p.h,qz+q.h)-Math.max(pz,qz);
+  if(ox<=0||oy<=0||oz<=0)return false;
+  const shared=ox*oy*oz;
+  return shared/(2*p.w*p.d*p.h-shared)>=0.5;
+}
+function layoutDifference(a,b){
+  const free=b.slice();
+  let unmatched=0;
+  for(const p of a){
+    const i=free.findIndex(q=>placementsCoincide(p,q));
+    if(i>=0)free.splice(i,1);else unmatched++;
+  }
+  return Math.max(unmatched,free.length);
+}
+// Keeps ranked variants that put at least a third of their placements (and
+// at least two) somewhere else than every variant already kept.
+function distinctLayoutVariants(ranked,limit=4){
+  const kept=[];
+  for(const layout of ranked){
+    if(kept.length>=limit)break;
+    const needed=Math.min(layout.length,Math.max(2,Math.ceil(layout.length/3)));
+    if(kept.every(other=>layoutDifference(layout,other)>=needed))kept.push(layout);
+  }
+  return kept;
 }
 function proposalTags(layout,W,D,H=currentUsableSize()?.H||1){
   if(!layouts.length)return [];
@@ -6336,6 +6851,11 @@ function svgTop(layout,W,D,width,height,labels=true,editable=false,selected=-1,h
       ${labels?`<text x="${g.ox+(o.x+o.w/2)*g.scale}" y="${g.oy+(o.y+o.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="10" fill="${textColor}">blocked</text>`:""}
     </g>`;
   }).join("");
+  // A name is drawn only when no higher box covers the middle of the footprint, so stacks show their top box.
+  const covered=new Set(layout.map((p,idx)=>{
+    const cx=p.x+p.w/2,cy=p.y+p.d/2;
+    return layout.some(q=>(Number(q.z)||0)>(Number(p.z)||0)+1e-9&&cx>=q.x-1e-9&&cx<=q.x+q.w+1e-9&&cy>=q.y-1e-9&&cy<=q.y+q.d+1e-9)?idx:-1;
+  }));
   const rects=layout.map((p,idx)=>({p,idx})).sort((a,b)=>(a.p.z||0)-(b.p.z||0)).map(({p,idx})=>{
     const invalid=bad.has(idx),active=idx===selected;
     const stroke=invalid?"#b23c3c":active?"#111":colorFor(p.typeId);
@@ -6343,7 +6863,7 @@ function svgTop(layout,W,D,width,height,labels=true,editable=false,selected=-1,h
     const sw=active?3:invalid?2.5:1.7;
     return `<g data-item="${editable?idx:""}" style="${editable?"cursor:move":""}">
       <rect data-item="${editable?idx:""}" x="${g.ox+p.x*g.scale}" y="${g.oy+p.y*g.scale}" width="${p.w*g.scale}" height="${p.d*g.scale}" rx="3" fill="${fill}" fill-opacity="${invalid?".28":".34"}" stroke="${stroke}" stroke-width="${sw}"/>
-      ${labels?`<text data-item="${editable?idx:""}" x="${g.ox+(p.x+p.w/2)*g.scale}" y="${g.oy+(p.y+p.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#222" pointer-events="${editable?"auto":"none"}">${esc(shortName(placementDisplayName(p,idx)))}${(p.z||0)>0?` ↑${fmt(p.z)}${state.unit}`:""}</text>`:""}
+      ${labels&&!covered.has(idx)?`<text data-item="${editable?idx:""}" x="${g.ox+(p.x+p.w/2)*g.scale}" y="${g.oy+(p.y+p.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#222" pointer-events="${editable?"auto":"none"}">${esc(shortName(placementDisplayName(p,idx)))}${(p.z||0)>0?` ↑${fmt(p.z)}${state.unit}`:""}</text>`:""}
     </g>`;
   }).join("");
   const gapMark=highlightGap?`<rect x="${g.ox+highlightGap.x*g.scale}" y="${g.oy+highlightGap.y*g.scale}" width="${highlightGap.w*g.scale}" height="${highlightGap.d*g.scale}" fill="#166c45" fill-opacity=".08" stroke="#166c45" stroke-width="3" stroke-dasharray="8 5"/><text x="${g.ox+(highlightGap.x+highlightGap.w/2)*g.scale}" y="${g.oy+(highlightGap.y+highlightGap.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="12" font-weight="800" fill="#166c45">${fmt(highlightGap.w)} × ${fmt(highlightGap.d)} ${esc(state.unit)}</text>`:"";
@@ -6383,54 +6903,107 @@ function svgSide(layout,D,H,width=760,height=390){
   return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Side view"><rect x="${ox}" y="${oy}" width="${D*scale}" height="${H*scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${obs}${rects}</svg>`;
 }
 
-/* Interactive orthographic 3D camera. */
-const isoCamera={yaw:Math.PI/4,elevation:30*Math.PI/180};
+/* Interactive 3D view. Rendering lives in view3d.js, shared with share.html. */
+let isoCamera=StorageFit3D.defaultCamera();
 
-function isoCameraRaw(x,y,z,W,D,H){
-  const cx=W/2,cy=D/2,dx=x-cx,dy=y-cy;
-  const c=Math.cos(isoCamera.yaw),s=Math.sin(isoCamera.yaw);
-  const xr=dx*c-dy*s,yr=dx*s+dy*c;
-  const ce=Math.cos(isoCamera.elevation),se=Math.sin(isoCamera.elevation);
-  return [xr,yr*se-z*ce];
+function resolvedColor(value){
+  const m=/^var\((--[\w-]+)\)$/.exec(String(value));
+  return m?getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim():value;
 }
-function isoTransform(W,D,H,width,height){
-  const corners=[[0,0,0],[W,0,0],[W,D,0],[0,D,0],[0,0,H],[W,0,H],[W,D,H],[0,D,H]].map(v=>isoCameraRaw(...v,W,D,H));
-  const xs=corners.map(p=>p[0]),ys=corners.map(p=>p[1]);
-  const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
-  const pad=38,scale=Math.min((width-2*pad)/(maxX-minX||1),(height-2*pad)/(maxY-minY||1));
-  const tx=(width-(minX+maxX)*scale)/2,ty=(height-(minY+maxY)*scale)/2;
-  return (x,y,z)=>{const [rx,ry]=isoCameraRaw(x,y,z,W,D,H);return [rx*scale+tx,ry*scale+ty]};
+function isoScene(layout,W,D,H){
+  return {
+    W,D,H,unit:state.unit,
+    boxes:layout.map((p,i)=>({x:p.x,y:p.y,z:Number(p.z)||0,w:p.w,d:p.d,h:p.h,color:resolvedColor(colorFor(p.typeId)),label:placementDisplayName(p,i)})),
+    obstacles:usableObstacles().map(o=>({kind:o.kind,x:o.x,y:o.y,w:o.w,d:o.d,h:o.h}))
+  };
 }
-function poly(points,fill,stroke,opacity){
-  return `<polygon points="${points.map(p=>p.join(",")).join(" ")}" fill="${fill}" fill-opacity="${opacity}" stroke="${stroke}" stroke-width="1.1"/>`;
+function svgIso(layout,W,D,H,reveal=null){
+  const viz=$("detailViz"),size=StorageFit3D.viewSize(viz.clientWidth&&viz.clientWidth-16);
+  return StorageFit3D.render(isoScene(layout,W,D,H),isoCamera,{reveal,...size});
 }
-function obstacleCuboidSvg(o,P){
-  const A=P(o.x,o.y,0),B=P(o.x+o.w,o.y,0),C=P(o.x+o.w,o.y+o.d,0),D=P(o.x,o.y+o.d,0);
-  const E=P(o.x,o.y,o.h),F=P(o.x+o.w,o.y,o.h),G=P(o.x+o.w,o.y+o.d,o.h),H=P(o.x,o.y+o.d,o.h);
-  const divider=o.kind==="divider",c=divider?"#416b8e":"#b23c3c";
-  return poly([A,B,F,E],c,c,divider?.20:.10)+poly([B,C,G,F],c,c,divider?.24:.14)+poly([E,F,G,H],c,c,divider?.30:.18);
-}
-function cuboidSvg(p,P){
-  const z=Number(p.z)||0;
-  const A=P(p.x,p.y,z),B=P(p.x+p.w,p.y,z),C=P(p.x+p.w,p.y+p.d,z),D=P(p.x,p.y+p.d,z);
-  const E=P(p.x,p.y,z+p.h),F=P(p.x+p.w,p.y,z+p.h),G=P(p.x+p.w,p.y+p.d,z+p.h),H=P(p.x,p.y+p.d,z+p.h);
-  const c=colorFor(p.typeId);
-  return poly([A,B,F,E],c,c,.18)+poly([B,C,G,F],c,c,.24)+poly([E,F,G,H],c,c,.34);
-}
-function svgIso(layout,W,D,H,width=760,height=430){
-  const P=isoTransform(W,D,H,width,height);
-  const sorted=layout.slice().sort((a,b)=>{
-    const ac=isoCameraRaw(a.x+a.w/2,a.y+a.d/2,(a.z||0)+a.h/2,W,D,H)[1];
-    const bc=isoCameraRaw(b.x+b.w/2,b.y+b.d/2,(b.z||0)+b.h/2,W,D,H)[1];
-    return bc-ac;
+// A shareable picture of the open layout: title, the 3D view, organizer legend and contents.
+async function layoutPictureCanvas(){
+  const layout=layouts[selectedLayout],s=storage(),sz=currentUsableSize();if(!layout||!s||!sz)return null;
+  const width=1200,pad=48,font=getComputedStyle(document.body).fontFamily;
+  const drawW=width-2*pad,drawH=Math.round(drawW*430/760);
+  const svg=StorageFit3D.render(isoScene(layout,sz.W,sz.D,sz.H),isoCamera,{width:760,height:430}).replace("<svg ",'<svg style="color:#6f716b" ');
+  const image=new Image();
+  image.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(svg);
+  await image.decode();
+  const legend=Object.entries(layoutCounts(layout)).map(([id,n])=>({color:resolvedColor(colorFor(id)),text:`${boxById(id)?.name||id} ×${n}`}));
+  const purposes=[...new Set(layout.map(placementLabel).filter(Boolean))];
+  const legendRows=Math.ceil(legend.length/2);
+  const height=pad+78+drawH+20+legendRows*32+(purposes.length?36:0)+pad;
+  const canvas=document.createElement("canvas");canvas.width=width;canvas.height=height;
+  const g=canvas.getContext("2d");
+  const fit=(text,max)=>{let t=String(text);while(t.length>1&&g.measureText(t).width>max)t=t.slice(0,-2)+"…";return t};
+  g.fillStyle="#ffffff";g.fillRect(0,0,width,height);
+  g.fillStyle="#1d1d1b";g.font=`800 30px ${font}`;g.textBaseline="top";
+  g.fillText(fit(storageBreadcrumb(s),drawW),pad,pad);
+  g.fillStyle="#6f716b";g.font=`500 18px ${font}`;
+  const stacked=layout.filter(p=>(Number(p.z)||0)>1e-9).length;
+  g.fillText(fit(`${fmt(s.w)} × ${fmt(s.d)} × ${fmt(s.h)} ${state.unit} · ${(utilization(layout,sz.W,sz.D,sz.H)*100).toFixed(1)}% ${utilizationNoun(layout)} · ${layout.length} organizer${layout.length===1?"":"s"}${stacked?` · ${stacked} stacked`:""}`,drawW),pad,pad+42);
+  g.drawImage(image,pad,pad+78,drawW,drawH);
+  let y=pad+78+drawH+20;
+  g.font=`600 18px ${font}`;
+  legend.forEach((row,i)=>{
+    const x=pad+(i%2)*(drawW/2),rowY=y+Math.floor(i/2)*32;
+    g.fillStyle=row.color;g.fillRect(x,rowY+2,18,18);
+    g.fillStyle="#1d1d1b";g.fillText(fit(row.text,drawW/2-40),x+28,rowY);
   });
-  const floor=poly([P(0,0,0),P(W,0,0),P(W,D,0),P(0,D,0)],"#ffffff","#bbbbbb",1);
-  const obstacleBoxes=usableObstacles().map(o=>obstacleCuboidSvg(o,P)).join("");
-  const boxes=sorted.map(p=>cuboidSvg(p,P)).join("");
-  const pts=[P(0,0,0),P(W,0,0),P(W,D,0),P(0,D,0),P(0,0,H),P(W,0,H),P(W,D,H),P(0,D,H)];
-  const edges=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
-  const lines=edges.map(([a,b])=>`<line x1="${pts[a][0]}" y1="${pts[a][1]}" x2="${pts[b][0]}" y2="${pts[b][1]}" stroke="#222" stroke-width="1.8"/>`).join("");
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Interactive 3D view">${floor}${obstacleBoxes}${boxes}${lines}</svg>`;
+  y+=legendRows*32;
+  if(purposes.length){g.fillStyle="#1d1d1b";g.font=`500 18px ${font}`;g.fillText(fit(`Contents: ${purposes.join(" · ")}`,drawW),pad,y+8)}
+  g.fillStyle="#9a9c95";g.font=`600 14px ${font}`;g.textAlign="right";g.fillText("Storage Fit",width-pad,height-pad+14);
+  return canvas;
+}
+async function layoutPictureBlob(){
+  const canvas=await layoutPictureCanvas();
+  return canvas?new Promise(resolve=>canvas.toBlob(resolve,"image/png")):null;
+}
+function assemblyStepText(layout,order,step){
+  const p=layout[order[step]];if(!p)return "";
+  const z=Number(p.z)||0;
+  return `Step ${step+1} of ${order.length} · ${placementDisplayName(p,order[step])} — ${fmt(p.x)} ${state.unit} from the left, ${fmt(p.y)} ${state.unit} from the front${z>1e-9?`, stacked ${fmt(z)} ${state.unit} up`:""}`;
+}
+// Redraws only the 3D picture, so rotating and playback skip the rest of the detail panel.
+function renderIsoViz(){
+  const sz=currentUsableSize(),layout=layouts[selectedLayout];if(!sz||!layout)return;
+  let reveal=null;
+  if(assemblyPlayback){
+    const frame=StorageFit3D.assemblyFrame(assemblyPlayback.order.length,performance.now()-assemblyPlayback.startedAt,assemblyPlayback.stepMs);
+    if(frame.done)endAssemblyPlayback();
+    else{
+      // With reduced motion each box simply appears in place instead of dropping in.
+      reveal=assemblyPlayback.calm
+        ? {order:assemblyPlayback.order,shown:frame.shown+1,progress:0}
+        : {order:assemblyPlayback.order,shown:frame.shown,progress:frame.progress};
+      $("assemblyCaption").textContent=assemblyStepText(layout,assemblyPlayback.order,frame.shown);
+    }
+  }
+  $("detailViz").innerHTML=svgIso(layout,sz.W,sz.D,sz.H,reveal);
+}
+function endAssemblyPlayback(){
+  if(!assemblyPlayback)return;
+  cancelAnimationFrame(assemblyPlayback.frame);
+  assemblyPlayback=null;
+  $("assemblyCaption").hidden=true;$("assemblyCaption").textContent="";
+  $("playAssembly").textContent="▶ Assemble";
+}
+function startAssemblyPlayback(){
+  const layout=layouts[selectedLayout];if(!layout?.length||detailView!=="iso"||editMode)return;
+  const order=StorageFit3D.assemblyOrder(layout);
+  assemblyPlayback={
+    order,startedAt:performance.now(),frame:0,
+    stepMs:Math.max(220,Math.min(650,7000/order.length)),
+    calm:!!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+  };
+  $("assemblyCaption").hidden=false;$("playAssembly").textContent="■ Stop";
+  const tick=()=>{
+    if(!assemblyPlayback)return;
+    renderIsoViz();
+    if(assemblyPlayback)assemblyPlayback.frame=requestAnimationFrame(tick);
+  };
+  tick();
 }
 
 function renderDetail(W,D,H){
@@ -6450,7 +7023,9 @@ function renderDetail(W,D,H){
   const capacityStructure=capacityLayoutContext?packingStackSummaryText(capacityLayoutContext.stackSummary):"";
   $("detailSubtitle").textContent=`${capacityNote}${capacityStructure?capacityStructure+" · ":""}${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)} utilization · ${layout.length} item${layout.length===1?"":"s"}${stackedCount?` · ${stackedCount} stacked`:""}.`;
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.view===detailView));
+  endAssemblyPlayback();
   $("reset3d").disabled=detailView!=="iso";
+  $("playAssembly").disabled=detailView!=="iso"||editMode;
   const printableLabels=printablePlacementLabels(layout);
   $("printLabelsBtn").disabled=printableLabels.length===0;
   $("printLabelsBtn").title=printableLabels.length?`Print ${printableLabels.length} organizer label${printableLabels.length===1?"":"s"}`:"Add purpose labels to placements first";
@@ -6518,12 +7093,14 @@ function renderGapList(W,D,H){
     el.innerHTML='<div class="empty">No rectangular leftover space remains.</div>';
     return;
   }
+  const minBinSide=CUSTOM_BIN_MIN_SIDE_CM*unitScale("cm",state.unit);
   el.innerHTML=currentGaps.slice(0,8).map((g,i)=>{
     const suggestions=gapSuggestions(g,H,layouts[selectedLayout]);
     const chips=suggestions.length?suggestions.map(s=>`<button type="button" class="suggestion" data-gap-add="${i}" data-gap-item="${s.id}" title="Add one ${esc(s.name)} here"><strong>${esc(s.name)}</strong>${s.count>1?` · up to ${s.count}`:""}</button>`).join(""):'<div class="nosuggestion">No saved item fits this rectangle.</div>';
+    const custom=Math.min(g.w,g.d)>=minBinSide?`<button type="button" class="suggestion custom" data-gap-custom="${i}" title="Create a made-to-measure bin for this space, add it to the layout and to the item library">Custom bin ${fmt(g.w)} × ${fmt(g.d)}</button>`:"";
     return `<div class="gapcard ${i===selectedGap?"active":""}" data-gap="${i}">
       <div class="gaphead"><strong>${fmt(g.w)} × ${fmt(g.d)} ${esc(state.unit)}</strong><span class="gaparea">${fmt(g.area)} ${esc(state.unit)}²</span></div>
-      <div class="gapsuggestions">${chips}</div>
+      <div class="gapsuggestions">${chips}${custom}</div>
       <div class="gapnote">Position: ${fmt(g.x)} from left · ${fmt(g.y)} from front</div>
     </div>`;
   }).join("");
@@ -6538,30 +7115,55 @@ function renderGapList(W,D,H){
 
   el.querySelectorAll("[data-gap-add]").forEach(btn=>btn.addEventListener("click",e=>{
     e.stopPropagation();
-    const gi=Number(btn.dataset.gapAdd),id=btn.dataset.gapItem,g=currentGaps[gi],b=boxById(id),layout=layouts[selectedLayout];
-    if(!g||!b||!layout)return;
-    const max=allowedMaxFor(id);
-    if(max!==null&&countType(layout,id)>=max){setEditStatus(`Maximum quantity (${max}) reached for ${b.name}.`,true);return}
-    const oris=orientations(b,state.uprightOnly).filter(o=>o[0]<=g.w+1e-9&&o[1]<=g.d+1e-9&&o[2]+Math.max(0,state.fitTolerance||0)<=H+1e-9);
-    if(!oris.length)return;
-    // Prefer the orientation using the largest share of the highlighted gap.
-    oris.sort((a,b2)=>(b2[0]*b2[1])-(a[0]*a[1]));
-    const o=oris[0],p={typeId:id,name:b.name,x:round6(g.x),y:round6(g.y),z:0,w:o[0],d:o[1],h:o[2]};
-    layout.push(p);
-    const idx=layout.length-1;
-    if(!editItemValid(layout,idx,W,D)){
-      layout.pop();setEditStatus("That saved item no longer fits after applying tolerance.",true);return;
-    }
-    const wasEditing=editMode;
-    selectedEditItem=idx;editMode=true;editOriginalLayout=editOriginalLayout||layout.slice(0,-1).map(q=>({...q}));
-    if(!wasEditing||editHistory.index<0)resetEditHistory(editOriginalLayout);
-    recordEditHistory("Add item");
-    selectedGap=-1;detailView="top";
-    setEditStatus(`${b.name} added. You can drag or rotate it.`);
-    renderDetail(W,D,H);
-    renderGallery(W,D,H,galleryWasCapped);
-    openDetailModal();
+    const g=currentGaps[Number(btn.dataset.gapAdd)],b=boxById(btn.dataset.gapItem);
+    if(g&&b)addItemToGap(g,b,W,D,H);
   }));
+
+  el.querySelectorAll("[data-gap-custom]").forEach(btn=>btn.addEventListener("click",e=>{
+    e.stopPropagation();
+    const g=currentGaps[Number(btn.dataset.gapCustom)],layout=layouts[selectedLayout];
+    if(!g||!layout)return;
+    const dims=customBinDimensions(g,layout,H,Math.max(0,state.fitTolerance||0),round6(10*unitScale("cm",state.unit)));
+    if(!(dims.h>0)){setEditStatus("There is no usable height left for a custom bin.",true);return}
+    const same=b=>/^Custom bin\b/.test(b.name||"")&&[["w",dims.w],["d",dims.d],["h",dims.h]].every(([k,v])=>Math.abs((Number(b[k])||0)-v)<1e-6);
+    const existing=state.boxes.find(same);
+    const item=existing||{id:uid("b"),name:`Custom bin ${fmt(dims.w)} × ${fmt(dims.d)} × ${fmt(dims.h)}`,...dims,price:0,currency:"MAD",ownedQty:0,sku:"",url:"",image:"",retailer:"",uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:false,canSupportStack:false,maxStackLevel:null};
+    if(!existing){state.boxes.push(item);state.selectedTypes[item.id]=false;state.itemLimits[item.id]=null}
+    if(!addItemToGap(g,item,W,D,H)){
+      if(!existing){state.boxes.pop();delete state.selectedTypes[item.id];delete state.itemLimits[item.id]}
+      return;
+    }
+    editingBox=item.id;
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
+    renderBoxList();renderItemPicker();loadBoxEditor();
+  }));
+}
+// Places one copy of an item at the corner of a leftover rectangle and opens it for editing.
+function addItemToGap(g,b,W,D,H){
+  const layout=layouts[selectedLayout],id=b.id;
+  if(!layout)return false;
+  const max=allowedMaxFor(id);
+  if(max!==null&&countType(layout,id)>=max){setEditStatus(`Maximum quantity (${max}) reached for ${b.name}.`,true);return false}
+  const oris=orientations(b,state.uprightOnly).filter(o=>o[0]<=g.w+1e-9&&o[1]<=g.d+1e-9&&o[2]+Math.max(0,state.fitTolerance||0)<=H+1e-9);
+  if(!oris.length)return false;
+  // Prefer the orientation using the largest share of the highlighted gap.
+  oris.sort((a,b2)=>(b2[0]*b2[1])-(a[0]*a[1]));
+  const o=oris[0],p={typeId:id,name:b.name,x:round6(g.x),y:round6(g.y),z:0,w:o[0],d:o[1],h:o[2]};
+  layout.push(p);
+  const idx=layout.length-1;
+  if(!editItemValid(layout,idx,W,D)){
+    layout.pop();setEditStatus("That saved item no longer fits after applying tolerance.",true);return false;
+  }
+  const wasEditing=editMode;
+  selectedEditItem=idx;editMode=true;editOriginalLayout=editOriginalLayout||layout.slice(0,-1).map(q=>({...q}));
+  if(!wasEditing||editHistory.index<0)resetEditHistory(editOriginalLayout);
+  recordEditHistory("Add item");
+  selectedGap=-1;detailView="top";
+  setEditStatus(`${b.name} added. You can drag or rotate it.`);
+  renderDetail(W,D,H);
+  renderGallery(W,D,H,galleryWasCapped);
+  openDetailModal();
+  return true;
 }
 
 function currentUsableSize(){
@@ -7003,18 +7605,16 @@ $("detailViz").addEventListener("pointercancel",stopTopDrag);
 let isoDrag=null;
 $("detailViz").addEventListener("pointerdown",e=>{
   if(editMode||detailView!=="iso"||!layouts.length)return;
-  isoDrag={id:e.pointerId,x:e.clientX,y:e.clientY,yaw:isoCamera.yaw,elevation:isoCamera.elevation};
-  $("detailViz").setPointerCapture?.(e.pointerId);
+  isoDrag={id:e.pointerId,x:e.clientX,y:e.clientY,azimuth:isoCamera.azimuth,elevation:isoCamera.elevation};
+  try{$("detailViz").setPointerCapture(e.pointerId)}catch(err){}
   $("detailViz").classList.add("dragging");
   e.preventDefault();
 });
 $("detailViz").addEventListener("pointermove",e=>{
   if(!isoDrag||e.pointerId!==isoDrag.id||detailView!=="iso")return;
-  const dx=e.clientX-isoDrag.x,dy=e.clientY-isoDrag.y;
-  isoCamera.yaw=isoDrag.yaw+dx*0.012;
-  isoCamera.elevation=Math.max(10*Math.PI/180,Math.min(75*Math.PI/180,isoDrag.elevation-dy*0.009));
-  const S=storage();
-  if(S&&layouts.length){const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0;renderDetail(S.w-2*c,S.d-2*c,S.h-2*c)}
+  // The storage follows the pointer: dragging right swings its front to the right, dragging down tips it towards the viewer.
+  isoCamera=StorageFit3D.clampCamera({azimuth:isoDrag.azimuth-(e.clientX-isoDrag.x)*0.012,elevation:isoDrag.elevation+(e.clientY-isoDrag.y)*0.009});
+  renderIsoViz();
   e.preventDefault();
 });
 function stopIsoDrag(e){
@@ -7025,8 +7625,13 @@ $("detailViz").addEventListener("pointerup",stopIsoDrag);
 $("detailViz").addEventListener("pointercancel",stopIsoDrag);
 $("detailViz").addEventListener("lostpointercapture",stopIsoDrag);
 $("reset3d").addEventListener("click",()=>{
-  isoCamera.yaw=Math.PI/4;isoCamera.elevation=30*Math.PI/180;
-  const S=storage();if(S&&layouts.length){const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0;renderDetail(S.w-2*c,S.d-2*c,S.h-2*c)}
+  isoCamera=StorageFit3D.defaultCamera();
+  if(detailView==="iso")renderIsoViz();
+});
+window.addEventListener("resize",()=>{if(detailModalOpen&&detailView==="iso"&&!assemblyPlayback)renderIsoViz()});
+$("playAssembly").addEventListener("click",()=>{
+  if(assemblyPlayback){endAssemblyPlayback();renderIsoViz()}
+  else startAssemblyPlayback();
 });
 
 
@@ -7042,6 +7647,37 @@ $("printPlanBtn").addEventListener("click",()=>{
   if(!buildPrintSheet())return;
   window.print();
 });
+$("printDrawerLabelsBtn").addEventListener("click",async()=>{
+  let entries;
+  try{entries=await drawerLabelEntries()}catch(e){alert("Could not prepare the drawer labels.");return}
+  if(!buildDrawerLabelSheet(entries)){alert("Choose a plan for at least one storage space first.");return}
+  window.print();
+});
+$("drawerLabelBtn").addEventListener("click",async()=>{
+  const layout=layouts[selectedLayout],s=storage();if(!layout||!s)return;
+  const path=storageBreadcrumb(s);
+  let url;
+  try{url=await shareUrlForPayload({...currentSharePayload(),n:path.slice(0,160)})}catch(e){alert(e.message||"Could not create a label for this layout.");return}
+  buildDrawerLabelSheet([drawerLabelEntry(s.id,path,capacityLayoutContext?"Capacity packing":`Layout ${selectedLayout+1}`,layout,url)]);
+  window.print();
+});
+$("savePictureBtn").addEventListener("click",async()=>{
+  const btn=$("savePictureBtn"),s=storage();if(btn.disabled||!s)return;
+  btn.disabled=true;
+  try{
+    const blob=await layoutPictureBlob();if(!blob)return;
+    const name=`${slugify(s.name)}-layout-${selectedLayout+1}.png`,file=new File([blob],name,{type:"image/png"});
+    // Phones open their share sheet (messages, mail, notes); elsewhere the PNG is downloaded.
+    if(typeof navigator.share==="function"&&navigator.canShare?.({files:[file]})){
+      try{await navigator.share({files:[file],title:storageBreadcrumb(s)});return}
+      catch(e){if(e?.name==="AbortError")return}
+    }
+    const url=URL.createObjectURL(blob),a=document.createElement("a");
+    a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+  }catch(e){alert("Could not create a picture of this layout.")}
+  finally{btn.disabled=false}
+});
 $("printLabelsBtn").addEventListener("click",()=>{
   if(!buildLabelPrintSheet()){alert("Add a purpose label to at least one placement first.");return}
   window.print();
@@ -7053,14 +7689,22 @@ $("exportPlanBtn").addEventListener("click",()=>{
   setTimeout(()=>{$("exportPlanBtn").textContent=old},1200);
 });
 $("sharePlanBtn").addEventListener("click",async()=>{
-  let url;
-  try{url=currentShareUrl()}catch(e){alert(e.message||"Could not create a share link.");return}
-  if(!url)return;
-  if(url.length>SHARE_LINK_LIMIT){
-    alert("This layout is too large for a reliable share link. Use Export to share the full JSON plan instead.");
-    return;
+  const btn=$("sharePlanBtn"),old=btn.textContent;
+  const link=currentShareUrl().then(url=>{
+    if(!url)throw new Error("Open a layout first.");
+    if(url.length>SHARE_LINK_LIMIT)throw new RangeError("This layout is too large for a reliable share link. Use Export to share the full JSON plan instead.");
+    return url;
+  });
+  // Safari only accepts a clipboard write started inside the click, and the link is built
+  // asynchronously, so start the write now with an item that waits for the link.
+  let copying=null;
+  if(typeof ClipboardItem==="function"&&typeof navigator.clipboard?.write==="function"){
+    try{copying=navigator.clipboard.write([new ClipboardItem({"text/plain":link.then(url=>new Blob([url],{type:"text/plain"}))})]).then(()=>true,()=>false)}
+    catch(e){copying=null}
   }
-  const ok=await copyText(url),btn=$("sharePlanBtn"),old=btn.textContent;
+  let url;
+  try{url=await link}catch(e){alert(e.message||"Could not create a share link.");return}
+  const ok=(copying&&await copying)||await copyText(url);
   btn.textContent=ok?"Copied ✓":"Link ready";
   if(!ok)prompt("Copy this read-only share link:",url);
   setTimeout(()=>{btn.textContent=old},1400);
@@ -7121,6 +7765,14 @@ $("exportHomeShoppingBtn").addEventListener("click",()=>{
   downloadJson("storage-fit-home-shopping.json",payload);
   const btn=$("exportHomeShoppingBtn"),old=btn.textContent;btn.textContent="Exported ✓";
   setTimeout(()=>{btn.textContent=old},1200);
+});
+$("downloadBinStl").addEventListener("click",()=>{
+  const b=state.boxes.find(x=>x.id===editingBox);if(!b)return;
+  const mm=unitScale(state.unit,"mm"),btn=$("downloadBinStl"),old=btn.textContent;
+  const stl=openBinStl(b.w*mm,b.d*mm,b.h*mm,BIN_WALL_MM,BIN_FLOOR_MM);
+  if(stl)downloadTextFile(`${slugify(b.name)}.stl`,stl,"model/stl");
+  btn.textContent=stl?"Saved ✓":"Too small to print";
+  setTimeout(()=>{btn.textContent=old},1400);
 });
 $("findItemFits").addEventListener("click",openItemFitModal);
 $("fitAuditBtn").addEventListener("click",openFitAuditModal);
@@ -7320,6 +7972,13 @@ $("toggleStorageMeasured").addEventListener("click",()=>{
   markStorageMeasured(s);save();renderStorageMeasurementStatus();renderStorageList();
 });
 $("saveMeasuredNext").addEventListener("click",()=>saveStorageEditor({verify:true,advance:true}));
+$("voiceMeasureBtn").addEventListener("click",startVoiceMeasuring);
+$("voiceMeasureSave").addEventListener("click",saveVoiceCandidate);
+$("voiceMeasureSkip").addEventListener("click",()=>{if(voiceSession){voiceSession.skipped.add(voiceSession.storageId);advanceVoiceMeasuring()}});
+$("voiceMeasureStop").addEventListener("click",()=>{
+  if(voiceSession)endVoiceMeasuring(`Stopped: ${voiceSession.saved} saved.`);
+  else $("voiceMeasurePanel").hidden=true;
+});
 $("pasteBoxDimensions").addEventListener("click",()=>{
   const ok=pasteDimensionsIntoFields(["bw","bd","bh"],"organizer");if(!ok)return;
   const btn=$("pasteBoxDimensions"),old=btn.textContent;btn.textContent="Filled ✓";setTimeout(()=>{btn.textContent=old},1200);
@@ -7669,9 +8328,24 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     choosePlan,
     itemStockStatus,
     aggregateRequiredCounts,
+    searchMaximalLayouts,
+    currentLayouts:()=>layouts,
+    layoutRaggedness,
+    distinctLayoutVariants,
     orientations,
     placementStackLevel,
     maxStackLevelAllows,
+    normalizeStackLevel,
+    clearLegacyStackLimits,
+    openBinStl,
+    parseSpokenDimensions,
+    spokenCommand,
+    voiceMeasuringActive,
+    customBinDimensions,
+    drawerLabelEntries,
+    shareUrlForPayload,
+    decodeShareUrl,
+    layoutPictureCanvas,
     accessPenalty,
     compareAccess,
     defaultEditSnapStep,
@@ -7693,6 +8367,14 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     overlap3D,
     footprintContains
   };
+}
+
+$("themeSelect").value=window.StorageFitTheme?.get()||"auto";
+$("themeSelect").addEventListener("change",()=>window.StorageFitTheme?.set($("themeSelect").value));
+
+// Offline support (sw.js). Frames, such as the smoke-test page, never install it.
+if("serviceWorker" in navigator&&window.top===window&&location.protocol!=="file:"){
+  navigator.serviceWorker.register("sw.js").catch(()=>{});
 }
 
 renderAll();

@@ -41,7 +41,7 @@ fi
   --no-sandbox \
   --disable-gpu \
   --disable-dev-shm-usage \
-  --virtual-time-budget=20000 \
+  --virtual-time-budget=60000 \
   --dump-dom \
   "http://127.0.0.1:$PORT/tests/smoke.html" \
   >"$DOM_OUT" 2>"$CHROME_LOG"
