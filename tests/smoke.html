@@ -1660,6 +1660,8 @@
         {typeId:"b3",name:"Small box",x:0,y:0,z:8,w:20,d:13,h:4}
       ]});
       result(w.document.getElementById("detailSubtitle").textContent.indexOf("1 stack · tallest level 3 · L1:1 / L2:1 / L3:1")>0,"capacity detail keeps the stack-structure explanation after opening");
+      var stackTexts=Array.prototype.filter.call(w.document.querySelectorAll("#detailViz svg text"),function(t){return /Small box/.test(t.textContent);}).map(function(t){return t.textContent;});
+      result(stackTexts.length===1&&/↑8/.test(stackTexts[0]),"the Top view names only the top box of a stack instead of printing three names on top of each other",JSON.stringify(stackTexts));
       api.openCapacityPacking("s1",{...ownedCapacitySubset,stackingEnabled:true});
       result(w.document.getElementById("detailSubtitle").textContent.indexOf("Owned-stock packing: 2 of 3 capacity.")===0,"owned capacity detail does not mislabel a stock-limited subset as the geometric maximum");
 
@@ -2072,7 +2074,7 @@
         v:1,n:"Shared drawer",u:"cm",g:"Best use of space",k:false,d:[60,40,20],z:[60,40,20],c:0,t:0,r:50,q:"usable floor",
         o:[[0,50,0,10,10,20]],
         i:[["a","Tray"],["b","Tin"]],
-        p:[["a",0,0,0,30,20,5,"Cutlery"],["a",0,20,0,30,20,5,""],["b",30,0,0,10,10,8,""]]
+        p:[["a",0,0,0,30,20,5,"Cutlery"],["a",0,20,0,30,20,5,""],["b",30,0,0,10,10,8,""],["b",30,0,8,10,10,8,"Spare tin"]]
       });
     }catch(e){result(false,"share link for the viewer test could not be built",e.message);}
     if(!shareLink){finish();return;}
@@ -2080,7 +2082,7 @@
         v:1,n:"Shared drawer",u:"cm",g:"Best use of space",k:false,d:[60,40,20],z:[60,40,20],c:0,t:0,r:50,q:"usable floor",
         o:[[0,50,0,10,10,20]],
         i:[["a","Tray"],["b","Tin"]],
-        p:[["a",0,0,0,30,20,5,"Cutlery"],["a",0,20,0,30,20,5,""],["b",30,0,0,10,10,8,""]]
+        p:[["a",0,0,0,30,20,5,"Cutlery"],["a",0,20,0,30,20,5,""],["b",30,0,0,10,10,8,""],["b",30,0,8,10,10,8,"Spare tin"]]
       };
     var shareFrame=document.createElement("iframe");
     shareFrame.addEventListener("load",function(){
@@ -2088,7 +2090,7 @@
         var sw=shareFrame.contentWindow,sdoc=sw.document,shareViz=sdoc.getElementById("shareViz");
         result(sdoc.getElementById("shareViewer").hidden===false&&sdoc.getElementById("shareTitle").textContent==="Shared drawer","the share viewer opens a valid shared-plan link");
         sdoc.querySelector('[data-share-view="iso"]').click();
-        result(shareViz.querySelectorAll("svg [data-box]").length===3&&shareViz.querySelectorAll("svg [data-obstacle]").length===1,"the share viewer's 3D tab draws every shared organizer and blocked zone as a solid",shareViz.querySelectorAll("svg [data-box]").length+" boxes");
+        result(shareViz.querySelectorAll("svg [data-box]").length===4&&shareViz.querySelectorAll("svg [data-obstacle]").length===1,"the share viewer's 3D tab draws every shared organizer and blocked zone as a solid",shareViz.querySelectorAll("svg [data-box]").length+" boxes");
         function sharedFrontX(){
           var node=Array.prototype.filter.call(shareViz.querySelectorAll("svg text"),function(t){return /^Front/.test(t.textContent);})[0];
           return node?Number(node.getAttribute("x")):NaN;
@@ -2101,6 +2103,8 @@
         result(shareViz.innerHTML===sharedResting,"the share viewer's Reset view returns its 3D camera to where it started");
         sdoc.querySelector('[data-share-view="top"]').click();
         result(sdoc.getElementById("shareReset3d").disabled===true&&shareViz.querySelectorAll("svg [data-box]").length===0,"the share viewer only offers Reset view on its 3D tab");
+        var sharedTopTexts=Array.prototype.map.call(shareViz.querySelectorAll("svg text"),function(t){return t.textContent;}).filter(function(t){return /tin/i.test(t);});
+        result(sharedTopTexts.length===1&&/Spare tin/.test(sharedTopTexts[0]),"the shared Top view names only the top box of a stack",JSON.stringify(sharedTopTexts));
       }catch(e){
         result(false,"share viewer harness exception",e.message);
       }

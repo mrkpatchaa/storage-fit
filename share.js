@@ -53,9 +53,12 @@ function svgTop(){
     const c=o.kind==="divider"?"#416b8e":"#b23c3c",opacity=o.kind==="divider"?".28":".12";
     return `<rect x="${g.ox+o.x*g.scale}" y="${g.oy+o.y*g.scale}" width="${o.w*g.scale}" height="${o.d*g.scale}" fill="${c}" fill-opacity="${opacity}" stroke="${c}" stroke-width="1.6" ${o.kind==="blocked"?'stroke-dasharray="5 4"':""}/>`;
   }).join("");
-  const boxes=placements().sort((a,b)=>a.z-b.z).map(p=>{
+  const all=placements();
+  // A name is drawn only when no higher box covers the middle of the footprint, so stacks show their top box.
+  const covered=p=>all.some(q=>q.z>p.z+1e-9&&p.x+p.w/2>=q.x-1e-9&&p.x+p.w/2<=q.x+q.w+1e-9&&p.y+p.d/2>=q.y-1e-9&&p.y+p.d/2<=q.y+q.d+1e-9);
+  const boxes=all.sort((a,b)=>a.z-b.z).map(p=>{
     const item=map.get(p.id),name=p.label||item.name,stack=p.z>1e-9?` ↑${fmt(p.z)}${payload.u}`:"";
-    return `<g><rect x="${g.ox+p.x*g.scale}" y="${g.oy+p.y*g.scale}" width="${p.w*g.scale}" height="${p.d*g.scale}" rx="3" fill="${item.color}" fill-opacity=".42" stroke="${item.color}" stroke-width="1.8"/><text x="${g.ox+(p.x+p.w/2)*g.scale}" y="${g.oy+(p.y+p.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#222">${esc(String(name).slice(0,18))}${esc(stack)}</text></g>`;
+    return `<g><rect x="${g.ox+p.x*g.scale}" y="${g.oy+p.y*g.scale}" width="${p.w*g.scale}" height="${p.d*g.scale}" rx="3" fill="${item.color}" fill-opacity=".42" stroke="${item.color}" stroke-width="1.8"/>${covered(p)?"":`<text x="${g.ox+(p.x+p.w/2)*g.scale}" y="${g.oy+(p.y+p.d/2)*g.scale}" text-anchor="middle" dominant-baseline="central" font-size="11" fill="#222">${esc(String(name).slice(0,18))}${esc(stack)}</text>`}</g>`;
   }).join("");
   return `<svg class="preview" viewBox="0 0 760 430" role="img" aria-label="Top view"><rect x="${g.ox}" y="${g.oy}" width="${W*g.scale}" height="${D*g.scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${physical}${boxes}</svg>`;
 }
