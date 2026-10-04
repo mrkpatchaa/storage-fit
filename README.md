@@ -26,6 +26,14 @@ Then open http://localhost:8080/.
 
 Using a local web server is preferable to opening index.html directly because browser storage and cross-origin behavior are more predictable.
 
+## Offline and install
+
+Storage Fit works without a connection once it has been opened online. A small service worker (`sw.js`) caches the planner, the share viewer, the 3D renderer, styles and icons. Online, every file still comes from the network first, so a new deploy is picked up on the next load, and each response refreshes the cache; offline, the cached copy is served and any other page falls back to the planner. Product imports and every other cross-origin request bypass it.
+
+With `manifest.webmanifest`, browsers that support it can install Storage Fit as a standalone app (Add to Home Screen on phones, Install app in Chrome and Edge). Planner data stays in the same browser storage, so installing does not move or copy it.
+
+Service workers need `https://` or `localhost`; opening `index.html` from the file system skips them. The worker is only registered by top-level pages, so the smoke-test page's frames never install it.
+
 ## Project structure
 
     .
@@ -33,11 +41,14 @@ Using a local web server is preferable to opening index.html directly because br
     ├── styles.css        Application styles
     ├── app.js            Planner, optimizer, import and persistence logic
     ├── view3d.js         3D renderer shared by the planner and the share viewer
+    ├── sw.js             Offline cache (service worker)
+    ├── manifest.webmanifest, icon.svg, icon-192.png, icon-512.png   Install metadata and icons
     ├── share.html        Read-only shared-plan viewer
     ├── share.js          Shared-plan viewer logic
     ├── tests/
     │   ├── smoke.html             Browser smoke tests
-    │   └── run-browser-smoke.sh   Headless-Chrome runner used by CI
+    │   ├── run-browser-smoke.sh   Headless-Chrome runner used by CI
+    │   └── service-worker-test.js Offline-cache tests (plain Node, no dependencies)
     └── README.md
 
 The project intentionally remains plain HTML, CSS and JavaScript with no framework and no bundler.
@@ -47,6 +58,8 @@ The project intentionally remains plain HTML, CSS and JavaScript with no framewo
 Start the local server and open:
 
 http://localhost:8080/tests/smoke.html
+
+CI runs the same page headlessly with `bash tests/run-browser-smoke.sh` (set `CHROME_BIN` when Chrome is not on `PATH`, for example `CHROME_BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"` on macOS), and runs the offline-cache tests with `node tests/service-worker-test.js`.
 
 The smoke suite loads the real application through a test-only API and checks IKEA measurement parsing, article-number extraction, unit conversion, URL sanitization, backup validation, 3D collision detection, and full-footprint stack support. It snapshots and restores localStorage so the test page does not replace your planner data.
 

@@ -129,4 +129,7 @@ if(result.error){
   $("shareReset3d").addEventListener("click",()=>{camera=StorageFit3D.defaultCamera();renderViz()});
   window.addEventListener("resize",()=>{if(view==="iso"&&!drag)renderViz()});
 }
+if("serviceWorker" in navigator&&window.top===window&&location.protocol!=="file:"){
+  navigator.serviceWorker.register("sw.js").catch(()=>{});
+}
 })();
