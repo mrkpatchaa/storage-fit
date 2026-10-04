@@ -74,7 +74,7 @@ for(const b of state.boxes){
   b.frontPriority = !!b.frontPriority;
   b.canBeStacked = !!b.canBeStacked;
   b.canSupportStack = !!b.canSupportStack;
-  b.maxStackLevel = Number.isFinite(Number(b.maxStackLevel)) ? Math.max(1,Math.min(9,Math.floor(Number(b.maxStackLevel)))) : null;
+  b.maxStackLevel = normalizeStackLevel(b.maxStackLevel,b.canBeStacked);
 }
 for(const s of state.storages){
   if(!Array.isArray(s.obstacles)) s.obstacles=[];
@@ -107,6 +107,13 @@ for(const p of state.savedPlans){
   p.validatedAt=p.validatedAt||p.savedAt||new Date().toISOString();
 }
 
+// Blank means "no limit". Number(null) is 0, so null must be handled before the numeric clamp.
+// A level only applies to items that can be stacked at all.
+function normalizeStackLevel(value,canBeStacked=true){
+  if(!canBeStacked||value===null||value===undefined||value==="")return null;
+  const level=Number(value);
+  return Number.isFinite(level)?Math.max(1,Math.min(9,Math.floor(level))):null;
+}
 function defaults(){
   return {
     unit:"cm",clearance:0.5,fitTolerance:0,editSnapStep:0.5,editShowGrid:true,uprightOnly:true,enableStacking:false,clearanceEnabled:false,optimizeGoal:"fill",savedPlans:[],chosenPlanIds:{},shoppingBought:{},installedPlanIds:{},installOrder:[],ownedDistributionSessions:{},
@@ -3208,11 +3215,17 @@ function loadBoxEditor(){
   syncStackRuleControls();
   renderBoxStockSummary();
 }
+const STACK_LEVEL_HINT="Optional. 1 = floor only, 2 = one level above floor.";
 function syncStackRuleControls(){
   const enabled=$("boxCanBeStacked").checked;
   $("boxMaxStackLevel").disabled=!enabled;
+  // "Can sit on another item" with level 1 never stacks; say so instead of failing silently.
+  const floorOnly=enabled&&Number($("boxMaxStackLevel").value)===1;
+  $("boxMaxStackHint").textContent=floorOnly?"Level 1 keeps this item on the floor, so it will never be stacked. Clear the field to allow stacking.":STACK_LEVEL_HINT;
+  $("boxMaxStackHint").classList.toggle("warn",floorOnly);
 }
 $("boxCanBeStacked").addEventListener("change",syncStackRuleControls);
+$("boxMaxStackLevel").addEventListener("input",syncStackRuleControls);
 function itemRuleText(b){
   const tags=[];
   if(b?.floorRotationLocked)tags.push("rotation locked");
@@ -4397,7 +4410,7 @@ function itemPlanningSnapshot(b){
     frontPriority:!!b.frontPriority,
     canBeStacked:!!b.canBeStacked,
     canSupportStack:!!b.canSupportStack,
-    maxStackLevel:b.maxStackLevel==null?null:Math.max(1,Math.min(9,Math.floor(Number(b.maxStackLevel)||1)))
+    maxStackLevel:normalizeStackLevel(b.maxStackLevel,!!b.canBeStacked)
   };
 }
 function itemPlanningSignature(item){
@@ -7672,6 +7685,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     orientations,
     placementStackLevel,
     maxStackLevelAllows,
+    normalizeStackLevel,
     accessPenalty,
     compareAccess,
     defaultEditSnapStep,

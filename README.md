@@ -421,6 +421,8 @@ An optional **Highest stack level** limits how high that item itself may be plac
 - Level 3 = up to two supporting levels below it.
 - Blank = no item-specific level limit.
 
+A blank limit stays blank across reloads, and the limit only applies to items that can sit on another item: unticking **Can sit on another item** clears it, and a leftover value on such an item is not treated as a handling-rule change for saved plans. Level 1 on a stackable item means it never leaves the floor, so the item editor says so instead of letting stacking fail silently.
+
 This is a hard placement rule and is enforced by both optimizer search and manual editing. It works in addition to **Can sit on another item** and the global **Enable stacking** switch.
 
 ### Prefer near the front

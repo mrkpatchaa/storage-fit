@@ -31,6 +31,20 @@
     try{
       var api=w.StorageFitTest;
       result(!!api,"smoke-test API is exposed only for the test page");
+      result(w.document.getElementById("boxMaxStackLevel").value==="","loading the planner keeps an item's blank stack-level limit blank instead of turning it into floor only",JSON.stringify(w.document.getElementById("boxMaxStackLevel").value));
+      result(api.normalizeStackLevel(null)===null&&api.normalizeStackLevel(undefined)===null&&api.normalizeStackLevel("")===null,"a missing or blank stack-level limit means no limit");
+      result(api.normalizeStackLevel(3)===3&&api.normalizeStackLevel("2")===2&&api.normalizeStackLevel(2.9)===2&&api.normalizeStackLevel(0)===1&&api.normalizeStackLevel(12)===9&&api.normalizeStackLevel("tall")===null,"a stored stack-level limit is read as a whole level from 1 to 9");
+      result(api.normalizeStackLevel(1,false)===null&&api.normalizeStackLevel(4,false)===null&&api.normalizeStackLevel(1,true)===1,"an item that cannot be stacked carries no stack-level limit, while a stackable item keeps its saved one");
+      var plainRuleItem={id:"rule",name:"Rule item",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:false,canSupportStack:false,maxStackLevel:null};
+      result(api.itemPlanningSignature(Object.assign({},plainRuleItem,{maxStackLevel:1}))===api.itemPlanningSignature(plainRuleItem),"a leftover stack-level limit on an item that cannot be stacked is not a handling-rule change for saved plans");
+      result(api.itemPlanningSignature(Object.assign({},plainRuleItem,{canBeStacked:true,maxStackLevel:1}))!==api.itemPlanningSignature(Object.assign({},plainRuleItem,{canBeStacked:true})),"changing the stack-level limit of a stackable item is still a handling-rule change for saved plans");
+      var stackableToggle=w.document.getElementById("boxCanBeStacked"),stackLevelInput=w.document.getElementById("boxMaxStackLevel"),stackLevelHint=w.document.getElementById("boxMaxStackHint");
+      stackableToggle.click();
+      stackLevelInput.value="1";stackLevelInput.dispatchEvent(new w.Event("input",{bubbles:true}));
+      var floorOnlyHint=stackLevelHint.textContent,floorOnlyWarned=stackLevelHint.classList.contains("warn");
+      stackLevelInput.value="";stackLevelInput.dispatchEvent(new w.Event("input",{bubbles:true}));
+      result(floorOnlyWarned&&/never be stacked/i.test(floorOnlyHint)&&!stackLevelHint.classList.contains("warn"),"the item editor warns that level 1 on a stackable item keeps it on the floor, and stops warning once the limit is cleared",floorOnlyHint);
+      stackableToggle.click();
       result(same(api.parseDimensionString("38 x 76 x 30 cm"),[38,76,30]),"compact dimensions");
       result(same(api.parseDimensionString("38 cm x 760 mm x 0.3 m"),[38,76,30]),"compact dimensions normalize a unit declared on each value");
       result(same(api.parseDimensionString("38 cm by 760 mm by 0.3 m"),[38,76,30]),"compact dimensions accept retailer-style by separators with mixed units");
