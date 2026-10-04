@@ -41,6 +41,22 @@
       var legacyDistribution={boxes:[{id:"b1"}],ownedDistributionSessions:{b1:{itemId:"b1",fingerprint:distributionFingerprint(1,1),requested:2,allocations:[{storageId:"s1",assigned:2,result:{layout:[{},{}]}}]}}};
       api.normalizeOwnedDistributionSessions(legacyDistribution);
       result(legacyDistribution.ownedDistributionSessions.b1.fingerprint===distributionFingerprint(null,1),"a distribution session saved before blank stack limits were fixed keeps matching its unchanged plans, while a stackable item's real limit is kept");
+      function stackRules(level,stackable){return {w:30,d:25,h:12,uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:stackable,canSupportStack:true,maxStackLevel:level};}
+      function legacyFingerprint(levelS,levelT){
+        return JSON.stringify(["s",JSON.stringify([30,25,12,true,false,false,true,true,levelS]),2,[false,0,0,true,true],[["st1","structure",["p1","layout","null",true,"current",[["s",JSON.stringify([30,25,12,true,false,false,true,true,levelS])],["t",JSON.stringify([30,25,12,true,false,false,true,true,levelT])]]]]]]);
+      }
+      var stackMigration={
+        boxes:[Object.assign({id:"s",name:"Stackable"},stackRules(1,true)),Object.assign({id:"n",name:"Fixed"},stackRules(null,false)),Object.assign({id:"t",name:"Two high"},stackRules(2,true))],
+        savedPlans:[{id:"p1",itemSnapshots:{s:Object.assign({id:"s",name:"Stackable"},stackRules(1,true)),t:Object.assign({id:"t",name:"Two high"},stackRules(2,true))}}],
+        ownedDistributionSessions:{s:{itemId:"s",fingerprint:legacyFingerprint(1,2)}}
+      };
+      api.clearLegacyStackLimits(stackMigration);
+      result(stackMigration.boxes[0].maxStackLevel===null&&stackMigration.boxes[2].maxStackLevel===2,"a stack limit of 1 left on a stackable item by older versions is cleared, while other limits stay");
+      result(api.itemPlanningSignature(stackMigration.savedPlans[0].itemSnapshots.s)===api.itemPlanningSignature(stackMigration.boxes[0])&&stackMigration.savedPlans[0].itemSnapshots.t.maxStackLevel===2,"saved plans that use a cleared item keep matching it, so they do not turn to Review");
+      result(stackMigration.ownedDistributionSessions.s.fingerprint===legacyFingerprint(null,2),"distribution work that uses a cleared item stays current");
+      stackMigration.boxes[0].maxStackLevel=1;
+      api.clearLegacyStackLimits(stackMigration);
+      result(stackMigration.legacyStackLimitsCleared===true&&stackMigration.boxes[0].maxStackLevel===1,"the clean-up runs once, so a limit of 1 chosen afterwards is kept");
       result(api.normalizeStackLevel(1,false)===null&&api.normalizeStackLevel(4,false)===null&&api.normalizeStackLevel(1,true)===1,"an item that cannot be stacked carries no stack-level limit, while a stackable item keeps its saved one");
       var plainRuleItem={id:"rule",name:"Rule item",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:false,canSupportStack:false,maxStackLevel:null};
       result(api.itemPlanningSignature(Object.assign({},plainRuleItem,{maxStackLevel:1}))===api.itemPlanningSignature(plainRuleItem),"a leftover stack-level limit on an item that cannot be stacked is not a handling-rule change for saved plans");

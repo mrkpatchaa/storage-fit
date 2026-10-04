@@ -83,6 +83,7 @@ for(const b of state.boxes){
   b.canSupportStack = !!b.canSupportStack;
   b.maxStackLevel = normalizeStackLevel(b.maxStackLevel,b.canBeStacked);
 }
+clearLegacyStackLimits(state);
 for(const s of state.storages){
   if(!Array.isArray(s.obstacles)) s.obstacles=[];
   if(!Array.isArray(s.dividers)) s.dividers=[];
@@ -202,25 +203,51 @@ function normalizeOwnedDistributionSessions(target){
 // Fingerprints embed item planning signatures. Older versions stored a stack-level
 // limit of 1 for items that cannot be stacked; normalize it the way signatures are
 // computed now, so unchanged distribution work does not turn stale after an upgrade.
-function canonicalDistributionFingerprint(fingerprint){
-  const signature=value=>{
+// Rewrites the stack limit inside every item signature of a fingerprint: the
+// distributed item's own and those of the items in each chosen plan.
+function mapFingerprintStackLevels(fingerprint,level){
+  const signature=(id,value)=>{
     try{
       const rules=JSON.parse(value);
       if(!Array.isArray(rules)||rules.length!==9)return value;
-      rules[8]=normalizeStackLevel(rules[8],!!rules[6]);
+      rules[8]=level(id,rules[8],!!rules[6]);
       return JSON.stringify(rules);
     }catch(e){return value}
   };
   try{
     const parts=JSON.parse(fingerprint);
     if(!Array.isArray(parts)||parts.length!==5)return fingerprint;
-    parts[1]=signature(parts[1]);
+    parts[1]=signature(parts[0],parts[1]);
     for(const storage of Array.isArray(parts[4])?parts[4]:[]){
       const plan=storage?.[2];
-      if(Array.isArray(plan)&&Array.isArray(plan[5]))plan[5]=plan[5].map(rule=>Array.isArray(rule)?[rule[0],signature(rule[1])]:rule);
+      if(Array.isArray(plan)&&Array.isArray(plan[5]))plan[5]=plan[5].map(rule=>Array.isArray(rule)?[rule[0],signature(rule[0],rule[1])]:rule);
     }
     return JSON.stringify(parts);
   }catch(e){return fingerprint}
+}
+function canonicalDistributionFingerprint(fingerprint){
+  return mapFingerprintStackLevels(fingerprint,(id,value,canBeStacked)=>normalizeStackLevel(value,canBeStacked));
+}
+// Versions before the blank-limit fix saved a highest stack level of 1 for every item
+// after a reload. On an item that may sit on another item, "floor only" contradicts
+// its own rule, so those limits are cleared once, together with the copies kept in
+// saved plans and distribution work. A limit of 1 chosen afterwards is kept.
+function clearLegacyStackLimits(target){
+  if(target.legacyStackLimitsCleared)return [];
+  const cleared=new Set();
+  for(const b of target.boxes||[]){
+    if(b&&b.canBeStacked&&Number(b.maxStackLevel)===1){b.maxStackLevel=null;cleared.add(b.id)}
+  }
+  for(const plan of target.savedPlans||[]){
+    for(const [id,snap] of Object.entries(plan?.itemSnapshots||{})){
+      if(cleared.has(id)&&snap&&Number(snap.maxStackLevel)===1)snap.maxStackLevel=null;
+    }
+  }
+  for(const session of Object.values(target.ownedDistributionSessions||{})){
+    if(session&&typeof session.fingerprint==="string")session.fingerprint=mapFingerprintStackLevels(session.fingerprint,(id,value)=>cleared.has(id)&&Number(value)===1?null:value);
+  }
+  target.legacyStackLimitsCleared=true;
+  return [...cleared];
 }
 function normalizeInstallState(target){
   target.installedPlanIds=target.installedPlanIds&&typeof target.installedPlanIds==="object"&&!Array.isArray(target.installedPlanIds)?target.installedPlanIds:{};
@@ -8309,6 +8336,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     placementStackLevel,
     maxStackLevelAllows,
     normalizeStackLevel,
+    clearLegacyStackLimits,
     openBinStl,
     parseSpokenDimensions,
     spokenCommand,

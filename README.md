@@ -479,6 +479,8 @@ An optional **Highest stack level** limits how high that item itself may be plac
 
 A blank limit stays blank across reloads, and the limit only applies to items that can sit on another item: unticking **Can sit on another item** clears it, and a leftover value on such an item is not treated as a handling-rule change for saved plans. Level 1 on a stackable item means it never leaves the floor, so the item editor says so instead of letting stacking fail silently.
 
+Older versions saved a limit of 1 for every item after a reload, which quietly kept stackable items on the floor. The first time this version opens a project (or restores an older backup), it clears a limit of 1 from every item that may sit on another item, together with the copies kept in saved plans and distribution work, so those plans stay Current. It does this only once: a limit of 1 chosen afterwards is kept.
+
 This is a hard placement rule and is enforced by both optimizer search and manual editing. It works in addition to **Can sit on another item** and the global **Enable stacking** switch.
 
 ### Prefer near the front
