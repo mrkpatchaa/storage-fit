@@ -15,6 +15,10 @@ Storage Fit is a dependency-free browser tool for planning boxes and organizers 
 - Finds every storage space where a selected organizer can physically fit, using the same clearance, orientation, obstacle and divider rules as the planner.
 - Saves plans, builds inventory-aware shopping lists, prints/exports layouts, and backs up/restores all browser data.
 - Turns saved plans into a shortlist: rename them, add notes, mark a chosen plan, and compare up to three side-by-side.
+- Measures hands-free: say each storage's width, depth and height, and it is filled in, verified and the next one opened.
+- Prints drawer labels whose QR code opens that storage's layout in 3D on a phone.
+- Saves or shares a picture of a layout, and shares compact read-only links.
+- Works offline once opened, installs as an app, and follows the system's light or dark theme.
 
 ## Run locally
 
