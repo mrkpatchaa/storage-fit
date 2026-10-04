@@ -1641,6 +1641,25 @@
       result(w.document.getElementById("detailSubtitle").textContent.indexOf("1 stack · tallest level 3 · L1:1 / L2:1 / L3:1")>0,"capacity detail keeps the stack-structure explanation after opening");
       api.openCapacityPacking("s1",{...ownedCapacitySubset,stackingEnabled:true});
       result(w.document.getElementById("detailSubtitle").textContent.indexOf("Owned-stock packing: 2 of 3 capacity.")===0,"owned capacity detail does not mislabel a stock-limited subset as the geometric maximum");
+
+      w.document.getElementById("closeDetailModal").click();
+      // The app iframe is normally 1px wide, so layout is measured at explicit realistic widths.
+      function sidebarOverflow(width){
+        frame.style.width=width+"px";frame.style.height="900px";
+        var side=w.document.querySelector(".sidebar"),root=w.document.documentElement;
+        // Content may neither leave the sidebar nor widen the page past the viewport.
+        var limit=Math.min(side.getBoundingClientRect().right,root.clientWidth),worst=root.scrollWidth-root.clientWidth;
+        Array.prototype.forEach.call(side.querySelectorAll("*"),function(el){
+          var r=el.getBoundingClientRect();
+          if(r.width>0)worst=Math.max(worst,r.right-limit);
+        });
+        frame.style.width="";frame.style.height="";
+        return Math.round(worst);
+      }
+      var desktopOverflow=sidebarOverflow(1280),tabletOverflow=sidebarOverflow(800),phoneOverflow=sidebarOverflow(400);
+      result(desktopOverflow<=0,"desktop sidebar content stays inside its column instead of sliding under the workspace",desktopOverflow>0?desktopOverflow+"px past the sidebar":"");
+      result(tabletOverflow<=0,"two-column tablet sidebar content stays inside the sidebar",tabletOverflow>0?tabletOverflow+"px past the sidebar":"");
+      result(phoneOverflow<=0,"phone-width sidebar content does not force horizontal scrolling",phoneOverflow>0?phoneOverflow+"px past the sidebar":"");
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{
