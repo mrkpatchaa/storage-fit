@@ -7662,14 +7662,22 @@ $("exportPlanBtn").addEventListener("click",()=>{
   setTimeout(()=>{$("exportPlanBtn").textContent=old},1200);
 });
 $("sharePlanBtn").addEventListener("click",async()=>{
-  let url;
-  try{url=await currentShareUrl()}catch(e){alert(e.message||"Could not create a share link.");return}
-  if(!url)return;
-  if(url.length>SHARE_LINK_LIMIT){
-    alert("This layout is too large for a reliable share link. Use Export to share the full JSON plan instead.");
-    return;
+  const btn=$("sharePlanBtn"),old=btn.textContent;
+  const link=currentShareUrl().then(url=>{
+    if(!url)throw new Error("Open a layout first.");
+    if(url.length>SHARE_LINK_LIMIT)throw new RangeError("This layout is too large for a reliable share link. Use Export to share the full JSON plan instead.");
+    return url;
+  });
+  // Safari only accepts a clipboard write started inside the click, and the link is built
+  // asynchronously, so start the write now with an item that waits for the link.
+  let copying=null;
+  if(typeof ClipboardItem==="function"&&typeof navigator.clipboard?.write==="function"){
+    try{copying=navigator.clipboard.write([new ClipboardItem({"text/plain":link.then(url=>new Blob([url],{type:"text/plain"}))})]).then(()=>true,()=>false)}
+    catch(e){copying=null}
   }
-  const ok=await copyText(url),btn=$("sharePlanBtn"),old=btn.textContent;
+  let url;
+  try{url=await link}catch(e){alert(e.message||"Could not create a share link.");return}
+  const ok=(copying&&await copying)||await copyText(url);
   btn.textContent=ok?"Copied ✓":"Link ready";
   if(!ok)prompt("Copy this read-only share link:",url);
   setTimeout(()=>{btn.textContent=old},1400);

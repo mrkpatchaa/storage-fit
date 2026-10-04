@@ -2255,8 +2255,43 @@
       });
     }
 
+    // Share link must start its clipboard write inside the click (Safari refuses one started after an await).
+    function copyLinkPhase(){
+      doc.getElementById("generateBtn").click();
+      doc.querySelector("#gallery .layoutcard").click();
+      var writes=[],inClick=false;
+      function FakeItem(data){this.data=data;}
+      var realItem=w.ClipboardItem,realPrompt=w.prompt,realAlert=w.alert,dialogs=[];
+      w.ClipboardItem=FakeItem;
+      // Native dialogs would block the headless run forever.
+      w.prompt=function(message){dialogs.push(message);return null;};
+      w.alert=function(message){dialogs.push(message);};
+      Object.defineProperty(w.navigator,"clipboard",{value:{
+        write:function(items){writes.push({items:items,inClick:inClick});return Promise.resolve();},
+        writeText:function(){return Promise.reject(new Error("writeText should not be needed"));}
+      },configurable:true});
+      inClick=true;doc.getElementById("sharePlanBtn").click();inClick=false;
+      function restore(){w.ClipboardItem=realItem;w.prompt=realPrompt;w.alert=realAlert;delete w.navigator.clipboard;}
+      // Keep the stubs until the click handler has finished, so no real dialog can open.
+      var button=doc.getElementById("sharePlanBtn"),startLabel=button.textContent;
+      return new Promise(function(resolve){
+        var waited=0,timer=setInterval(function(){
+          waited+=20;
+          if(button.textContent!==startLabel||waited>=3000){clearInterval(timer);resolve();}
+        },20);
+      }).then(function(){
+        if(!writes.length)return {text:"",dialogs:dialogs.slice()};
+        return Promise.resolve(writes[0].items[0].data["text/plain"]).then(function(blob){return blob.text();}).then(function(text){return {text:text,dialogs:dialogs.slice()};});
+      }).then(function(outcome){
+        restore();
+        result(writes.length===1&&writes[0].inClick&&/share\.html#z=/.test(outcome.text)&&outcome.dialogs.length===0,"Share link starts its clipboard write inside the click, then fills it with the compressed link",writes.length+" writes, dialogs: "+outcome.dialogs.length+" "+outcome.text.slice(0,40));
+        doc.getElementById("closeDetailModal").click();
+      },function(e){restore();throw e;});
+    }
+
     Promise.resolve().then(drawerLabelPhase).catch(function(e){result(false,"drawer label harness exception",e.message);})
       .then(picturePhase).catch(function(e){result(false,"picture harness exception",e.message);})
+      .then(copyLinkPhase).catch(function(e){result(false,"copy link harness exception",e.message);})
       .then(shareViewerPhase);
   },{once:true});
 })();
