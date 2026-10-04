@@ -2019,6 +2019,11 @@
       var heardValues=[doc.getElementById("sw").value,doc.getElementById("sd").value,doc.getElementById("sh").value].map(Number);
       var stillPending=api.measurementProgressData().pending.some(function(row){return row.storageId===queue[0].storageId;});
       result(closeTo(heardValues[0],67*unitFactor)&&closeTo(heardValues[1],26*unitFactor)&&closeTo(heardValues[2],13*unitFactor)&&stillPending,"a spoken measurement fills the storage editor but is not saved until it is confirmed",JSON.stringify(heardValues));
+      Object.defineProperty(w,"speechSynthesis",{value:{speaking:true,speak:function(){},cancel:function(){}},configurable:true});
+      hear("ninety by ninety by ninety centimetres");
+      var whileTalking=[doc.getElementById("sw").value,doc.getElementById("sd").value,doc.getElementById("sh").value].map(Number);
+      delete w.speechSynthesis;
+      result(closeTo(whileTalking[0],67*unitFactor)&&closeTo(whileTalking[2],13*unitFactor),"speech heard while the planner is still talking is ignored, so it never acts on its own read-back",JSON.stringify(whileTalking));
       hear("save");
       var savedRow=api.measurementProgressData().rows.filter(function(row){return row.storageId===queue[0].storageId;})[0];
       result(savedRow.status==="current"&&closeTo(savedRow.width,67*unitFactor)&&closeTo(savedRow.depth,26*unitFactor)&&closeTo(savedRow.height,13*unitFactor),"saying save stores the heard dimensions and marks the storage measured",JSON.stringify(savedRow));

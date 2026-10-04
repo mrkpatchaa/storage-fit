@@ -2772,6 +2772,8 @@ function startVoiceMeasuring(){
   recognition.lang=navigator.language||"en-US";recognition.continuous=true;recognition.interimResults=false;recognition.maxAlternatives=3;
   voiceSession={recognition,storageId:"",candidate:null,heard:"",saved:0,skipped:new Set(),speaking:false,speechToken:0};
   recognition.onresult=e=>{
+    // Never act on speech heard while a prompt is still being read aloud: it may be the read-back itself.
+    if(window.speechSynthesis?.speaking)return;
     for(let i=e.resultIndex;i<e.results.length;i++){
       const result=e.results[i];if(!result.isFinal)continue;
       const alternatives=Array.from(result,a=>a.transcript);
