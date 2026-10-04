@@ -1928,6 +1928,10 @@
       result(withBin.length===3&&same([binPlacement.x,binPlacement.y,binPlacement.z,binPlacement.w,binPlacement.d,binPlacement.h],[60,0,0,7,26,12]),"Custom bin fills the leftover strip with a made-to-measure organizer as tall as its neighbours",JSON.stringify(binPlacement));
       result(doc.querySelectorAll("#boxList .listitem").length===itemsBeforeBin+1&&doc.getElementById("boxList").textContent.indexOf("Custom bin 7 × 26 × 12")>=0&&doc.getElementById("boxName").value==="Custom bin 7 × 26 × 12","the custom bin joins the item library and opens in the item editor, ready for its print file");
       result(doc.getElementById("downloadBinStl").disabled===false,"the item editor offers a 3D-print file for the selected item");
+      doc.getElementById("undoEdit").click();
+      var stripAgain=Array.prototype.filter.call(doc.querySelectorAll("#gapList .gapcard"),function(card){return card.textContent.indexOf("7 × 26")>=0;})[0];
+      stripAgain.querySelector("[data-gap-custom]").click();
+      result(api.currentLayouts()[0].length===3&&doc.querySelectorAll("#boxList .listitem").length===itemsBeforeBin+1,"undoing a custom bin and adding it again reuses the bin already in the library instead of duplicating it",doc.querySelectorAll("#boxList .listitem").length+" items");
       doc.getElementById("closeDetailModal").click();
 
       // Speech recognisers return words or digits, so both must reach the same measurement.

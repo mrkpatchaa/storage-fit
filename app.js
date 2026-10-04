@@ -6904,10 +6904,13 @@ function renderGapList(W,D,H){
     if(!g||!layout)return;
     const dims=customBinDimensions(g,layout,H,Math.max(0,state.fitTolerance||0),round6(10*unitScale("cm",state.unit)));
     if(!(dims.h>0)){setEditStatus("There is no usable height left for a custom bin.",true);return}
-    const item={id:uid("b"),name:`Custom bin ${fmt(dims.w)} × ${fmt(dims.d)} × ${fmt(dims.h)}`,...dims,price:0,currency:"MAD",ownedQty:0,sku:"",url:"",image:"",retailer:"",uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:false,canSupportStack:false,maxStackLevel:null};
-    state.boxes.push(item);state.selectedTypes[item.id]=false;state.itemLimits[item.id]=null;
+    const same=b=>/^Custom bin\b/.test(b.name||"")&&[["w",dims.w],["d",dims.d],["h",dims.h]].every(([k,v])=>Math.abs((Number(b[k])||0)-v)<1e-6);
+    const existing=state.boxes.find(same);
+    const item=existing||{id:uid("b"),name:`Custom bin ${fmt(dims.w)} × ${fmt(dims.d)} × ${fmt(dims.h)}`,...dims,price:0,currency:"MAD",ownedQty:0,sku:"",url:"",image:"",retailer:"",uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:false,canSupportStack:false,maxStackLevel:null};
+    if(!existing){state.boxes.push(item);state.selectedTypes[item.id]=false;state.itemLimits[item.id]=null}
     if(!addItemToGap(g,item,W,D,H)){
-      state.boxes.pop();delete state.selectedTypes[item.id];delete state.itemLimits[item.id];return;
+      if(!existing){state.boxes.pop();delete state.selectedTypes[item.id];delete state.itemLimits[item.id]}
+      return;
     }
     editingBox=item.id;
     localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
