@@ -35,6 +35,12 @@ jobs:
           PY
           node --check /tmp/storage-fit-smoke.js
 
+      - name: Check QR encoder syntax
+        run: node --check qr.js
+
+      - name: Run QR encoder tests
+        run: node tests/qr-test.js
+
       - name: Check service worker syntax
         run: node --check sw.js
 
@@ -66,6 +72,7 @@ jobs:
           assert 'src="view3d.js"' in html, "index.html must load view3d.js"
           assert 'src="view3d.js"' in share, "share.html must load view3d.js"
           assert 'rel="manifest"' in html, "index.html must link the web app manifest"
+          assert 'src="qr.js"' in html, "index.html must load the QR encoder"
           readme = Path("README.md").read_text()
           assert readme.startswith("# Storage Fit\n"), "README must start with the project title"
           assert readme.count("\n# Storage Fit\n") == 0, "README contains a duplicated project title"

@@ -82,7 +82,7 @@ h1{font-size:clamp(30px,5vw,48px);line-height:1;letter-spacing:-.045em;margin:0}
   #printSheet .labelpurpose{font-size:22px;line-height:1.05;font-weight:900;letter-spacing:-.02em;margin-bottom:3mm}
   #printSheet .labelitem{font-size:12px;font-weight:750;margin-bottom:2mm}
   #printSheet .labelmeta{font-size:10px;color:#555;line-height:1.4}
-  #printSheet .labelstorage{font-size:10px;color:#777;margin-top:3mm;padding-top:2mm;border-top:1px solid #ddd}
+  #printSheet .drawerlabelgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6mm}#printSheet .drawerlabel{display:grid;grid-template-columns:42mm minmax(0,1fr);gap:5mm;align-items:center;border:1.5px solid #222;border-radius:3mm;padding:5mm;break-inside:avoid;page-break-inside:avoid}#printSheet .drawerlabelqr svg{width:42mm;height:42mm;display:block}#printSheet .drawerlabelnoqr{font-size:10px;color:#555;line-height:1.35}#printSheet .drawerlabelpath{font-size:15px;font-weight:900;line-height:1.15;letter-spacing:-.01em;overflow-wrap:anywhere}#printSheet .drawerlabelplan{font-size:10px;color:#666;margin:1mm 0 2mm}#printSheet .drawerlabel ul{margin:0;padding-left:4mm;font-size:11px;line-height:1.35}#printSheet .drawerlabelhint{font-size:9px;color:#777;margin-top:2mm}#printSheet .labelstorage{font-size:10px;color:#777;margin-top:3mm;padding-top:2mm;border-top:1px solid #ddd}
   #printSheet .projectchecksummary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:7mm 0}
   #printSheet .projectchecksummary div{border:1px solid #ccc;border-radius:8px;padding:8px}
   #printSheet .projectchecksummary strong{display:block;font-size:16px}

@@ -41,6 +41,7 @@ Service workers need `https://` or `localhost`; opening `index.html` from the fi
     ├── styles.css        Application styles
     ├── app.js            Planner, optimizer, import and persistence logic
     ├── view3d.js         3D renderer shared by the planner and the share viewer
+    ├── qr.js             Dependency-free QR code encoder for drawer labels
     ├── sw.js             Offline cache (service worker)
     ├── manifest.webmanifest, icon.svg, icon-192.png, icon-512.png   Install metadata and icons
     ├── share.html        Read-only shared-plan viewer
@@ -48,7 +49,8 @@ Service workers need `https://` or `localhost`; opening `index.html` from the fi
     ├── tests/
     │   ├── smoke.html             Browser smoke tests
     │   ├── run-browser-smoke.sh   Headless-Chrome runner used by CI
-    │   └── service-worker-test.js Offline-cache tests (plain Node, no dependencies)
+    │   ├── service-worker-test.js Offline-cache tests (plain Node, no dependencies)
+    │   └── qr-test.js             QR encoder tests against an independent encoder's output
     └── README.md
 
 The project intentionally remains plain HTML, CSS and JavaScript with no framework and no bundler.
@@ -59,7 +61,7 @@ Start the local server and open:
 
 http://localhost:8080/tests/smoke.html
 
-CI runs the same page headlessly with `bash tests/run-browser-smoke.sh` (set `CHROME_BIN` when Chrome is not on `PATH`, for example `CHROME_BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"` on macOS), and runs the offline-cache tests with `node tests/service-worker-test.js`.
+CI runs the same page headlessly with `bash tests/run-browser-smoke.sh` (set `CHROME_BIN` when Chrome is not on `PATH`, for example `CHROME_BIN="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"` on macOS), and runs the offline-cache and QR tests with `node tests/service-worker-test.js` and `node tests/qr-test.js`.
 
 The smoke suite loads the real application through a test-only API and checks IKEA measurement parsing, article-number extraction, unit conversion, URL sanitization, backup validation, 3D collision detection, and full-footprint stack support. It snapshots and restores localStorage so the test page does not replace your planner data.
 
@@ -132,6 +134,19 @@ Smart Import is review-first:
 Duplicate matching prefers normalized SKU/article numbers and falls back to canonical product URLs with tracking parameters, URL fragments, and trailing slashes removed. The item library can also be searched by name, SKU, or retailer.
 
 Retailer pages and cross-origin policies can change, so automatic import remains best-effort. The app never adds an imported item until you explicitly confirm it.
+
+## Drawer QR labels
+
+Once a storage space has a chosen plan, its contents can be found again without opening the planner: stick a label on the drawer and scan it.
+
+- **Install queue → Print drawer labels** prints one label for every storage space with a chosen plan, in Room → Furniture → Storage order.
+- **Selected layout → Drawer label** prints a label for the layout that is open.
+
+Each label shows the Room → Furniture → Storage path, the plan name, the placement purposes (or the organizer mix when nothing is labelled), and a QR code. Scanning it with a phone camera opens the read-only share viewer for that exact layout, titled with the storage path, in 3D. The link is the same self-contained share link as **Share link**: the plan travels inside the URL fragment and nothing is uploaded. Because the share viewer is cached for offline use, a phone that has opened Storage Fit before can show the layout even without a connection.
+
+QR codes use error-correction level M, which tolerates scuffed stickers, and fall back to level L for long plans when that gives a smaller code. A typical drawer plan fits in a version-15 to version-25 code, which scans well printed about 4 cm wide. A plan whose link is too long for any QR code gets a note to use Export instead.
+
+The encoder (`qr.js`) is written from the QR Code specification with no dependencies. Its tests compare whole symbols, across sizes up to version 40, with the output of an independent encoder.
 
 ## Paste manual dimensions
 

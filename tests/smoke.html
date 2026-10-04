@@ -1942,6 +1942,30 @@
       result(api.currentLayouts()[0].length===3&&doc.querySelectorAll("#boxList .listitem").length===itemsBeforeBin+1,"undoing a custom bin and adding it again reuses the bin already in the library instead of duplicating it",doc.querySelectorAll("#boxList .listitem").length+" items");
       doc.getElementById("closeDetailModal").click();
 
+      // Drawer labels: save and choose the open layout, then print a QR label that opens it.
+      var realPrint=w.print,printed=0;w.print=function(){printed++;};
+      doc.querySelector("#gallery .layoutcard").click();
+      doc.getElementById("savePlanBtn").click();
+      var savedState=JSON.parse(w.localStorage.getItem("storage-fit-planner-v28")),labelPlan=savedState.savedPlans[savedState.savedPlans.length-1];
+      doc.getElementById("closeDetailModal").click();
+      doc.querySelector('[data-choose-plan="'+labelPlan.id+'"]').click();
+      var labelEntries=api.drawerLabelEntries(),labelEntry=labelEntries.filter(function(e){return e.storageId===labelPlan.storageId;})[0];
+      var decodedLabel=labelEntry&&api.decodeSharePayload(labelEntry.url.split("#p=")[1]);
+      result(!!labelEntry&&labelEntry.url.indexOf("share.html#p=")>0&&!decodedLabel.error&&same(decodedLabel.payload.p.map(function(r){return [r[0],r[1],r[2],r[4],r[5]];}),labelPlan.layout.map(function(q){return [q.typeId,q.x,q.y,q.w,q.d];})),"a drawer label links to a share view of exactly the storage's chosen plan",labelEntry?labelEntry.url.slice(0,60):"no entry");
+      result(decodedLabel.payload.n===labelEntry.path&&labelEntry.path.indexOf("→")>0,"a drawer label's shared view is titled with the storage's room and furniture path",decodedLabel.payload.n);
+      result(labelEntries.map(function(e){return e.path;}).join("|")===labelEntries.map(function(e){return e.path;}).sort(function(a,b){return a.toLocaleLowerCase().localeCompare(b.toLocaleLowerCase());}).join("|"),"drawer labels are listed in Room → Furniture → Storage order");
+      doc.getElementById("printDrawerLabelsBtn").click();
+      var labelCards=doc.querySelectorAll("#printSheet .drawerlabel"),firstCard=Array.prototype.filter.call(labelCards,function(card){return card.textContent.indexOf(labelEntry.path)>=0;})[0];
+      var expectedQr=w.StorageFitQR.svg(w.StorageFitQR.encode(labelEntry.url,{ecc:labelEntry.qr.ecc})).match(/ d="([^"]+)"/)[1];
+      result(printed===1&&labelCards.length===labelEntries.length&&!!firstCard&&firstCard.querySelector("svg path").getAttribute("d")===expectedQr,"Print drawer labels prints one card per chosen plan, each with a QR code of that card's link",labelCards.length+" cards, "+printed+" print");
+      result(labelEntry.qr.version<=25,"a typical plan's QR code stays small enough to print on a drawer label","version "+labelEntry.qr.version);
+      doc.querySelector("#gallery .layoutcard").click();
+      doc.getElementById("drawerLabelBtn").click();
+      var singleCards=doc.querySelectorAll("#printSheet .drawerlabel");
+      result(printed===2&&singleCards.length===1&&singleCards[0].querySelector("svg path")!==null,"the selected layout can print a single drawer label");
+      doc.getElementById("closeDetailModal").click();
+      w.print=realPrint;
+
       // Speech recognisers return words or digits, so both must reach the same measurement.
       result(same(api.parseSpokenDimensions("sixty seven by twenty six by thirteen centimetres","cm"),[67,26,13]),"spoken number words separated by 'by' become width, depth and height");
       result(same(api.parseSpokenDimensions("eight hundred and ten by four hundred by four hundred seventy millimetres","cm"),[81,40,47]),"spoken hundreds and a spoken unit are converted to the project unit");

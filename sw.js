@@ -2,9 +2,9 @@
 // deploy is picked up as soon as you are online, and every response refreshes
 // the cache. Offline, the cached copy is served; an unknown page falls back to
 // the planner. Product imports and other cross-origin requests are not touched.
-const CACHE = "storage-fit-v1";
+const CACHE = "storage-fit-v2";
 const SHELL = [
-  "./", "index.html", "share.html", "styles.css", "app.js", "share.js", "view3d.js",
+  "./", "index.html", "share.html", "styles.css", "app.js", "share.js", "view3d.js", "qr.js",
   "manifest.webmanifest", "icon.svg", "icon-192.png", "icon-512.png"
 ];
 

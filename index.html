@@ -273,6 +273,7 @@
           <div><h2>Install queue</h2><div class="small">Owned inventory is allocated in queue order across chosen plans. Earlier unfinished spaces reserve shared stock first.</div></div>
           <div class="savedtoolbar">
             <span class="small" id="installProgressText"></span>
+            <button class="btn soft" id="printDrawerLabelsBtn" type="button" title="Print a QR label for every storage space with a chosen plan">Print drawer labels</button>
             <button class="btn soft" id="findMoreReadyBtn" type="button">Find more Ready</button>
             <button class="btn soft" id="analyzeUnlocksBtn" type="button">Analyze stock</button>
           </div>
@@ -410,6 +411,7 @@
               <button class="btn soft" id="applyMatchingBtn" type="button" disabled>Apply to matching</button>
               <button class="btn soft" id="printPlanBtn" type="button">Print plan</button>
               <button class="btn soft" id="printLabelsBtn" type="button" disabled>Print labels</button>
+              <button class="btn soft" id="drawerLabelBtn" type="button" title="Print a label with a QR code that opens this layout">Drawer label</button>
               <button class="btn soft" id="exportPlanBtn" type="button">Export</button>
               <button class="btn soft" id="sharePlanBtn" type="button">Share link</button>
             </div>
@@ -538,6 +540,7 @@
 
 <section id="printSheet" aria-hidden="true"></section>
 
+<script src="qr.js"></script>
 <script src="view3d.js"></script>
 <script src="app.js"></script>
 </body>

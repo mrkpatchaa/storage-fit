@@ -4259,6 +4259,68 @@ function buildPrintSheet(){
   </div>`;
   return true;
 }
+// Drawer labels: a QR code that opens the storage's layout in the share viewer.
+function sharePayloadForPlan(plan,title){
+  const m=planMetrics(plan),s=m.storage,settings=plan.settings||{};
+  const c=settings.clearanceEnabled?Math.max(0,Number(settings.clearance)||0):0;
+  const ids=[...new Set((plan.layout||[]).map(p=>p.typeId))];
+  return {
+    v:1,n:String(title||m.storagePath).slice(0,160),u:state.unit,g:goalLabel(plan.goal||state.optimizeGoal),k:!!plan.stacking,
+    d:[round6(s.w),round6(s.d),round6(s.h)],z:[round6(m.W),round6(m.D),round6(m.H)],
+    c:round6(c),t:round6(Math.max(0,Number(settings.fitTolerance)||0)),
+    r:Number(m.utilizationPct.toFixed(2)),q:m.utilizationKind,
+    o:usableObstaclesFor(s,c).map(o=>[o.kind==="divider"?1:0,round6(o.x),round6(o.y),round6(o.w),round6(o.d),round6(o.h)]),
+    i:ids.map(id=>[id,String(boxById(id)?.name||plan.itemSnapshots?.[id]?.name||id).slice(0,200)]),
+    p:(plan.layout||[]).map(p=>[p.typeId,round6(p.x),round6(p.y),round6(Number(p.z)||0),round6(p.w),round6(p.d),round6(p.h),placementLabel(p)])
+  };
+}
+function shareUrlForPayload(payload,baseHref=location.href){
+  const url=new URL("share.html",baseHref);
+  url.hash="p="+encodeSharePayload(payload);
+  return url.toString();
+}
+// Level M survives scuffed stickers; long links drop to L when that gives a smaller symbol.
+function drawerLabelQr(url){
+  const robust=StorageFitQR.encode(url,{ecc:"M"});
+  if(robust&&robust.version<=12)return robust;
+  const compact=StorageFitQR.encode(url,{ecc:"L"});
+  return compact&&(!robust||compact.version<robust.version)?compact:robust;
+}
+function drawerLabelEntry(storageId,path,planName,layout,url){
+  const purposes=[...new Set((layout||[]).map(placementLabel).filter(Boolean))];
+  const lines=purposes.length
+    ? purposes
+    : Object.entries(layoutCounts(layout||[])).map(([id,n])=>`${boxById(id)?.name||id} ×${n}`);
+  return {storageId,path,planName,lines,url,qr:drawerLabelQr(url)};
+}
+function drawerLabelEntries(){
+  return chosenPlans().map(plan=>{
+    const context=projectStorageContext(plan.storageId);
+    const url=shareUrlForPayload(sharePayloadForPlan(plan,context.path));
+    return {...drawerLabelEntry(plan.storageId,context.path,plan.name,plan.layout,url),sortKey:context.sortKey};
+  }).sort((a,b)=>a.sortKey.localeCompare(b.sortKey));
+}
+function buildDrawerLabelSheet(entries){
+  if(!entries.length)return false;
+  const cards=entries.map(e=>{
+    const shown=e.lines.slice(0,6),more=e.lines.length-shown.length;
+    const code=e.qr?StorageFitQR.svg(e.qr,{label:`Layout of ${e.path}`}):'<div class="drawerlabelnoqr">This plan is too large for a QR code. Use Export to share it.</div>';
+    return `<article class="drawerlabel">
+      <div class="drawerlabelqr">${code}</div>
+      <div class="drawerlabeltext">
+        <div class="drawerlabelpath">${esc(e.path)}</div>
+        <div class="drawerlabelplan">${esc(e.planName)}</div>
+        <ul>${shown.map(line=>`<li>${esc(line)}</li>`).join("")}${more>0?`<li>+${more} more</li>`:""}</ul>
+        <div class="drawerlabelhint">${e.qr?"Scan with a phone camera to see the layout in 3D":""}</div>
+      </div>
+    </article>`;
+  }).join("");
+  $("printSheet").innerHTML=`<div class="drawerlabelsheet">
+    <div class="labelsheethead"><h1>Drawer labels</h1><div class="printmeta">${entries.length} label${entries.length===1?"":"s"} · stick each one on its drawer, shelf or door</div></div>
+    <div class="drawerlabelgrid">${cards}</div>
+  </div>`;
+  return true;
+}
 function buildLabelPrintSheet(){
   const layout=layouts[selectedLayout],s=storage();if(!layout||!s)return false;
   const labels=printablePlacementLabels(layout);if(!labels.length)return false;
@@ -5018,6 +5080,7 @@ function renderInstallDashboard(){
   const ready=entries.filter(e=>e.status==="ready").length;
   const waiting=entries.filter(e=>e.status==="waiting").length;
   const stale=entries.filter(e=>e.status==="stale").length;
+  $("printDrawerLabelsBtn").disabled=!chosenPlans().length;
   $("installProgressText").textContent=`${installed}/${entries.length} installed`;
   const findMoreReadyBtn=$("findMoreReadyBtn");
   if(findMoreReadyBtn){findMoreReadyBtn.disabled=waiting===0||ready+waiting<2;findMoreReadyBtn.onclick=findMoreReadyInstallOrder}
@@ -7426,6 +7489,18 @@ $("printPlanBtn").addEventListener("click",()=>{
   if(!buildPrintSheet())return;
   window.print();
 });
+$("printDrawerLabelsBtn").addEventListener("click",()=>{
+  if(!buildDrawerLabelSheet(drawerLabelEntries())){alert("Choose a plan for at least one storage space first.");return}
+  window.print();
+});
+$("drawerLabelBtn").addEventListener("click",()=>{
+  const layout=layouts[selectedLayout],s=storage();if(!layout||!s)return;
+  const path=storageBreadcrumb(s);
+  let url;
+  try{url=shareUrlForPayload({...currentSharePayload(),n:path.slice(0,160)})}catch(e){alert(e.message||"Could not create a label for this layout.");return}
+  buildDrawerLabelSheet([drawerLabelEntry(s.id,path,capacityLayoutContext?"Capacity packing":`Layout ${selectedLayout+1}`,layout,url)]);
+  window.print();
+});
 $("printLabelsBtn").addEventListener("click",()=>{
   if(!buildLabelPrintSheet()){alert("Add a purpose label to at least one placement first.");return}
   window.print();
@@ -8081,6 +8156,7 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     spokenCommand,
     voiceMeasuringActive,
     customBinDimensions,
+    drawerLabelEntries,
     accessPenalty,
     compareAccess,
     defaultEditSnapStep,
