@@ -1182,3 +1182,16 @@ The dashboard does not create a second inventory system: **Done** is still workf
 
 No schema migration is required; the app remains on V28.
 
+## Diversified layout search
+
+**Find arrangements** explores placements depth-first and stops at a cap to keep the browser responsive. On its own, a capped depth-first search only varies the last few placements of the first arrangement it builds, so whole quantity mixes are never reached. For the default shelf (81 × 40 × 27 cm) with the three default boxes, that meant a top proposal of 94.4% floor use while a plain 4 × 3 grid of twelve small boxes (96.3%) was never proposed.
+
+When the first pass is capped, Storage Fit now runs short extra passes in which each selected item type leads in turn, in both orders and with both floor orientations tried first. Their layouts are added to the first pass's results, never substituted for them, and a search that completes on its own runs no extra pass, so uncapped results are exactly what they were. The result message reports how many alternative item priorities were searched.
+
+Variants of one quantity mix are also curated differently:
+
+- when variants tie on the optimization goal, the most aligned arrangement (fewest distinct cut lines) is listed first;
+- a variant is kept only if at least a third of its placements (and at least two) sit somewhere clearly different from every variant already kept. The same box, turned the same way and shifted by less than about a third of its size, counts as the same place, so near-copies that nudge a box or slide a row no longer fill the gallery.
+
+The search remains deterministic, and Max quantities, blocked zones, dividers, fit tolerance and stacking rules apply to every pass.
+

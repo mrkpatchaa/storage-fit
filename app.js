@@ -7,6 +7,8 @@ const PREV_KEYS = ["storage-fit-planner-v27","storage-fit-planner-v26","storage-
 const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var(--c6)"];
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
+const PRIORITY_PASS_NODE_LIMIT = 2000;
+const PRIORITY_PASS_LAYOUT_LIMIT = 12;
 const SHARE_LINK_LIMIT = 12000;
 const EDIT_HISTORY_LIMIT = 60;
 const CAPACITY_SEARCH_LIMIT = 25000;
@@ -6160,6 +6162,74 @@ function canPlaceAny(placed,types,W,D){
   return false;
 }
 
+// One depth-first pass over edge-aligned placements, trying item types in the
+// given priority order. Maximal layouts are added to the shared `found` map.
+function searchLayoutPass(types,W,D,H,obstacles,gap,found,{nodeLimit,leafLimit=Infinity,freshLimit=Infinity}){
+  const visited=new Set();
+  let nodes=0,truncated=false,fresh=0;
+  function recurse(placed,counts){
+    nodes++;
+    if(nodes>nodeLimit){truncated=true;return}
+    const sig=canonicalLayout(placed)+"|"+Object.keys(counts).sort().map(k=>`${k}:${counts[k]}`).join(",");
+    if(visited.has(sig))return;visited.add(sig);
+
+    let extended=false;
+    for(const t of types){
+      const used=counts[t.id]||0;
+      if(t.max!==null && used>=t.max) continue;
+      for(const o of t.oris){
+        for(const p of candidatePlacementsFor(placed,t,o,W,D,H,obstacles,gap)){
+          extended=true;
+          recurse([...placed,p],{...counts,[t.id]:used+1});
+          if(truncated)return;
+          if(found.size>=leafLimit||fresh>=freshLimit){truncated=true;return}
+        }
+      }
+    }
+    if(!extended && placed.length){
+      const key=canonicalLayout(placed);
+      if(!found.has(key)){found.set(key,placed.map(p=>({...p})));fresh++}
+    }
+  }
+  recurse([],{});
+  return {nodes,truncated};
+}
+// Every rotation of the selected order and of its reverse, each with the item
+// orientations as given and flipped, so every type leads at least one pass.
+function searchPriorityOrders(types){
+  const seen=new Set(),orders=[];
+  const add=order=>{
+    const key=order.map(t=>`${t.id}:${t.oris.map(o=>o.join("x")).join("/")}`).join(">");
+    if(!seen.has(key)){seen.add(key);orders.push(order)}
+  };
+  const reversed=types.slice().reverse();
+  for(const base of [types,reversed]){
+    for(let i=0;i<base.length;i++){
+      const order=[...base.slice(i),...base.slice(0,i)];
+      add(order);
+      add(order.map(t=>({...t,oris:t.oris.slice().reverse()})));
+    }
+  }
+  return orders;
+}
+function searchMaximalLayouts(types,W,D,H,obstacles,gap,options={}){
+  const found=new Map();
+  const first=searchLayoutPass(types,W,D,H,obstacles,gap,found,{nodeLimit:SEARCH_LIMIT,leafLimit:LAYOUT_LIMIT*4});
+  let nodes=first.nodes,passes=1;
+  // A capped depth-first pass only varies the last few placements of its first
+  // arrangement, so whole quantity mixes stay unexplored. Short extra passes
+  // led by each other item type recover them; a completed pass needs none.
+  if(first.truncated&&options.diversify!==false){
+    const orders=searchPriorityOrders(types).slice(1);
+    const nodeLimit=Math.max(200,Math.min(PRIORITY_PASS_NODE_LIMIT,Math.floor(SEARCH_LIMIT/2/Math.max(1,orders.length))));
+    for(const order of orders){
+      nodes+=searchLayoutPass(order,W,D,H,obstacles,gap,found,{nodeLimit,freshLimit:PRIORITY_PASS_LAYOUT_LIMIT}).nodes;
+      passes++;
+    }
+  }
+  return {layouts:[...found.values()],truncated:first.truncated,nodes,passes};
+}
+
 function findLayouts(){
   capacityLayoutContext=null;
   savedPlanSourceContext=null;
@@ -6187,46 +6257,21 @@ function findLayouts(){
 
   $("searchState").textContent="Searching…";
   showMessage(`Finding proposals optimized for “${goalLabel()}”…`,"");
-  const found=new Map(),visited=new Set();
-  let nodes=0,truncated=false;
-
-  function recurse(placed,counts){
-    nodes++;
-    if(nodes>SEARCH_LIMIT){truncated=true;return}
-    const sig=canonicalLayout(placed)+"|"+Object.keys(counts).sort().map(k=>`${k}:${counts[k]}`).join(",");
-    if(visited.has(sig))return;visited.add(sig);
-
-    let extended=false;
-    for(const t of types){
-      const used=counts[t.id]||0;
-      if(t.max!==null && used>=t.max) continue;
-      for(const o of t.oris){
-        for(const p of candidatePlacementsFor(placed,t,o,W,D,H,obstacles,gap)){
-          extended=true;
-          recurse([...placed,p],{...counts,[t.id]:used+1});
-          if(found.size>=LAYOUT_LIMIT*4){truncated=true;return}
-        }
-      }
-    }
-    if(!extended && placed.length){
-      const key=canonicalLayout(placed);
-      if(!found.has(key))found.set(key,placed.map(p=>({...p})));
-    }
-  }
-  recurse([],{});
+  const search=searchMaximalLayouts(types,W,D,H,obstacles,gap);
+  let truncated=search.truncated;
 
   // Group by suggested quantities, but preserve a few distinct geometries for
   // each mix. This removes the flood of near-duplicates without hiding useful
   // alternatives such as front-loaded vs side-loaded arrangements.
   const grouped=new Map();
-  for(const layout of found.values()){
+  for(const layout of search.layouts){
     const sig=countSignature(layout);
     if(!grouped.has(sig)) grouped.set(sig,[]);
     grouped.get(sig).push(layout);
   }
-  for(const variants of grouped.values())variants.sort((a,b)=>compareLayoutsForGoal(a,b,W,D));
+  for(const variants of grouped.values())variants.sort((a,b)=>compareLayoutsForGoal(a,b,W,D)||layoutRaggedness(a)-layoutRaggedness(b));
 
-  layouts=[...grouped.values()].flatMap(variants=>variants.slice(0,4));
+  layouts=[...grouped.values()].flatMap(variants=>distinctLayoutVariants(variants,4));
   layouts.sort((a,b)=>compareLayoutsForGoal(a,b,W,D) || countSignature(a).localeCompare(countSignature(b)));
 
   if(layouts.length>LAYOUT_LIMIT){
@@ -6250,7 +6295,7 @@ function findLayouts(){
       blockedCount?`${blockedCount} blocked zone${blockedCount===1?"":"s"} avoided`:"",
       dividerCount?`${dividerCount} divider${dividerCount===1?"":"s"} respected`:""
     ].filter(Boolean).join(" · ");
-    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${costNote}${handlingNote}Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${state.enableStacking?"Stacking rules enabled. ":""}${constraintNote?`${constraintNote}. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?"Results are capped to keep the browser responsive.":""}`,"good");
+    showMessage(`${layouts.length} distinct proposal${layouts.length===1?"":"s"} found. ${costNote}${handlingNote}Unlimited items are used only while they improve a maximal layout; Max limits are respected. ${state.enableStacking?"Stacking rules enabled. ":""}${constraintNote?`${constraintNote}. `:""}${gap>0?`Minimum gap: ${fmt(gap)} ${state.unit}. `:"Exact-fit mode. "}${truncated?`Results are capped to keep the browser responsive${search.passes>1?`; ${search.passes-1} alternative item priorities were also searched so every item type leads some proposals`:""}.`:""}`,"good");
   }
   selectedLayout=0;selectedGap=-1;currentGaps=[];
   editMode=false;
@@ -6259,6 +6304,42 @@ function findLayouts(){
 
 function distinctTypes(layout){
   return new Set(layout.map(p=>p.typeId)).size;
+}
+// Distinct cut lines across the layout: fewer means edges line up more.
+function layoutRaggedness(layout){
+  const xs=new Set(),ys=new Set();
+  for(const p of layout){xs.add(round6(p.x));xs.add(round6(p.x+p.w));ys.add(round6(p.y));ys.add(round6(p.y+p.d))}
+  return xs.size+ys.size;
+}
+// The same box, turned the same way, sharing at least half of the two boxes'
+// combined volume: a shift of up to a third of the box along one axis.
+function placementsCoincide(p,q){
+  if(p.typeId!==q.typeId||Math.abs(p.w-q.w)>1e-6||Math.abs(p.d-q.d)>1e-6||Math.abs(p.h-q.h)>1e-6)return false;
+  const pz=Number(p.z)||0,qz=Number(q.z)||0;
+  const ox=Math.min(p.x+p.w,q.x+q.w)-Math.max(p.x,q.x),oy=Math.min(p.y+p.d,q.y+q.d)-Math.max(p.y,q.y),oz=Math.min(pz+p.h,qz+q.h)-Math.max(pz,qz);
+  if(ox<=0||oy<=0||oz<=0)return false;
+  const shared=ox*oy*oz;
+  return shared/(2*p.w*p.d*p.h-shared)>=0.5;
+}
+function layoutDifference(a,b){
+  const free=b.slice();
+  let unmatched=0;
+  for(const p of a){
+    const i=free.findIndex(q=>placementsCoincide(p,q));
+    if(i>=0)free.splice(i,1);else unmatched++;
+  }
+  return Math.max(unmatched,free.length);
+}
+// Keeps ranked variants that put at least a third of their placements (and
+// at least two) somewhere else than every variant already kept.
+function distinctLayoutVariants(ranked,limit=4){
+  const kept=[];
+  for(const layout of ranked){
+    if(kept.length>=limit)break;
+    const needed=Math.min(layout.length,Math.max(2,Math.ceil(layout.length/3)));
+    if(kept.every(other=>layoutDifference(layout,other)>=needed))kept.push(layout);
+  }
+  return kept;
 }
 function proposalTags(layout,W,D,H=currentUsableSize()?.H||1){
   if(!layouts.length)return [];
@@ -7682,6 +7763,10 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     choosePlan,
     itemStockStatus,
     aggregateRequiredCounts,
+    searchMaximalLayouts,
+    currentLayouts:()=>layouts,
+    layoutRaggedness,
+    distinctLayoutVariants,
     orientations,
     placementStackLevel,
     maxStackLevelAllows,

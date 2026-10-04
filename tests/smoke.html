@@ -1674,6 +1674,85 @@
       result(desktopOverflow<=0,"desktop sidebar content stays inside its column instead of sliding under the workspace",desktopOverflow>0?desktopOverflow+"px past the sidebar":"");
       result(tabletOverflow<=0,"two-column tablet sidebar content stays inside the sidebar",tabletOverflow>0?tabletOverflow+"px past the sidebar":"");
       result(phoneOverflow<=0,"phone-width sidebar content does not force horizontal scrolling",phoneOverflow>0?phoneOverflow+"px past the sidebar":"");
+
+      function searchTypes(overrides){
+        return [
+          Object.assign({id:"b1",name:"Box 30 × 25 × 12",max:null,oris:[[30,25,12],[25,30,12]]},(overrides||{}).b1),
+          Object.assign({id:"b2",name:"Box 32 × 25 × 12",max:null,oris:[[32,25,12],[25,32,12]]},(overrides||{}).b2),
+          Object.assign({id:"b3",name:"Small box 20 × 13 × 10",max:null,oris:[[20,13,10],[13,20,10]]},(overrides||{}).b3)
+        ];
+      }
+      function floorArea(layout){return layout.reduce(function(sum,p){return sum+p.w*p.d;},0);}
+      function typeCount(layout,id){return layout.filter(function(p){return p.typeId===id;}).length;}
+      var drawerSearch=api.searchMaximalLayouts([{id:"b1",name:"Box 30 × 25 × 12",max:null,oris:[[30,25,12]]}],67,26,13,[],0);
+      result(drawerSearch.truncated===false&&drawerSearch.passes===1&&drawerSearch.layouts.length===1&&same(drawerSearch.layouts[0].map(function(p){return [p.x,p.y];}),[[0,0],[30,0]]),"a search that completes still returns exactly the maximal layouts from one pass",JSON.stringify({truncated:drawerSearch.truncated,passes:drawerSearch.passes,layouts:drawerSearch.layouts.length}));
+      var shelfSearch=api.searchMaximalLayouts(searchTypes(),81,40,27,[],0);
+      var smallBoxGrid=shelfSearch.layouts.filter(function(l){return l.length===12&&typeCount(l,"b3")===12;});
+      result(shelfSearch.truncated===true&&shelfSearch.passes>1&&smallBoxGrid.length>0,"a capped search retries with each item type leading, so the 4 × 3 grid of small boxes is found",JSON.stringify({truncated:shelfSearch.truncated,passes:shelfSearch.passes,grids:smallBoxGrid.length}));
+      var shelfBestArea=Math.max.apply(null,shelfSearch.layouts.map(floorArea));
+      result(shelfBestArea>=3120,"a capped search reports at least the 3120 cm² twelve-box fill for the default shelf",String(shelfBestArea));
+      var singlePass=api.searchMaximalLayouts(searchTypes(),81,40,27,[],0,{diversify:false});
+      var diversifiedKeys={};
+      shelfSearch.layouts.forEach(function(l){diversifiedKeys[api.canonicalPlanLayout(l)]=true;});
+      result(singlePass.passes===1&&singlePass.layouts.length>0&&singlePass.layouts.every(function(l){return diversifiedKeys[api.canonicalPlanLayout(l)];}),"priority passes add to the first pass instead of replacing its layouts");
+      var shelfAgain=api.searchMaximalLayouts(searchTypes(),81,40,27,[],0);
+      result(same(shelfAgain.layouts,shelfSearch.layouts),"repeating a capped search returns the same layouts in the same order");
+      var limitedSearch=api.searchMaximalLayouts(searchTypes({b3:{max:5}}),81,40,27,[],0);
+      result(limitedSearch.passes>1&&limitedSearch.layouts.every(function(l){return typeCount(l,"b3")<=5;}),"priority passes respect a Max quantity",JSON.stringify({passes:limitedSearch.passes,most:Math.max.apply(null,limitedSearch.layouts.map(function(l){return typeCount(l,"b3");}))}));
+      var blockedSearch=api.searchMaximalLayouts(searchTypes(),81,40,27,[{id:"corner",kind:"blocked",x:0,y:0,z:0,w:10,d:10,h:27}],0);
+      result(blockedSearch.passes>1&&blockedSearch.layouts.every(function(l){return l.every(function(p){return p.x>=10||p.y>=10;});}),"priority passes keep every placement out of a blocked zone",JSON.stringify({passes:blockedSearch.passes}));
+
+      var tidyPair=[{typeId:"t",x:0,y:0,z:0,w:10,d:10,h:5},{typeId:"t",x:10,y:0,z:0,w:10,d:10,h:5}];
+      var joggedPair=[{typeId:"t",x:0,y:0,z:0,w:10,d:10,h:5},{typeId:"t",x:10,y:3,z:0,w:10,d:10,h:5}];
+      result(api.layoutRaggedness(tidyPair)===5&&api.layoutRaggedness(joggedPair)===7,"raggedness counts distinct cut lines, so an aligned pair scores lower than a jogged pair",api.layoutRaggedness(tidyPair)+" / "+api.layoutRaggedness(joggedPair));
+      function row(xs,y){return xs.map(function(x){return {typeId:"t",x:x,y:y,z:0,w:10,d:10,h:5};});}
+      var variantA=row([0,10,20],0).concat(row([0,10,20],10));
+      var variantNudged=row([0,10,20],0).concat(row([0,10,21],10));
+      var variantOther=row([0,10,20],0).concat(row([30,40,50],0));
+      var keptVariants=api.distinctLayoutVariants([variantA,variantNudged,variantOther],4);
+      result(keptVariants.length===2&&keptVariants[0]===variantA&&keptVariants[1]===variantOther,"variant curation drops a layout that only nudges one box of an already kept variant",String(keptVariants.length));
+      result(api.distinctLayoutVariants([variantA,variantOther,variantNudged],1).length===1,"variant curation honours the variant limit");
+      var variantSlid=row([0,10,20],0).concat(row([1,11,21],10));
+      result(api.distinctLayoutVariants([variantA,variantSlid],4).length===1,"variant curation treats a row slid by a tenth of a box as the same arrangement");
+      var variantTurned=row([0,10,20],0).concat([{typeId:"t",x:0,y:10,z:0,w:5,d:20,h:5},{typeId:"t",x:5,y:10,z:0,w:5,d:20,h:5},{typeId:"t",x:10,y:10,z:0,w:5,d:20,h:5}]);
+      result(api.distinctLayoutVariants([variantA,variantTurned],4).length===2,"variant curation keeps a variant whose boxes are turned even where they cover the same floor");
+      var soloLeft=[{typeId:"t",x:0,y:0,z:0,w:10,d:10,h:5}],soloRight=[{typeId:"t",x:40,y:0,z:0,w:10,d:10,h:5}];
+      result(api.distinctLayoutVariants([soloLeft,soloRight],4).length===2,"variant curation still keeps single-item layouts that sit in different places");
+
+      var doc=w.document,stackToggle=doc.getElementById("enableStacking");
+      if(stackToggle.checked)stackToggle.click();
+      var storagePicker=doc.getElementById("storageSelect");
+      storagePicker.value="s2";storagePicker.dispatchEvent(new w.Event("change",{bubbles:true}));
+      Array.prototype.forEach.call(doc.querySelectorAll("#itemPicker input[type=checkbox]"),function(box){if(!box.checked)box.click();});
+      doc.getElementById("generateBtn").click();
+      var topCard=doc.querySelector("#gallery .layoutcard");
+      result(doc.getElementById("bestFill").textContent==="96.3%"&&!!topCard&&topCard.querySelector(".legend").textContent.indexOf("Small box 20 × 13 × 10 ×12")>=0,"Find arrangements ranks the twelve-box grid first for the default shelf and all three default items",doc.getElementById("bestFill").textContent+" · "+(topCard?topCard.querySelector(".legend").textContent.replace(/\s+/g," ").trim():"no card"));
+      result(doc.getElementById("searchState").textContent==="Capped"&&/item priorit/i.test(doc.getElementById("message").textContent),"a capped search explains that alternative item priorities were also searched",doc.getElementById("message").textContent);
+      function mixKey(layout){
+        var counts={};layout.forEach(function(p){counts[p.typeId]=(counts[p.typeId]||0)+1;});
+        return Object.keys(counts).sort().map(function(id){return id+":"+counts[id];}).join("|");
+      }
+      // A placement counts as shared when the other proposal has the same box, turned the same way, within a third of its size.
+      function sharedPlacements(a,b){
+        return a.filter(function(p){
+          return b.some(function(q){return q.typeId===p.typeId&&q.w===p.w&&q.d===p.d&&Math.abs(q.x-p.x)<p.w/3&&Math.abs(q.y-p.y)<p.d/3;});
+        }).length;
+      }
+      var proposals=api.currentLayouts(),proposalsByMix={},nearDuplicates=0;
+      proposals.forEach(function(l){(proposalsByMix[mixKey(l)]=proposalsByMix[mixKey(l)]||[]).push(l);});
+      Object.keys(proposalsByMix).forEach(function(key){
+        var group=proposalsByMix[key];
+        for(var gi=0;gi<group.length;gi++)for(var gj=gi+1;gj<group.length;gj++){
+          if(group[gi].length>=3&&sharedPlacements(group[gi],group[gj])>group[gi].length*2/3)nearDuplicates++;
+        }
+      });
+      result(proposals.length>0&&nearDuplicates===0,"proposals that share a quantity mix move at least a third of their boxes somewhere clearly different",nearDuplicates+" near-duplicate pair(s) among "+proposals.length+" proposals");
+      // Same mix means same floor area, so every variant of a mix ties on the "Best use of space" goal.
+      var untidyLeaders=Object.keys(proposalsByMix).filter(function(key){
+        var tidiestFound=Math.min.apply(null,shelfSearch.layouts.filter(function(l){return mixKey(l)===key;}).map(api.layoutRaggedness));
+        return api.layoutRaggedness(proposalsByMix[key][0])!==tidiestFound;
+      });
+      result(untidyLeaders.length===0,"each quantity mix leads with its most aligned arrangement when variants tie on the goal",untidyLeaders.length+" mix(es) lead with a more ragged variant: "+untidyLeaders.slice(0,3).join(" ; "));
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{
