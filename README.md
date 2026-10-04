@@ -10,7 +10,7 @@ Storage Fit is a dependency-free browser tool for planning boxes and organizers 
 - Shows front, top, side and a draggable solid 3D view, with step-by-step assembly playback.
 - Lets you drag, rotate, duplicate and remove items in a layout.
 - Models blocked zones such as rails, hinges and unusable corners.
-- Detects leftover rectangles and suggests saved items that fit them.
+- Detects leftover rectangles, suggests saved items that fit them, and can fill one with a made-to-measure bin plus its 3D-print file.
 - Imports public IKEA/product URLs when product metadata is available, previews the result before saving, and detects existing catalog items by SKU or canonical product URL.
 - Finds every storage space where a selected organizer can physically fit, using the same clearance, orientation, obstacle and divider rules as the planner.
 - Saves plans, builds inventory-aware shopping lists, prints/exports layouts, and backs up/restores all browser data.
@@ -1214,3 +1214,8 @@ The camera is orthographic and is not mirrored: seen from the front, the storage
 
 The renderer lives in `view3d.js` and is shared with the read-only share viewer, whose 3D tab can now be turned the same way.
 
+## Printable custom bins
+
+When a leftover rectangle is at least 3 cm on both sides, its card offers **Custom bin**. This creates a made-to-measure organizer that fills the rectangle and stands as tall as the tallest organizer already in the layout (limited by the usable height), adds it to the item library, and places it in the layout in edit mode. It is a normal item afterwards: it can be renamed, priced, saved in plans and listed in shopping.
+
+The item editor has **Print file (STL)** for the selected item. It downloads a binary STL of an open-top bin with the item's outer Width × Depth × Height, converted to millimetres, with 1.6 mm walls and a 1.2 mm floor. The mesh is a closed, outward-facing surface, ready for a slicer. Items too small to leave a cavity are not exported.

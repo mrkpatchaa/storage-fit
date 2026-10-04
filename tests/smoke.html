@@ -1860,6 +1860,44 @@
       doc.querySelector('.tab[data-view="front"]').click();
       result(playButton.disabled===true&&assemblyCaption.hidden===true&&viz.querySelectorAll("svg [data-box]").length===0,"leaving the 3D tab ends assembly playback and disables its button");
       doc.getElementById("closeDetailModal").click();
+
+      // A 100 × 60 × 40 mm open bin with 2 mm walls and a 3 mm floor, read back from the binary STL.
+      var stl=api.openBinStl(100,60,40,2,3),stlView=new DataView(stl),stlTriangles=[];
+      for(var ti=0;ti<stlView.getUint32(80,true);ti++){
+        var base=84+ti*50,floats=[];
+        for(var fi=0;fi<12;fi++)floats.push(stlView.getFloat32(base+fi*4,true));
+        stlTriangles.push({normal:floats.slice(0,3),points:[floats.slice(3,6),floats.slice(6,9),floats.slice(9,12)]});
+      }
+      result(stl.byteLength===84+50*28&&stlTriangles.length===28,"an open bin is exported as a 28-triangle binary STL",stl.byteLength+" bytes, "+stlTriangles.length+" triangles");
+      var stlMin=[Infinity,Infinity,Infinity],stlMax=[-Infinity,-Infinity,-Infinity],stlVolume=0,stlEdges={},badNormals=0;
+      stlTriangles.forEach(function(t){
+        var a=t.points[0],b=t.points[1],c=t.points[2];
+        t.points.forEach(function(q){for(var k=0;k<3;k++){stlMin[k]=Math.min(stlMin[k],q[k]);stlMax[k]=Math.max(stlMax[k],q[k]);}});
+        var cross=[(b[1]-a[1])*(c[2]-a[2])-(b[2]-a[2])*(c[1]-a[1]),(b[2]-a[2])*(c[0]-a[0])-(b[0]-a[0])*(c[2]-a[2]),(b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0])];
+        stlVolume+=(a[0]*(b[1]*c[2]-b[2]*c[1])-a[1]*(b[0]*c[2]-b[2]*c[0])+a[2]*(b[0]*c[1]-b[1]*c[0]))/6;
+        var length=Math.sqrt(t.normal[0]*t.normal[0]+t.normal[1]*t.normal[1]+t.normal[2]*t.normal[2]);
+        if(Math.abs(length-1)>1e-4||cross[0]*t.normal[0]+cross[1]*t.normal[1]+cross[2]*t.normal[2]<=0)badNormals++;
+        for(var e=0;e<3;e++){var from=t.points[e].join(","),to=t.points[(e+1)%3].join(",");stlEdges[from+">"+to]=(stlEdges[from+">"+to]||0)+1;}
+      });
+      result(same(stlMin,[0,0,0])&&same(stlMax,[100,60,40]),"the exported bin spans exactly its outer width, depth and height",JSON.stringify([stlMin,stlMax]));
+      result(Math.abs(stlVolume-41088)<0.5,"the exported bin encloses the outer block minus its cavity: 240000 − 96 × 56 × 37 = 41088 mm³ of material",String(stlVolume));
+      var openEdges=Object.keys(stlEdges).filter(function(key){var ends=key.split(">");return stlEdges[key]!==1||stlEdges[ends[1]+">"+ends[0]]!==1;});
+      result(openEdges.length===0&&badNormals===0,"the exported bin is a closed, consistently outward-facing surface a slicer can print",openEdges.length+" open edges, "+badNormals+" bad normals");
+      result(api.openBinStl(3,60,40,2,3)===null&&api.openBinStl(100,60,3,2,3)===null,"a bin too thin for its walls or too shallow for its floor is not exported");
+      result(same(api.customBinDimensions({w:21,d:40},[{h:12},{h:10}],27,0,10),{w:21,d:40,h:12})&&same(api.customBinDimensions({w:21,d:40},[{h:30}],27,0.5,10),{w:21,d:40,h:26.5})&&same(api.customBinDimensions({w:21,d:40},[],27,0,10),{w:21,d:40,h:10}),"a custom bin fills its gap and matches the tallest organizer in the layout, limited by the usable height");
+
+      // Default drawer with only the 30 × 25 × 12 box: two boxes leave a 7 × 26 strip that no saved item fits.
+      storagePicker.value="s1";storagePicker.dispatchEvent(new w.Event("change",{bubbles:true}));
+      Array.prototype.forEach.call(doc.querySelectorAll("#itemPicker input[type=checkbox]"),function(box){if(box.checked!==(box.dataset.type==="b1"))box.click();});
+      doc.getElementById("generateBtn").click();
+      var stripCard=Array.prototype.filter.call(doc.querySelectorAll("#gapList .gapcard"),function(card){return card.textContent.indexOf("7 × 26")>=0;})[0];
+      var itemsBeforeBin=doc.querySelectorAll("#boxList .listitem").length;
+      stripCard.querySelector("[data-gap-custom]").click();
+      var withBin=api.currentLayouts()[0],binPlacement=withBin[withBin.length-1];
+      result(withBin.length===3&&same([binPlacement.x,binPlacement.y,binPlacement.z,binPlacement.w,binPlacement.d,binPlacement.h],[60,0,0,7,26,12]),"Custom bin fills the leftover strip with a made-to-measure organizer as tall as its neighbours",JSON.stringify(binPlacement));
+      result(doc.querySelectorAll("#boxList .listitem").length===itemsBeforeBin+1&&doc.getElementById("boxList").textContent.indexOf("Custom bin 7 × 26 × 12")>=0&&doc.getElementById("boxName").value==="Custom bin 7 × 26 × 12","the custom bin joins the item library and opens in the item editor, ready for its print file");
+      result(doc.getElementById("downloadBinStl").disabled===false,"the item editor offers a 3D-print file for the selected item");
+      doc.getElementById("closeDetailModal").click();
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{

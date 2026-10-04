@@ -9,6 +9,9 @@ const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
 const PRIORITY_PASS_NODE_LIMIT = 2000;
 const PRIORITY_PASS_LAYOUT_LIMIT = 12;
+const CUSTOM_BIN_MIN_SIDE_CM = 3;
+const BIN_WALL_MM = 1.6;
+const BIN_FLOOR_MM = 1.2;
 const SHARE_LINK_LIMIT = 12000;
 const EDIT_HISTORY_LIMIT = 60;
 const CAPACITY_SEARCH_LIMIT = 25000;
@@ -3208,6 +3211,7 @@ function loadBoxEditor(){
   $("findItemFits").disabled=!b;
   $("findItemPlanRoom").disabled=!b;
   $("showItemUsage").disabled=!b;
+  $("downloadBinStl").disabled=!b;
   $("boxName").value=b?.name||"";$("bw").value=b?.w??"";$("bd").value=b?.d??"";$("bh").value=b?.h??"";
   $("boxPrice").value=b?.price||"";$("boxCurrency").value=b?.currency||"MAD";$("boxOwnedQty").value=b?.ownedQty??0;$("boxSku").value=b?.sku||"";$("boxUrl").value=b?.url||"";$("boxImage").value=b?.image||"";
   $("boxUprightOnly").checked=b?.uprightOnly!==false;
@@ -3990,6 +3994,41 @@ function downloadJson(filename,data){
   const url=URL.createObjectURL(blob),a=document.createElement("a");
   a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();
   setTimeout(()=>URL.revokeObjectURL(url),500);
+}
+// Binary STL of an open-top bin, in millimetres: outer block w × d × h with a
+// cavity that leaves `wall` on each side and `floor` underneath. Returns null
+// when the walls or floor would leave no cavity.
+function openBinStl(w,d,h,wall,floor){
+  if(!(wall>0&&floor>0&&w-2*wall>=1&&d-2*wall>=1&&h-floor>=1))return null;
+  const ring=(inset,z)=>[[inset,inset,z],[w-inset,inset,z],[w-inset,d-inset,z],[inset,d-inset,z]];
+  const base=ring(0,0),top=ring(0,h),lip=ring(wall,h),pit=ring(wall,floor);
+  const triangles=[];
+  // Corners are listed anticlockwise as seen from outside the solid.
+  const quad=(a,b,c,e)=>{triangles.push([a,b,c],[a,c,e])};
+  quad(base[0],base[3],base[2],base[1]);
+  quad(pit[0],pit[1],pit[2],pit[3]);
+  for(let i=0;i<4;i++){
+    const j=(i+1)%4;
+    quad(base[i],base[j],top[j],top[i]);
+    quad(top[i],top[j],lip[j],lip[i]);
+    quad(lip[i],lip[j],pit[j],pit[i]);
+  }
+  const buffer=new ArrayBuffer(84+50*triangles.length),view=new DataView(buffer);
+  const title="Storage Fit custom bin";
+  for(let i=0;i<title.length;i++)view.setUint8(i,title.charCodeAt(i));
+  view.setUint32(80,triangles.length,true);
+  triangles.forEach(([a,b,c],index)=>{
+    const u=[b[0]-a[0],b[1]-a[1],b[2]-a[2]],v=[c[0]-a[0],c[1]-a[1],c[2]-a[2]];
+    const n=[u[1]*v[2]-u[2]*v[1],u[2]*v[0]-u[0]*v[2],u[0]*v[1]-u[1]*v[0]],length=Math.hypot(...n)||1;
+    [n.map(x=>x/length),a,b,c].flat().forEach((value,k)=>view.setFloat32(84+index*50+k*4,value,true));
+  });
+  return buffer;
+}
+// A made-to-measure bin for a leftover rectangle: it fills the gap and stands as
+// tall as the tallest organizer already in the layout, within the usable height.
+function customBinDimensions(gap,layout,H,tolerance,fallbackHeight){
+  const tallest=Math.max(0,...(layout||[]).map(p=>Number(p.h)||0));
+  return {w:round6(gap.w),d:round6(gap.d),h:round6(Math.min(tallest||fallbackHeight,H-tolerance))};
 }
 function printablePlacementLabels(layout,itemLookup=boxById){
   return (layout||[]).map((p,index)=>{
@@ -6629,12 +6668,14 @@ function renderGapList(W,D,H){
     el.innerHTML='<div class="empty">No rectangular leftover space remains.</div>';
     return;
   }
+  const minBinSide=CUSTOM_BIN_MIN_SIDE_CM*unitScale("cm",state.unit);
   el.innerHTML=currentGaps.slice(0,8).map((g,i)=>{
     const suggestions=gapSuggestions(g,H,layouts[selectedLayout]);
     const chips=suggestions.length?suggestions.map(s=>`<button type="button" class="suggestion" data-gap-add="${i}" data-gap-item="${s.id}" title="Add one ${esc(s.name)} here"><strong>${esc(s.name)}</strong>${s.count>1?` · up to ${s.count}`:""}</button>`).join(""):'<div class="nosuggestion">No saved item fits this rectangle.</div>';
+    const custom=Math.min(g.w,g.d)>=minBinSide?`<button type="button" class="suggestion custom" data-gap-custom="${i}" title="Create a made-to-measure bin for this space, add it to the layout and to the item library">Custom bin ${fmt(g.w)} × ${fmt(g.d)}</button>`:"";
     return `<div class="gapcard ${i===selectedGap?"active":""}" data-gap="${i}">
       <div class="gaphead"><strong>${fmt(g.w)} × ${fmt(g.d)} ${esc(state.unit)}</strong><span class="gaparea">${fmt(g.area)} ${esc(state.unit)}²</span></div>
-      <div class="gapsuggestions">${chips}</div>
+      <div class="gapsuggestions">${chips}${custom}</div>
       <div class="gapnote">Position: ${fmt(g.x)} from left · ${fmt(g.y)} from front</div>
     </div>`;
   }).join("");
@@ -6649,30 +6690,52 @@ function renderGapList(W,D,H){
 
   el.querySelectorAll("[data-gap-add]").forEach(btn=>btn.addEventListener("click",e=>{
     e.stopPropagation();
-    const gi=Number(btn.dataset.gapAdd),id=btn.dataset.gapItem,g=currentGaps[gi],b=boxById(id),layout=layouts[selectedLayout];
-    if(!g||!b||!layout)return;
-    const max=allowedMaxFor(id);
-    if(max!==null&&countType(layout,id)>=max){setEditStatus(`Maximum quantity (${max}) reached for ${b.name}.`,true);return}
-    const oris=orientations(b,state.uprightOnly).filter(o=>o[0]<=g.w+1e-9&&o[1]<=g.d+1e-9&&o[2]+Math.max(0,state.fitTolerance||0)<=H+1e-9);
-    if(!oris.length)return;
-    // Prefer the orientation using the largest share of the highlighted gap.
-    oris.sort((a,b2)=>(b2[0]*b2[1])-(a[0]*a[1]));
-    const o=oris[0],p={typeId:id,name:b.name,x:round6(g.x),y:round6(g.y),z:0,w:o[0],d:o[1],h:o[2]};
-    layout.push(p);
-    const idx=layout.length-1;
-    if(!editItemValid(layout,idx,W,D)){
-      layout.pop();setEditStatus("That saved item no longer fits after applying tolerance.",true);return;
-    }
-    const wasEditing=editMode;
-    selectedEditItem=idx;editMode=true;editOriginalLayout=editOriginalLayout||layout.slice(0,-1).map(q=>({...q}));
-    if(!wasEditing||editHistory.index<0)resetEditHistory(editOriginalLayout);
-    recordEditHistory("Add item");
-    selectedGap=-1;detailView="top";
-    setEditStatus(`${b.name} added. You can drag or rotate it.`);
-    renderDetail(W,D,H);
-    renderGallery(W,D,H,galleryWasCapped);
-    openDetailModal();
+    const g=currentGaps[Number(btn.dataset.gapAdd)],b=boxById(btn.dataset.gapItem);
+    if(g&&b)addItemToGap(g,b,W,D,H);
   }));
+
+  el.querySelectorAll("[data-gap-custom]").forEach(btn=>btn.addEventListener("click",e=>{
+    e.stopPropagation();
+    const g=currentGaps[Number(btn.dataset.gapCustom)],layout=layouts[selectedLayout];
+    if(!g||!layout)return;
+    const dims=customBinDimensions(g,layout,H,Math.max(0,state.fitTolerance||0),round6(10*unitScale("cm",state.unit)));
+    if(!(dims.h>0)){setEditStatus("There is no usable height left for a custom bin.",true);return}
+    const item={id:uid("b"),name:`Custom bin ${fmt(dims.w)} × ${fmt(dims.d)} × ${fmt(dims.h)}`,...dims,price:0,currency:"MAD",ownedQty:0,sku:"",url:"",image:"",retailer:"",uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:false,canSupportStack:false,maxStackLevel:null};
+    state.boxes.push(item);state.selectedTypes[item.id]=false;state.itemLimits[item.id]=null;
+    if(!addItemToGap(g,item,W,D,H)){
+      state.boxes.pop();delete state.selectedTypes[item.id];delete state.itemLimits[item.id];return;
+    }
+    editingBox=item.id;
+    localStorage.setItem(KEY,JSON.stringify(state));renderBackupStats();
+    renderBoxList();renderItemPicker();loadBoxEditor();
+  }));
+}
+// Places one copy of an item at the corner of a leftover rectangle and opens it for editing.
+function addItemToGap(g,b,W,D,H){
+  const layout=layouts[selectedLayout],id=b.id;
+  if(!layout)return false;
+  const max=allowedMaxFor(id);
+  if(max!==null&&countType(layout,id)>=max){setEditStatus(`Maximum quantity (${max}) reached for ${b.name}.`,true);return false}
+  const oris=orientations(b,state.uprightOnly).filter(o=>o[0]<=g.w+1e-9&&o[1]<=g.d+1e-9&&o[2]+Math.max(0,state.fitTolerance||0)<=H+1e-9);
+  if(!oris.length)return false;
+  // Prefer the orientation using the largest share of the highlighted gap.
+  oris.sort((a,b2)=>(b2[0]*b2[1])-(a[0]*a[1]));
+  const o=oris[0],p={typeId:id,name:b.name,x:round6(g.x),y:round6(g.y),z:0,w:o[0],d:o[1],h:o[2]};
+  layout.push(p);
+  const idx=layout.length-1;
+  if(!editItemValid(layout,idx,W,D)){
+    layout.pop();setEditStatus("That saved item no longer fits after applying tolerance.",true);return false;
+  }
+  const wasEditing=editMode;
+  selectedEditItem=idx;editMode=true;editOriginalLayout=editOriginalLayout||layout.slice(0,-1).map(q=>({...q}));
+  if(!wasEditing||editHistory.index<0)resetEditHistory(editOriginalLayout);
+  recordEditHistory("Add item");
+  selectedGap=-1;detailView="top";
+  setEditStatus(`${b.name} added. You can drag or rotate it.`);
+  renderDetail(W,D,H);
+  renderGallery(W,D,H,galleryWasCapped);
+  openDetailModal();
+  return true;
 }
 
 function currentUsableSize(){
@@ -7235,6 +7298,14 @@ $("exportHomeShoppingBtn").addEventListener("click",()=>{
   const btn=$("exportHomeShoppingBtn"),old=btn.textContent;btn.textContent="Exported ✓";
   setTimeout(()=>{btn.textContent=old},1200);
 });
+$("downloadBinStl").addEventListener("click",()=>{
+  const b=state.boxes.find(x=>x.id===editingBox);if(!b)return;
+  const mm=unitScale(state.unit,"mm"),btn=$("downloadBinStl"),old=btn.textContent;
+  const stl=openBinStl(b.w*mm,b.d*mm,b.h*mm,BIN_WALL_MM,BIN_FLOOR_MM);
+  if(stl)downloadTextFile(`${slugify(b.name)}.stl`,stl,"model/stl");
+  btn.textContent=stl?"Saved ✓":"Too small to print";
+  setTimeout(()=>{btn.textContent=old},1400);
+});
 $("findItemFits").addEventListener("click",openItemFitModal);
 $("fitAuditBtn").addEventListener("click",openFitAuditModal);
 $("findItemPlanRoom").addEventListener("click",openItemPlanRoomModal);
@@ -7790,6 +7861,8 @@ if(new URLSearchParams(location.search).has("smoke-test")){
     placementStackLevel,
     maxStackLevelAllows,
     normalizeStackLevel,
+    openBinStl,
+    customBinDimensions,
     accessPenalty,
     compareAccess,
     defaultEditSnapStep,
