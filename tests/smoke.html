@@ -1854,6 +1854,14 @@
       result(floorTilt()>tiltBefore,"dragging the 3D view down raises the viewpoint so more of the floor shows",tiltBefore.toFixed(3)+" → "+floorTilt().toFixed(3));
       doc.getElementById("reset3d").click();
       result(viz.innerHTML===restingMarkup,"Reset view returns the 3D camera to where it started");
+      pointer("pointerdown",300,200);pointer("pointermove",360,200);pointer("pointerup",360,200);
+      doc.getElementById("editLayoutBtn").click();
+      doc.querySelector('.tab[data-view="iso"]').click();
+      doc.getElementById("reset3d").click();
+      var resetWhileEditing=viz.innerHTML===restingMarkup;
+      doc.getElementById("doneEdit").click();
+      doc.querySelector('.tab[data-view="iso"]').click();
+      result(resetWhileEditing,"Reset view also resets the 3D camera while editing the layout");
       var playButton=doc.getElementById("playAssembly"),assemblyCaption=doc.getElementById("assemblyCaption");
       playButton.click();
       var solidsWhilePlaying=solidCount(),firstStep=assemblyCaption.textContent;

@@ -7405,9 +7405,9 @@ $("detailViz").addEventListener("pointercancel",stopIsoDrag);
 $("detailViz").addEventListener("lostpointercapture",stopIsoDrag);
 $("reset3d").addEventListener("click",()=>{
   isoCamera=StorageFit3D.defaultCamera();
-  if(detailView==="iso"&&!editMode)renderIsoViz();
+  if(detailView==="iso")renderIsoViz();
 });
-window.addEventListener("resize",()=>{if(detailModalOpen&&detailView==="iso"&&!editMode&&!assemblyPlayback)renderIsoViz()});
+window.addEventListener("resize",()=>{if(detailModalOpen&&detailView==="iso"&&!assemblyPlayback)renderIsoViz()});
 $("playAssembly").addEventListener("click",()=>{
   if(assemblyPlayback){endAssemblyPlayback();renderIsoViz()}
   else startAssemblyPlayback();
