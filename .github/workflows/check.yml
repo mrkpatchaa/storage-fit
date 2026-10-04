@@ -38,6 +38,9 @@ jobs:
       - name: Check QR encoder syntax
         run: node --check qr.js
 
+      - name: Check theme script syntax
+        run: node --check theme.js
+
       - name: Run QR encoder tests
         run: node tests/qr-test.js
 
