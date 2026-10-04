@@ -34,7 +34,7 @@ Using a local web server is preferable to opening index.html directly because br
 
 The **Theme** menu next to the title offers **Auto**, **Light** and **Dark**. Auto follows the system setting and switches live when it changes; a Light or Dark choice is remembered on this device (it is a viewing preference, so it is not part of backups). The share viewer follows the same setting.
 
-Colours are CSS custom properties in `styles.css`: the light values keep the original look exactly, and dark values apply to the screen only, so printed plans, checklists and labels always print in their light colours. Storage drawings keep a light "paper" floor in both themes. Dark-theme text meets the WCAG AA contrast ratio of 4.5:1, which the smoke tests check. `theme.js` runs before the stylesheet, so pages open in the right theme without a flash.
+Colours are CSS custom properties in `styles.css`: the light values keep the original look (only the muted grey and the warning amber are a shade darker), and dark values apply to the screen only, so printed plans, checklists and labels always print in their light colours. Storage drawings keep a light "paper" floor in both themes. Text in both themes meets the WCAG AA contrast ratio of 4.5:1; the smoke tests check every visible text element. `theme.js` runs before the stylesheet, so pages open in the right theme without a flash.
 
 ## Offline and install
 
