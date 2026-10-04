@@ -173,7 +173,7 @@ function normalizeOwnedDistributionSessions(target){
     }
     session.id=String(session.id||uid("dist"));
     session.createdAt=String(session.createdAt||new Date().toISOString());
-    session.fingerprint=String(session.fingerprint||"");
+    session.fingerprint=canonicalDistributionFingerprint(String(session.fingerprint||""));
     session.requested=Math.max(0,Math.floor(Number(session.requested)||0));
     session.assigned=Math.max(0,Math.floor(Number(session.assigned)||0));
     session.remaining=Math.max(0,Math.floor(Number(session.remaining)||0));
@@ -199,6 +199,29 @@ function normalizeOwnedDistributionSessions(target){
   return target.ownedDistributionSessions;
 }
 
+// Fingerprints embed item planning signatures. Older versions stored a stack-level
+// limit of 1 for items that cannot be stacked; normalize it the way signatures are
+// computed now, so unchanged distribution work does not turn stale after an upgrade.
+function canonicalDistributionFingerprint(fingerprint){
+  const signature=value=>{
+    try{
+      const rules=JSON.parse(value);
+      if(!Array.isArray(rules)||rules.length!==9)return value;
+      rules[8]=normalizeStackLevel(rules[8],!!rules[6]);
+      return JSON.stringify(rules);
+    }catch(e){return value}
+  };
+  try{
+    const parts=JSON.parse(fingerprint);
+    if(!Array.isArray(parts)||parts.length!==5)return fingerprint;
+    parts[1]=signature(parts[1]);
+    for(const storage of Array.isArray(parts[4])?parts[4]:[]){
+      const plan=storage?.[2];
+      if(Array.isArray(plan)&&Array.isArray(plan[5]))plan[5]=plan[5].map(rule=>Array.isArray(rule)?[rule[0],signature(rule[1])]:rule);
+    }
+    return JSON.stringify(parts);
+  }catch(e){return fingerprint}
+}
 function normalizeInstallState(target){
   target.installedPlanIds=target.installedPlanIds&&typeof target.installedPlanIds==="object"&&!Array.isArray(target.installedPlanIds)?target.installedPlanIds:{};
   target.installOrder=Array.isArray(target.installOrder)?target.installOrder.filter(Boolean):[];

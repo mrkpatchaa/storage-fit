@@ -34,6 +34,13 @@
       result(w.document.getElementById("boxMaxStackLevel").value==="","loading the planner keeps an item's blank stack-level limit blank instead of turning it into floor only",JSON.stringify(w.document.getElementById("boxMaxStackLevel").value));
       result(api.normalizeStackLevel(null)===null&&api.normalizeStackLevel(undefined)===null&&api.normalizeStackLevel("")===null,"a missing or blank stack-level limit means no limit");
       result(api.normalizeStackLevel(3)===3&&api.normalizeStackLevel("2")===2&&api.normalizeStackLevel(2.9)===2&&api.normalizeStackLevel(0)===1&&api.normalizeStackLevel(12)===9&&api.normalizeStackLevel("tall")===null,"a stored stack-level limit is read as a whole level from 1 to 9");
+      function legacySignature(level,stackable){return JSON.stringify([30,25,12,true,false,false,stackable,false,level]);}
+      function distributionFingerprint(itemLevel,planItemLevel){
+        return JSON.stringify(["b1",legacySignature(itemLevel,false),2,[false,0,0,true,false],[["s1","structure",["p1","layout","null",false,"current",[["b1",legacySignature(itemLevel,false)],["b2",legacySignature(planItemLevel,true)]]]]]]);
+      }
+      var legacyDistribution={boxes:[{id:"b1"}],ownedDistributionSessions:{b1:{itemId:"b1",fingerprint:distributionFingerprint(1,1),requested:2,allocations:[{storageId:"s1",assigned:2,result:{layout:[{},{}]}}]}}};
+      api.normalizeOwnedDistributionSessions(legacyDistribution);
+      result(legacyDistribution.ownedDistributionSessions.b1.fingerprint===distributionFingerprint(null,1),"a distribution session saved before blank stack limits were fixed keeps matching its unchanged plans, while a stackable item's real limit is kept");
       result(api.normalizeStackLevel(1,false)===null&&api.normalizeStackLevel(4,false)===null&&api.normalizeStackLevel(1,true)===1,"an item that cannot be stacked carries no stack-level limit, while a stackable item keeps its saved one");
       var plainRuleItem={id:"rule",name:"Rule item",w:10,d:10,h:5,uprightOnly:true,floorRotationLocked:false,frontPriority:false,canBeStacked:false,canSupportStack:false,maxStackLevel:null};
       result(api.itemPlanningSignature(Object.assign({},plainRuleItem,{maxStackLevel:1}))===api.itemPlanningSignature(plainRuleItem),"a leftover stack-level limit on an item that cannot be stacked is not a handling-rule change for saved plans");
