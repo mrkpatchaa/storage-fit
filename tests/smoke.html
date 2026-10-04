@@ -1691,6 +1691,11 @@
       result(shelfSearch.truncated===true&&shelfSearch.passes>1&&smallBoxGrid.length>0,"a capped search retries with each item type leading, so the 4 × 3 grid of small boxes is found",JSON.stringify({truncated:shelfSearch.truncated,passes:shelfSearch.passes,grids:smallBoxGrid.length}));
       var shelfBestArea=Math.max.apply(null,shelfSearch.layouts.map(floorArea));
       result(shelfBestArea>=3120,"a capped search reports at least the 3120 cm² twelve-box fill for the default shelf",String(shelfBestArea));
+      result(shelfSearch.nodes<=2*shelfSearch.firstNodes,"the extra priority passes of a capped search cost no more than its first pass",shelfSearch.firstNodes+" first-pass nodes, "+shelfSearch.nodes+" in total");
+      var manyTypes=[];
+      for(var mt=0;mt<40;mt++)manyTypes.push({id:"m"+mt,name:"Type "+mt,max:null,oris:[[6+mt%7,5+mt%5,4],[5+mt%5,6+mt%7,4]]});
+      var manySearch=api.searchMaximalLayouts(manyTypes,120,60,30,[],0);
+      result(manySearch.nodes<=2*manySearch.firstNodes,"with many item types the extra passes still cost no more than the first pass",manySearch.passes+" passes, "+manySearch.firstNodes+" first-pass nodes, "+manySearch.nodes+" in total");
       var singlePass=api.searchMaximalLayouts(searchTypes(),81,40,27,[],0,{diversify:false});
       var diversifiedKeys={};
       shelfSearch.layouts.forEach(function(l){diversifiedKeys[api.canonicalPlanLayout(l)]=true;});

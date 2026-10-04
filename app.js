@@ -8,6 +8,7 @@ const COLORS = ["var(--c1)","var(--c2)","var(--c3)","var(--c4)","var(--c5)","var
 const SEARCH_LIMIT = 90000;
 const LAYOUT_LIMIT = 180;
 const PRIORITY_PASS_NODE_LIMIT = 2000;
+const PRIORITY_PASS_MIN_NODES = 200;
 const PRIORITY_PASS_LAYOUT_LIMIT = 12;
 const CUSTOM_BIN_MIN_SIDE_CM = 3;
 const BIN_WALL_MM = 1.6;
@@ -6436,15 +6437,18 @@ function searchMaximalLayouts(types,W,D,H,obstacles,gap,options={}){
   // A capped depth-first pass only varies the last few placements of its first
   // arrangement, so whole quantity mixes stay unexplored. Short extra passes
   // led by each other item type recover them; a completed pass needs none.
+  // Together the extra passes may spend at most what the first pass spent, so the
+  // search never takes more than about twice as long as before.
   if(first.truncated&&options.diversify!==false){
-    const orders=searchPriorityOrders(types).slice(1);
-    const nodeLimit=Math.max(200,Math.min(PRIORITY_PASS_NODE_LIMIT,Math.floor(SEARCH_LIMIT/2/Math.max(1,orders.length))));
+    const budget=Math.min(SEARCH_LIMIT/2,first.nodes);
+    const orders=searchPriorityOrders(types).slice(1,1+Math.floor(budget/PRIORITY_PASS_MIN_NODES));
+    const nodeLimit=Math.min(PRIORITY_PASS_NODE_LIMIT,Math.floor(budget/Math.max(1,orders.length))-1);
     for(const order of orders){
       nodes+=searchLayoutPass(order,W,D,H,obstacles,gap,found,{nodeLimit,freshLimit:PRIORITY_PASS_LAYOUT_LIMIT}).nodes;
       passes++;
     }
   }
-  return {layouts:[...found.values()],truncated:first.truncated,nodes,passes};
+  return {layouts:[...found.values()],truncated:first.truncated,nodes,firstNodes:first.nodes,passes};
 }
 
 function findLayouts(){
