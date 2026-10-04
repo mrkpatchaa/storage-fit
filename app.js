@@ -45,6 +45,7 @@ let pendingImport = null;
 let capacityLayoutContext = null;
 let savedPlanSourceContext = null;
 let installUnlockAnalysisCache = null;
+let assemblyPlayback = null;
 
 state.itemLimits = state.itemLimits || {};
 state.fitTolerance = Math.max(0, Number(state.fitTolerance)||0);
@@ -1697,6 +1698,7 @@ function openDetailModal(){
 }
 function closeDetailModal(){
   detailModalOpen=false;
+  endAssemblyPlayback();
   $("detailModal").classList.remove("open");
   $("detailModal").setAttribute("aria-hidden","true");
   document.body.classList.remove("modal-open");
@@ -6477,54 +6479,67 @@ function svgSide(layout,D,H,width=760,height=390){
   return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Side view"><rect x="${ox}" y="${oy}" width="${D*scale}" height="${H*scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${obs}${rects}</svg>`;
 }
 
-/* Interactive orthographic 3D camera. */
-const isoCamera={yaw:Math.PI/4,elevation:30*Math.PI/180};
+/* Interactive 3D view. Rendering lives in view3d.js, shared with share.html. */
+let isoCamera=StorageFit3D.defaultCamera();
 
-function isoCameraRaw(x,y,z,W,D,H){
-  const cx=W/2,cy=D/2,dx=x-cx,dy=y-cy;
-  const c=Math.cos(isoCamera.yaw),s=Math.sin(isoCamera.yaw);
-  const xr=dx*c-dy*s,yr=dx*s+dy*c;
-  const ce=Math.cos(isoCamera.elevation),se=Math.sin(isoCamera.elevation);
-  return [xr,yr*se-z*ce];
+function resolvedColor(value){
+  const m=/^var\((--[\w-]+)\)$/.exec(String(value));
+  return m?getComputedStyle(document.documentElement).getPropertyValue(m[1]).trim():value;
 }
-function isoTransform(W,D,H,width,height){
-  const corners=[[0,0,0],[W,0,0],[W,D,0],[0,D,0],[0,0,H],[W,0,H],[W,D,H],[0,D,H]].map(v=>isoCameraRaw(...v,W,D,H));
-  const xs=corners.map(p=>p[0]),ys=corners.map(p=>p[1]);
-  const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
-  const pad=38,scale=Math.min((width-2*pad)/(maxX-minX||1),(height-2*pad)/(maxY-minY||1));
-  const tx=(width-(minX+maxX)*scale)/2,ty=(height-(minY+maxY)*scale)/2;
-  return (x,y,z)=>{const [rx,ry]=isoCameraRaw(x,y,z,W,D,H);return [rx*scale+tx,ry*scale+ty]};
+function isoScene(layout,W,D,H){
+  return {
+    W,D,H,unit:state.unit,
+    boxes:layout.map((p,i)=>({x:p.x,y:p.y,z:Number(p.z)||0,w:p.w,d:p.d,h:p.h,color:resolvedColor(colorFor(p.typeId)),label:placementDisplayName(p,i)})),
+    obstacles:usableObstacles().map(o=>({kind:o.kind,x:o.x,y:o.y,w:o.w,d:o.d,h:o.h}))
+  };
 }
-function poly(points,fill,stroke,opacity){
-  return `<polygon points="${points.map(p=>p.join(",")).join(" ")}" fill="${fill}" fill-opacity="${opacity}" stroke="${stroke}" stroke-width="1.1"/>`;
+function svgIso(layout,W,D,H,reveal=null){
+  return StorageFit3D.render(isoScene(layout,W,D,H),isoCamera,{reveal});
 }
-function obstacleCuboidSvg(o,P){
-  const A=P(o.x,o.y,0),B=P(o.x+o.w,o.y,0),C=P(o.x+o.w,o.y+o.d,0),D=P(o.x,o.y+o.d,0);
-  const E=P(o.x,o.y,o.h),F=P(o.x+o.w,o.y,o.h),G=P(o.x+o.w,o.y+o.d,o.h),H=P(o.x,o.y+o.d,o.h);
-  const divider=o.kind==="divider",c=divider?"#416b8e":"#b23c3c";
-  return poly([A,B,F,E],c,c,divider?.20:.10)+poly([B,C,G,F],c,c,divider?.24:.14)+poly([E,F,G,H],c,c,divider?.30:.18);
-}
-function cuboidSvg(p,P){
+function assemblyStepText(layout,order,step){
+  const p=layout[order[step]];if(!p)return "";
   const z=Number(p.z)||0;
-  const A=P(p.x,p.y,z),B=P(p.x+p.w,p.y,z),C=P(p.x+p.w,p.y+p.d,z),D=P(p.x,p.y+p.d,z);
-  const E=P(p.x,p.y,z+p.h),F=P(p.x+p.w,p.y,z+p.h),G=P(p.x+p.w,p.y+p.d,z+p.h),H=P(p.x,p.y+p.d,z+p.h);
-  const c=colorFor(p.typeId);
-  return poly([A,B,F,E],c,c,.18)+poly([B,C,G,F],c,c,.24)+poly([E,F,G,H],c,c,.34);
+  return `Step ${step+1} of ${order.length} · ${placementDisplayName(p,order[step])} — ${fmt(p.x)} ${state.unit} from the left, ${fmt(p.y)} ${state.unit} from the front${z>1e-9?`, stacked ${fmt(z)} ${state.unit} up`:""}`;
 }
-function svgIso(layout,W,D,H,width=760,height=430){
-  const P=isoTransform(W,D,H,width,height);
-  const sorted=layout.slice().sort((a,b)=>{
-    const ac=isoCameraRaw(a.x+a.w/2,a.y+a.d/2,(a.z||0)+a.h/2,W,D,H)[1];
-    const bc=isoCameraRaw(b.x+b.w/2,b.y+b.d/2,(b.z||0)+b.h/2,W,D,H)[1];
-    return bc-ac;
-  });
-  const floor=poly([P(0,0,0),P(W,0,0),P(W,D,0),P(0,D,0)],"#ffffff","#bbbbbb",1);
-  const obstacleBoxes=usableObstacles().map(o=>obstacleCuboidSvg(o,P)).join("");
-  const boxes=sorted.map(p=>cuboidSvg(p,P)).join("");
-  const pts=[P(0,0,0),P(W,0,0),P(W,D,0),P(0,D,0),P(0,0,H),P(W,0,H),P(W,D,H),P(0,D,H)];
-  const edges=[[0,1],[1,2],[2,3],[3,0],[4,5],[5,6],[6,7],[7,4],[0,4],[1,5],[2,6],[3,7]];
-  const lines=edges.map(([a,b])=>`<line x1="${pts[a][0]}" y1="${pts[a][1]}" x2="${pts[b][0]}" y2="${pts[b][1]}" stroke="#222" stroke-width="1.8"/>`).join("");
-  return `<svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Interactive 3D view">${floor}${obstacleBoxes}${boxes}${lines}</svg>`;
+// Redraws only the 3D picture, so rotating and playback skip the rest of the detail panel.
+function renderIsoViz(){
+  const sz=currentUsableSize(),layout=layouts[selectedLayout];if(!sz||!layout)return;
+  let reveal=null;
+  if(assemblyPlayback){
+    const frame=StorageFit3D.assemblyFrame(assemblyPlayback.order.length,performance.now()-assemblyPlayback.startedAt,assemblyPlayback.stepMs);
+    if(frame.done)endAssemblyPlayback();
+    else{
+      // With reduced motion each box simply appears in place instead of dropping in.
+      reveal=assemblyPlayback.calm
+        ? {order:assemblyPlayback.order,shown:frame.shown+1,progress:0}
+        : {order:assemblyPlayback.order,shown:frame.shown,progress:frame.progress};
+      $("assemblyCaption").textContent=assemblyStepText(layout,assemblyPlayback.order,frame.shown);
+    }
+  }
+  $("detailViz").innerHTML=svgIso(layout,sz.W,sz.D,sz.H,reveal);
+}
+function endAssemblyPlayback(){
+  if(!assemblyPlayback)return;
+  cancelAnimationFrame(assemblyPlayback.frame);
+  assemblyPlayback=null;
+  $("assemblyCaption").hidden=true;$("assemblyCaption").textContent="";
+  $("playAssembly").textContent="▶ Assemble";
+}
+function startAssemblyPlayback(){
+  const layout=layouts[selectedLayout];if(!layout?.length||detailView!=="iso"||editMode)return;
+  const order=StorageFit3D.assemblyOrder(layout);
+  assemblyPlayback={
+    order,startedAt:performance.now(),frame:0,
+    stepMs:Math.max(220,Math.min(650,7000/order.length)),
+    calm:!!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+  };
+  $("assemblyCaption").hidden=false;$("playAssembly").textContent="■ Stop";
+  const tick=()=>{
+    if(!assemblyPlayback)return;
+    renderIsoViz();
+    if(assemblyPlayback)assemblyPlayback.frame=requestAnimationFrame(tick);
+  };
+  tick();
 }
 
 function renderDetail(W,D,H){
@@ -6544,7 +6559,9 @@ function renderDetail(W,D,H){
   const capacityStructure=capacityLayoutContext?packingStackSummaryText(capacityLayoutContext.stackSummary):"";
   $("detailSubtitle").textContent=`${capacityNote}${capacityStructure?capacityStructure+" · ":""}${(utilization(layout,W,D,H)*100).toFixed(1)}% ${utilizationNoun(layout)} utilization · ${layout.length} item${layout.length===1?"":"s"}${stackedCount?` · ${stackedCount} stacked`:""}.`;
   document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("active",t.dataset.view===detailView));
+  endAssemblyPlayback();
   $("reset3d").disabled=detailView!=="iso";
+  $("playAssembly").disabled=detailView!=="iso"||editMode;
   const printableLabels=printablePlacementLabels(layout);
   $("printLabelsBtn").disabled=printableLabels.length===0;
   $("printLabelsBtn").title=printableLabels.length?`Print ${printableLabels.length} organizer label${printableLabels.length===1?"":"s"}`:"Add purpose labels to placements first";
@@ -7097,18 +7114,16 @@ $("detailViz").addEventListener("pointercancel",stopTopDrag);
 let isoDrag=null;
 $("detailViz").addEventListener("pointerdown",e=>{
   if(editMode||detailView!=="iso"||!layouts.length)return;
-  isoDrag={id:e.pointerId,x:e.clientX,y:e.clientY,yaw:isoCamera.yaw,elevation:isoCamera.elevation};
-  $("detailViz").setPointerCapture?.(e.pointerId);
+  isoDrag={id:e.pointerId,x:e.clientX,y:e.clientY,azimuth:isoCamera.azimuth,elevation:isoCamera.elevation};
+  try{$("detailViz").setPointerCapture(e.pointerId)}catch(err){}
   $("detailViz").classList.add("dragging");
   e.preventDefault();
 });
 $("detailViz").addEventListener("pointermove",e=>{
   if(!isoDrag||e.pointerId!==isoDrag.id||detailView!=="iso")return;
-  const dx=e.clientX-isoDrag.x,dy=e.clientY-isoDrag.y;
-  isoCamera.yaw=isoDrag.yaw+dx*0.012;
-  isoCamera.elevation=Math.max(10*Math.PI/180,Math.min(75*Math.PI/180,isoDrag.elevation-dy*0.009));
-  const S=storage();
-  if(S&&layouts.length){const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0;renderDetail(S.w-2*c,S.d-2*c,S.h-2*c)}
+  // The storage follows the pointer: dragging right swings its front to the right, dragging down tips it towards the viewer.
+  isoCamera=StorageFit3D.clampCamera({azimuth:isoDrag.azimuth-(e.clientX-isoDrag.x)*0.012,elevation:isoDrag.elevation+(e.clientY-isoDrag.y)*0.009});
+  renderIsoViz();
   e.preventDefault();
 });
 function stopIsoDrag(e){
@@ -7119,8 +7134,12 @@ $("detailViz").addEventListener("pointerup",stopIsoDrag);
 $("detailViz").addEventListener("pointercancel",stopIsoDrag);
 $("detailViz").addEventListener("lostpointercapture",stopIsoDrag);
 $("reset3d").addEventListener("click",()=>{
-  isoCamera.yaw=Math.PI/4;isoCamera.elevation=30*Math.PI/180;
-  const S=storage();if(S&&layouts.length){const c=state.clearanceEnabled?Math.max(0,state.clearance||0):0;renderDetail(S.w-2*c,S.d-2*c,S.h-2*c)}
+  isoCamera=StorageFit3D.defaultCamera();
+  if(detailView==="iso"&&!editMode)renderIsoViz();
+});
+$("playAssembly").addEventListener("click",()=>{
+  if(assemblyPlayback){endAssemblyPlayback();renderIsoViz()}
+  else startAssemblyPlayback();
 });
 
 

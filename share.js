@@ -1,7 +1,7 @@
 (() => {
 const $=id=>document.getElementById(id);
 const COLORS=["#8fb6d8","#d5a76f","#86b58b","#c597c8","#d98a8a","#9ea4ce"];
-let payload=null,view="front";
+let payload=null,view="front",camera=StorageFit3D.defaultCamera(),drag=null;
 
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function fmt(n){return String(Math.round(Number(n)*100)/100)}
@@ -63,24 +63,17 @@ function svgSide(){
   return `<svg class="preview" viewBox="0 0 ${width} ${height}" role="img" aria-label="Side view"><rect x="${ox}" y="${oy}" width="${D*scale}" height="${H*scale}" fill="#fff" stroke="#222" stroke-width="2.5"/>${obs}${boxes}</svg>`;
 }
 function svgIso(){
-  const [W,D,H]=payload.z,width=760,height=430,map=itemMap();
-  const raw=(x,y,z)=>({x:(x-y)*.78,y:(x+y)*.32-z});
-  const corners=[[0,0,0],[W,0,0],[W,D,0],[0,D,0],[0,0,H],[W,0,H],[W,D,H],[0,D,H]].map(v=>raw(...v));
-  const minX=Math.min(...corners.map(p=>p.x)),maxX=Math.max(...corners.map(p=>p.x)),minY=Math.min(...corners.map(p=>p.y)),maxY=Math.max(...corners.map(p=>p.y));
-  const scale=Math.min((width-70)/(maxX-minX||1),(height-60)/(maxY-minY||1)),ox=(width-(maxX-minX)*scale)/2-minX*scale,oy=(height-(maxY-minY)*scale)/2-minY*scale;
-  const P=(x,y,z)=>{const p=raw(x,y,z);return {x:ox+p.x*scale,y:oy+p.y*scale}};
-  const poly=(pts,fill,stroke,op)=>`<polygon points="${pts.map(p=>p.x+","+p.y).join(" ")}" fill="${fill}" fill-opacity="${op}" stroke="${stroke}" stroke-width="1.1"/>`;
-  const cuboid=(p,color,op=.38)=>{
-    const A=P(p.x,p.y,p.z),B=P(p.x+p.w,p.y,p.z),C=P(p.x+p.w,p.y+p.d,p.z),E=P(p.x,p.y,p.z+p.h),F=P(p.x+p.w,p.y,p.z+p.h),G=P(p.x+p.w,p.y+p.d,p.z+p.h),Hh=P(p.x,p.y+p.d,p.z+p.h);
-    return poly([A,B,F,E],color,color,op*.82)+poly([B,C,G,F],color,color,op*.94)+poly([E,F,G,Hh],color,color,op);
-  };
-  const shell=[poly([P(0,0,0),P(W,0,0),P(W,D,0),P(0,D,0)],"#ffffff","#333",.45),poly([P(0,0,0),P(W,0,0),P(W,0,H),P(0,0,H)],"#f5f5f2","#888",.13),poly([P(W,0,0),P(W,D,0),P(W,D,H),P(W,0,H)],"#f5f5f2","#888",.10)].join("");
-  const physical=obstacles().map(o=>cuboid({x:o.x,y:o.y,z:0,w:o.w,d:o.d,h:o.h},o.kind==="divider"?"#416b8e":"#b23c3c",o.kind==="divider"?.28:.16)).join("");
-  const boxes=placements().sort((a,b)=>(a.x+a.y+a.z)-(b.x+b.y+b.z)).map(p=>cuboid(p,map.get(p.id).color,.42)).join("");
-  return `<svg class="preview" viewBox="0 0 ${width} ${height}" role="img" aria-label="3D view">${shell}${physical}${boxes}</svg>`;
+  const [W,D,H]=payload.z,map=itemMap();
+  return StorageFit3D.render({
+    W,D,H,unit:payload.u,
+    boxes:placements().map(p=>({x:p.x,y:p.y,z:p.z,w:p.w,d:p.d,h:p.h,color:map.get(p.id).color,label:p.label||map.get(p.id).name})),
+    obstacles:obstacles()
+  },camera);
 }
 function renderViz(){
   document.querySelectorAll("[data-share-view]").forEach(b=>b.classList.toggle("active",b.dataset.shareView===view));
+  $("shareViz").classList.toggle("is-3d",view==="iso");
+  $("shareReset3d").disabled=view!=="iso";
   $("shareViz").innerHTML=view==="top"?svgTop():view==="side"?svgSide():view==="iso"?svgIso():svgFront();
 }
 function render(){
@@ -113,5 +106,26 @@ if(result.error){
   payload=result.payload;$("shareViewer").hidden=false;render();
   document.querySelectorAll("[data-share-view]").forEach(btn=>btn.addEventListener("click",()=>{view=btn.dataset.shareView;renderViz()}));
   $("copySharedLink").addEventListener("click",copyCurrent);
+  // Same drag-to-turn behaviour as the planner's 3D view.
+  const viz=$("shareViz");
+  viz.addEventListener("pointerdown",e=>{
+    if(view!=="iso")return;
+    drag={id:e.pointerId,x:e.clientX,y:e.clientY,azimuth:camera.azimuth,elevation:camera.elevation};
+    try{viz.setPointerCapture(e.pointerId)}catch(err){}
+    viz.classList.add("dragging");e.preventDefault();
+  });
+  viz.addEventListener("pointermove",e=>{
+    if(!drag||e.pointerId!==drag.id||view!=="iso")return;
+    camera=StorageFit3D.clampCamera({azimuth:drag.azimuth-(e.clientX-drag.x)*0.012,elevation:drag.elevation+(e.clientY-drag.y)*0.009});
+    renderViz();e.preventDefault();
+  });
+  const stopDrag=e=>{
+    if(!drag||(e&&e.pointerId!==drag.id))return;
+    drag=null;viz.classList.remove("dragging");
+  };
+  viz.addEventListener("pointerup",stopDrag);
+  viz.addEventListener("pointercancel",stopDrag);
+  viz.addEventListener("lostpointercapture",stopDrag);
+  $("shareReset3d").addEventListener("click",()=>{camera=StorageFit3D.defaultCamera();renderViz()});
 }
 })();

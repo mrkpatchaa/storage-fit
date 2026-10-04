@@ -7,7 +7,7 @@ Storage Fit is a dependency-free browser tool for planning boxes and organizers 
 - Models your home as Room → Furniture → Storage space, while keeping reusable items in one shared library.
 - Supports opt-in true 3D stacking with per-item rules: stay upright, may sit on another item, and may support items above.
 - Generates practical maximal layouts with different optimization goals.
-- Shows front, top, side and draggable 3D views.
+- Shows front, top, side and a draggable solid 3D view, with step-by-step assembly playback.
 - Lets you drag, rotate, duplicate and remove items in a layout.
 - Models blocked zones such as rails, hinges and unusable corners.
 - Detects leftover rectangles and suggests saved items that fit them.
@@ -32,8 +32,12 @@ Using a local web server is preferable to opening index.html directly because br
     ├── index.html        Application shell
     ├── styles.css        Application styles
     ├── app.js            Planner, optimizer, import and persistence logic
+    ├── view3d.js         3D renderer shared by the planner and the share viewer
+    ├── share.html        Read-only shared-plan viewer
+    ├── share.js          Shared-plan viewer logic
     ├── tests/
-    │   └── smoke.html    Browser smoke tests for core helpers
+    │   ├── smoke.html             Browser smoke tests
+    │   └── run-browser-smoke.sh   Headless-Chrome runner used by CI
     └── README.md
 
 The project intentionally remains plain HTML, CSS and JavaScript with no framework and no bundler.
@@ -1194,4 +1198,19 @@ Variants of one quantity mix are also curated differently:
 - a variant is kept only if at least a third of its placements (and at least two) sit somewhere clearly different from every variant already kept. The same box, turned the same way and shifted by less than about a third of its size, counts as the same place, so near-copies that nudge a box or slide a row no longer fill the gallery.
 
 The search remains deterministic, and Max quantities, blocked zones, dividers, fit tolerance and stacking rules apply to every pass.
+
+## 3D view and assembly playback
+
+The **3D** tab draws the storage as a solid, shaded scene instead of a see-through sketch:
+
+- organizers are opaque boxes painted back to front, so nearer boxes hide what is behind them;
+- the two far walls are drawn and the two near walls are left open, like a cut-away;
+- blocked zones stay translucent red and dividers translucent blue;
+- each organizer is named on its top face when that spot is visible, and the usable width, depth and height are captioned beside the drawing, with the front edge marked **Front**.
+
+The camera is orthographic and is not mirrored: seen from the front, the storage's left is on your left and its front edge is nearest to you, which matches standing at the open drawer or shelf. Drag to turn it; the storage follows the pointer. **Reset view** returns to the default three-quarter view from the front right.
+
+**▶ Assemble** plays the layout being loaded one organizer at a time: supports before the items stacked on them, and the back of each level before its front. A caption gives the current step with the organizer's distance from the left and from the front, and its height when stacked. Playback respects the reduced-motion preference by placing each organizer without the drop.
+
+The renderer lives in `view3d.js` and is shared with the read-only share viewer, whose 3D tab can now be turned the same way.
 

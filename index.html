@@ -418,6 +418,7 @@
           <button class="tab" type="button" data-view="iso">3D</button>
           <button class="tab" type="button" data-view="top">Top</button>
           <button class="tab" type="button" data-view="side">Side</button>
+          <button class="reset3d" id="playAssembly" type="button" disabled>▶ Assemble</button>
           <button class="reset3d" id="reset3d" type="button" disabled>Reset view</button>
         </div>
         <div class="editbar" id="editBar">
@@ -471,7 +472,10 @@
           <button class="btn primary" id="doneEdit" type="button">Done editing</button>
           <span class="editstatus" id="editStatus">Click or drag a box in Top view.</span>
         </div>
-        <div class="detailviz" id="detailViz"></div>
+        <div class="detailvizwrap">
+          <div class="assemblycaption" id="assemblyCaption" hidden></div>
+          <div class="detailviz" id="detailViz"></div>
+        </div>
         <div class="detailinfo">
           <div class="detailbox"><h3>Suggested quantities</h3><ul id="layoutItems"></ul></div>
           <div class="detailbox"><h3>Contents / labels</h3><div id="layoutLabels" class="placementlabels"></div></div>
@@ -517,6 +521,7 @@
 
 <section id="printSheet" aria-hidden="true"></section>
 
+<script src="view3d.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

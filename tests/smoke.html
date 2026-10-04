@@ -1753,6 +1753,113 @@
         return api.layoutRaggedness(proposalsByMix[key][0])!==tidiestFound;
       });
       result(untidyLeaders.length===0,"each quantity mix leads with its most aligned arrangement when variants tie on the goal",untidyLeaders.length+" mix(es) lead with a more ragged variant: "+untidyLeaders.slice(0,3).join(" ; "));
+
+      var v3=w.StorageFit3D;
+      result(!!v3,"the planner page loads the shared 3D renderer");
+      function closeTo(a,b){return Math.abs(a-b)<1e-6;}
+      var room={W:100,D:60,H:40},frontCamera={azimuth:0,elevation:Math.PI/6};
+      var frontLeft=v3.project(frontCamera,room,0,0,0),frontRight=v3.project(frontCamera,room,100,0,0),backLeft=v3.project(frontCamera,room,0,60,0),topLeft=v3.project(frontCamera,room,0,0,40);
+      result(closeTo(frontLeft[0],-50)&&closeTo(frontRight[0],50),"a front-on 3D camera keeps the storage's left on the viewer's left",frontLeft[0]+" / "+frontRight[0]);
+      result(closeTo(frontLeft[1],15)&&closeTo(backLeft[1],-15),"a front-on 3D camera draws the front edge nearest the viewer and the back edge above it",frontLeft[1]+" / "+backLeft[1]);
+      result(closeTo(topLeft[1],15-40*Math.cos(Math.PI/6)),"height points up the screen in the 3D view",String(topLeft[1]));
+      result(same(v3.visibleSides({azimuth:0.7,elevation:0.5}),{x:1,y:-1})&&same(v3.visibleSides({azimuth:-0.7,elevation:0.5}),{x:-1,y:-1})&&same(v3.visibleSides({azimuth:Math.PI-0.7,elevation:0.5}),{x:1,y:1}),"the 3D view shows the side faces that face the camera: right and front from the front right, left and front from the front left, right and back from behind");
+      var frontBox={x:0,y:0,z:0,w:10,d:10,h:10},backBox={x:0,y:20,z:0,w:10,d:10,h:10},stackedBox={x:0,y:0,z:10,w:10,d:10,h:5};
+      var trio=[frontBox,backBox,stackedBox];
+      result(same(v3.drawOrder(trio,{azimuth:0.3,elevation:0.5}),[1,0,2]),"seen from the front, the back box is painted first, then the front box, then the box stacked on it",JSON.stringify(v3.drawOrder(trio,{azimuth:0.3,elevation:0.5})));
+      var behindOrder=v3.drawOrder(trio,{azimuth:Math.PI-0.3,elevation:0.5});
+      result(behindOrder.indexOf(0)<behindOrder.indexOf(1)&&behindOrder.indexOf(0)<behindOrder.indexOf(2),"seen from behind, the front box is painted before the back box and before the box stacked on it",JSON.stringify(behindOrder));
+      result(same(v3.assemblyOrder(trio),[1,0,2]),"assembly order loads the back of the floor first and stacked boxes after their supports",JSON.stringify(v3.assemblyOrder(trio)));
+      result(same(v3.assemblyFrame(3,0,500),{shown:0,progress:0,done:false})&&same(v3.assemblyFrame(3,750,500),{shown:1,progress:0.5,done:false})&&same(v3.assemblyFrame(3,1500,500),{shown:3,progress:0,done:true}),"assembly playback maps elapsed time to the boxes already placed and the progress of the arriving one");
+      var sceneBoxes=trio.map(function(b,i){return Object.assign({color:"#5d7fa3",label:"Box "+(i+1)},b);});
+      var scene={W:100,D:60,H:40,unit:"cm",boxes:sceneBoxes,obstacles:[{kind:"blocked",x:60,y:0,w:10,d:10,h:20},{kind:"divider",x:40,y:0,w:1,d:60,h:40}]};
+      function drawnBoxes(svg){
+        var holder=w.document.createElement("div");holder.innerHTML=svg;
+        return Array.prototype.map.call(holder.querySelectorAll("[data-box]"),function(g){return Number(g.getAttribute("data-box"));});
+      }
+      var fullSvg=v3.render(scene,{azimuth:0.3,elevation:0.5});
+      result(same(drawnBoxes(fullSvg),[1,0,2]),"the 3D render draws every organizer once, back to front",JSON.stringify(drawnBoxes(fullSvg)));
+      var captionHolder=w.document.createElement("div");captionHolder.innerHTML=fullSvg;
+      result(/front/i.test(captionHolder.textContent)&&captionHolder.textContent.indexOf("100 cm")>=0&&captionHolder.textContent.indexOf("60 cm")>=0&&captionHolder.textContent.indexOf("40 cm")>=0,"the 3D render marks the front edge and captions the usable width, depth and height",captionHolder.textContent.replace(/\s+/g," ").trim());
+      result(captionHolder.querySelectorAll("[data-obstacle]").length===2,"the 3D render draws blocked zones and dividers as solids");
+      result(same(drawnBoxes(v3.render(scene,{azimuth:0.3,elevation:0.5},{reveal:{order:[1,0,2],shown:1,progress:0}})),[1])&&same(drawnBoxes(v3.render(scene,{azimuth:0.3,elevation:0.5},{reveal:{order:[1,0,2],shown:1,progress:0.5}})).slice().sort(),[0,1]),"a partially revealed 3D render shows only the placed boxes plus the one arriving");
+
+      function svgTexts(svg){
+        var holder=w.document.createElement("div");holder.innerHTML=svg;
+        return Array.prototype.map.call(holder.querySelectorAll("text"),function(t){return t.textContent;});
+      }
+      // Seen low from the front, the tall front box hides the top of the low box behind it.
+      var hiddenTopScene={W:100,D:60,H:40,unit:"cm",obstacles:[],boxes:[
+        {x:0,y:0,z:0,w:10,d:10,h:20,color:"#5d7fa3",label:"Front box"},
+        {x:0,y:20,z:0,w:10,d:10,h:5,color:"#668a68",label:"Back box"}
+      ]};
+      var lowFrontTexts=svgTexts(v3.render(hiddenTopScene,{azimuth:0.001,elevation:0.2}));
+      result(lowFrontTexts.indexOf("Front box")>=0&&lowFrontTexts.indexOf("Back box")<0,"the 3D render leaves out the name of a box whose top is hidden behind a nearer box",JSON.stringify(lowFrontTexts));
+      // Captions belong beside the drawing: from any side, none may land on a wall, the floor or a box.
+      function captionsOnDrawing(camera){
+        var holder=w.document.createElement("div");holder.innerHTML=v3.render(scene,camera);
+        var polygons=Array.prototype.map.call(holder.querySelectorAll("polygon"),function(pg){
+          return pg.getAttribute("points").trim().split(/\s+/).map(function(pair){return pair.split(",").map(Number);});
+        });
+        function covers(poly,x,y){
+          var hit=false;
+          for(var i=0,j=poly.length-1;i<poly.length;j=i++){
+            if((poly[i][1]>y)!==(poly[j][1]>y)&&x<(poly[j][0]-poly[i][0])*(y-poly[i][1])/(poly[j][1]-poly[i][1])+poly[i][0])hit=!hit;
+          }
+          return hit;
+        }
+        return Array.prototype.filter.call(holder.querySelectorAll("text"),function(t){
+          if(!/ cm$/.test(t.textContent))return false;
+          var x=Number(t.getAttribute("x")),y=Number(t.getAttribute("y"));
+          return polygons.some(function(poly){return covers(poly,x,y);});
+        }).map(function(t){return t.textContent;});
+      }
+      var misplacedCaptions=[0.6,-0.6,Math.PI-0.4,0.4-Math.PI].map(function(azimuth){return captionsOnDrawing({azimuth:azimuth,elevation:0.6});});
+      result(misplacedCaptions.every(function(list){return list.length===0;}),"dimension captions stay beside the 3D drawing from the front, either side and behind",JSON.stringify(misplacedCaptions));
+
+      // The gallery still holds the default-shelf proposals; the first one is the 4 × 3 grid of twelve small boxes.
+      doc.querySelector("#gallery .layoutcard").click();
+      doc.querySelector('.tab[data-view="iso"]').click();
+      var viz=doc.getElementById("detailViz");
+      function solidCount(){return viz.querySelectorAll("svg [data-box]").length;}
+      function frontCaption(){
+        var node=Array.prototype.filter.call(viz.querySelectorAll("svg text"),function(t){return /^Front/.test(t.textContent);})[0];
+        return node?[Number(node.getAttribute("x")),Number(node.getAttribute("y"))]:[NaN,NaN];
+      }
+      function pointer(type,x,y){viz.dispatchEvent(new w.PointerEvent(type,{pointerId:7,clientX:x,clientY:y,bubbles:true,cancelable:true}));}
+      result(solidCount()===12,"the planner's 3D tab draws each organizer of the selected layout as a solid",String(solidCount()));
+      var restingMarkup=viz.innerHTML,restingFront=frontCaption();
+      pointer("pointerdown",300,200);pointer("pointermove",360,200);pointer("pointerup",360,200);
+      var swungFront=frontCaption();
+      result(swungFront[0]>restingFront[0],"dragging the 3D view to the right swings the front edge to the right with the pointer",restingFront[0]+" → "+swungFront[0]);
+      // The picture is refitted for every camera, so tilt is read from the floor's proportions rather than from a position.
+      function floorTilt(){
+        var pts=viz.querySelector("svg polygon").getAttribute("points").trim().split(/\s+/).map(function(pair){return pair.split(",").map(Number);});
+        var xs=pts.map(function(q){return q[0];}),ys=pts.map(function(q){return q[1];});
+        return (Math.max.apply(null,ys)-Math.min.apply(null,ys))/(Math.max.apply(null,xs)-Math.min.apply(null,xs));
+      }
+      var tiltBefore=floorTilt();
+      pointer("pointerdown",300,200);pointer("pointermove",300,260);pointer("pointerup",300,260);
+      result(floorTilt()>tiltBefore,"dragging the 3D view down raises the viewpoint so more of the floor shows",tiltBefore.toFixed(3)+" → "+floorTilt().toFixed(3));
+      doc.getElementById("reset3d").click();
+      result(viz.innerHTML===restingMarkup,"Reset view returns the 3D camera to where it started");
+      var playButton=doc.getElementById("playAssembly"),assemblyCaption=doc.getElementById("assemblyCaption");
+      playButton.click();
+      var solidsWhilePlaying=solidCount(),firstStep=assemblyCaption.textContent;
+      playButton.click();
+      result(solidsWhilePlaying<12&&firstStep.indexOf("Step 1 of 12")===0&&firstStep.indexOf("26 cm from the front")>0,"assembly playback starts with an empty storage and its first step loads the back row",solidsWhilePlaying+" solids · "+firstStep);
+      result(solidCount()===12&&assemblyCaption.hidden===true,"stopping assembly playback shows the complete layout again",solidCount()+" solids");
+      var realMatchMedia=w.matchMedia;
+      w.matchMedia=function(query){return {matches:/prefers-reduced-motion/.test(query)};};
+      playButton.click();
+      var calmGroups=viz.querySelectorAll("svg [data-box]");
+      var calmFirstFrame=calmGroups.length===1&&!calmGroups[0].hasAttribute("opacity");
+      playButton.click();
+      w.matchMedia=realMatchMedia;
+      result(calmFirstFrame,"with reduced motion preferred, each assembly step shows its organizer already in place instead of dropping it in",calmGroups.length+" solids in the first frame");
+      playButton.click();
+      doc.querySelector('.tab[data-view="front"]').click();
+      result(playButton.disabled===true&&assemblyCaption.hidden===true&&viz.querySelectorAll("svg [data-box]").length===0,"leaving the 3D tab ends assembly playback and disables its button");
+      doc.getElementById("closeDetailModal").click();
     }catch(e){
       result(false,"test harness exception",e.message);
     }finally{
@@ -1760,17 +1867,57 @@
       Object.keys(backup).forEach(function(key){localStorage.setItem(key,backup[key]);});
     }
 
-    var pass=rows.filter(function(x){return x.ok;}).length;
-    var html="<p><strong>"+pass+"/"+rows.length+" passed</strong></p><ul>";
-    html+=rows.map(function(r){
-      return '<li class="'+(r.ok?"pass":"fail")+'">'+(r.ok?"✓":"✗")+" "+r.name+(r.detail?" — <code>"+r.detail+"</code>":"")+"</li>";
-    }).join("");
-    html+="</ul>";
-    document.getElementById("results").innerHTML=html;
-    document.body.dataset.smokeComplete="true";
-    document.body.dataset.smokePassed=String(pass);
-    document.body.dataset.smokeTotal=String(rows.length);
-    document.body.dataset.smokeFailures=String(rows.length-pass);
+    function finish(){
+      var pass=rows.filter(function(x){return x.ok;}).length;
+      var html="<p><strong>"+pass+"/"+rows.length+" passed</strong></p><ul>";
+      html+=rows.map(function(r){
+        return '<li class="'+(r.ok?"pass":"fail")+'">'+(r.ok?"✓":"✗")+" "+r.name+(r.detail?" — <code>"+r.detail+"</code>":"")+"</li>";
+      }).join("");
+      html+="</ul>";
+      document.getElementById("results").innerHTML=html;
+      document.body.dataset.smokeComplete="true";
+      document.body.dataset.smokePassed=String(pass);
+      document.body.dataset.smokeTotal=String(rows.length);
+      document.body.dataset.smokeFailures=String(rows.length-pass);
+    }
+
+    // The read-only share viewer is a separate page, so it is checked in its own frame before reporting.
+    var shareLink="";
+    try{
+      shareLink=w.StorageFitTest.encodeSharePayload({
+        v:1,n:"Shared drawer",u:"cm",g:"Best use of space",k:false,d:[60,40,20],z:[60,40,20],c:0,t:0,r:50,q:"usable floor",
+        o:[[0,50,0,10,10,20]],
+        i:[["a","Tray"],["b","Tin"]],
+        p:[["a",0,0,0,30,20,5,"Cutlery"],["a",0,20,0,30,20,5,""],["b",30,0,0,10,10,8,""]]
+      });
+    }catch(e){result(false,"share link for the viewer test could not be built",e.message);}
+    if(!shareLink){finish();return;}
+    var shareFrame=document.createElement("iframe");
+    shareFrame.addEventListener("load",function(){
+      try{
+        var sw=shareFrame.contentWindow,sdoc=sw.document,shareViz=sdoc.getElementById("shareViz");
+        result(sdoc.getElementById("shareViewer").hidden===false&&sdoc.getElementById("shareTitle").textContent==="Shared drawer","the share viewer opens a valid shared-plan link");
+        sdoc.querySelector('[data-share-view="iso"]').click();
+        result(shareViz.querySelectorAll("svg [data-box]").length===3&&shareViz.querySelectorAll("svg [data-obstacle]").length===1,"the share viewer's 3D tab draws every shared organizer and blocked zone as a solid",shareViz.querySelectorAll("svg [data-box]").length+" boxes");
+        function sharedFrontX(){
+          var node=Array.prototype.filter.call(shareViz.querySelectorAll("svg text"),function(t){return /^Front/.test(t.textContent);})[0];
+          return node?Number(node.getAttribute("x")):NaN;
+        }
+        function sharePointer(type,x,y){shareViz.dispatchEvent(new sw.PointerEvent(type,{pointerId:9,clientX:x,clientY:y,bubbles:true,cancelable:true}));}
+        var sharedResting=shareViz.innerHTML,sharedFrontBefore=sharedFrontX();
+        sharePointer("pointerdown",200,200);sharePointer("pointermove",260,200);sharePointer("pointerup",260,200);
+        result(sharedFrontX()>sharedFrontBefore,"the shared 3D view can be dragged round like the planner's",sharedFrontBefore+" → "+sharedFrontX());
+        sdoc.getElementById("shareReset3d").click();
+        result(shareViz.innerHTML===sharedResting,"the share viewer's Reset view returns its 3D camera to where it started");
+        sdoc.querySelector('[data-share-view="top"]').click();
+        result(sdoc.getElementById("shareReset3d").disabled===true&&shareViz.querySelectorAll("svg [data-box]").length===0,"the share viewer only offers Reset view on its 3D tab");
+      }catch(e){
+        result(false,"share viewer harness exception",e.message);
+      }
+      finish();
+    },{once:true});
+    shareFrame.src="../share.html#p="+shareLink;
+    document.body.appendChild(shareFrame);
   },{once:true});
 })();
 </script>
