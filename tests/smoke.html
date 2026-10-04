@@ -1995,6 +1995,13 @@
       result(api.spokenCommand("save")==="save"&&api.spokenCommand("yes please")==="save"&&api.spokenCommand("oui")==="save","saying save, yes or oui confirms the heard measurement");
       result(api.spokenCommand("next")==="skip"&&api.spokenCommand("skip this one")==="skip"&&api.spokenCommand("say that again")==="repeat"&&api.spokenCommand("stop")==="stop","skip, repeat and stop are recognised as commands");
       result(api.spokenCommand("60 by 45 by 16")===null&&api.spokenCommand("the second drawer")===null,"measurements and other speech are not mistaken for commands");
+      result(api.spokenCommand("no that's not right")==="reject"&&api.spokenCommand("not correct")==="reject"&&api.spokenCommand("don't save")==="reject"&&api.spokenCommand("that's wrong")==="reject"&&api.spokenCommand("non")==="reject","a negative answer rejects the heard measurement instead of saving it");
+      result(api.spokenCommand("save and next")==="save"&&api.spokenCommand("save it and go to the next one")==="save","saving phrases that mention moving on still save");
+      result(api.spokenCommand("okay 60 by 45")===null&&api.spokenCommand("yes sixty")===null,"speech that contains numbers is never taken as a command");
+      // Results are in the project unit (cm here); the second argument is only the unit assumed when none is said.
+      result(same(api.parseSpokenDimensions("60 by 45 by 16 in centimetres","mm"),[60,45,16])&&same(api.parseSpokenDimensions("60 by 45 by 16","mm"),[6,4.5,1.6]),"'in centimetres' sets the unit instead of being read as inches");
+      result(same(api.parseSpokenDimensions("depth 45 width 60 and 16","cm"),[60,45,16])&&same(api.parseSpokenDimensions("16 high by 60 by 45","cm"),[60,45,16]),"partly labelled measurements put labelled values in place and fill the rest in order");
+      result(same(api.parseSpokenDimensions("1,200 by 600 by 400","mm"),[120,60,40])&&same(api.parseSpokenDimensions("60,5 by 40 by 16","cm"),[60.5,40,16]),"thousands separators and decimal commas are both understood");
 
       var voicePanel=doc.getElementById("voiceMeasurePanel"),voiceButton=doc.getElementById("voiceMeasureBtn");
       var realRecognition=w.SpeechRecognition,realWebkitRecognition=w.webkitSpeechRecognition;
@@ -2007,10 +2014,12 @@
       FakeRecognition.prototype.start=function(){this.started++;};
       FakeRecognition.prototype.abort=function(){this.aborted++;};
       FakeRecognition.prototype.stop=function(){this.aborted++;};
-      function hear(text){
-        var alternative=[{transcript:text,confidence:0.9}];alternative.isFinal=true;
-        recognisers[recognisers.length-1].onresult({resultIndex:0,results:[alternative]});
+      function hearAlternatives(texts){
+        var alternatives=texts.map(function(text){return {transcript:text,confidence:0.9};});alternatives.isFinal=true;
+        recognisers[recognisers.length-1].onresult({resultIndex:0,results:[alternatives]});
       }
+      function hear(text){hearAlternatives([text]);}
+      function editorValues(){return [doc.getElementById("sw").value,doc.getElementById("sd").value,doc.getElementById("sh").value].map(Number);}
       w.SpeechRecognition=FakeRecognition;
       var queue=api.measurementProgressData().pending,unitFactor={cm:1,mm:10,"in":1/2.54}[doc.getElementById("unit").value];
       voiceButton.click();
@@ -2024,17 +2033,45 @@
       var whileTalking=[doc.getElementById("sw").value,doc.getElementById("sd").value,doc.getElementById("sh").value].map(Number);
       delete w.speechSynthesis;
       result(closeTo(whileTalking[0],67*unitFactor)&&closeTo(whileTalking[2],13*unitFactor),"speech heard while the planner is still talking is ignored, so it never acts on its own read-back",JSON.stringify(whileTalking));
+      hearAlternatives(["that's wrong","that's right"]);
+      var rejected=editorValues();
+      result(closeTo(rejected[0],queue[0].width)&&closeTo(rejected[1],queue[0].depth)&&closeTo(rejected[2],queue[0].height)&&api.measurementProgressData().pending.some(function(row){return row.storageId===queue[0].storageId;}),"saying it is wrong discards the heard measurement, restores the saved size and saves nothing, even when a lower-ranked guess sounds like yes",JSON.stringify(rejected));
+      hear("sixty seven by twenty six by thirteen centimetres");
+      var depthInput=doc.getElementById("sd");depthInput.value=String(27*unitFactor);depthInput.dispatchEvent(new w.Event("input",{bubbles:true}));
       hear("save");
       var savedRow=api.measurementProgressData().rows.filter(function(row){return row.storageId===queue[0].storageId;})[0];
-      result(savedRow.status==="current"&&closeTo(savedRow.width,67*unitFactor)&&closeTo(savedRow.depth,26*unitFactor)&&closeTo(savedRow.height,13*unitFactor),"saying save stores the heard dimensions and marks the storage measured",JSON.stringify(savedRow));
+      result(savedRow.status==="current"&&closeTo(savedRow.width,67*unitFactor)&&closeTo(savedRow.depth,27*unitFactor)&&closeTo(savedRow.height,13*unitFactor),"saying save stores what the editor shows, including a typed correction, and marks the storage measured",JSON.stringify(savedRow));
       if(queue.length>1){
         result(doc.getElementById("voiceMeasurePath").textContent===queue[1].path&&queue[1].path.slice(-doc.getElementById("storageName").value.length)===doc.getElementById("storageName").value,"after saving, voice measuring moves on to the next storage in the queue",doc.getElementById("voiceMeasurePath").textContent);
+        var otherItem=doc.querySelector('#storageList [data-s="'+queue[0].storageId+'"]');
+        if(otherItem)otherItem.click();
+        hear("seventy by fifty by twenty centimetres");
+        var firstAfter=api.measurementProgressData().rows.filter(function(row){return row.storageId===queue[0].storageId;})[0];
+        result(!!otherItem&&queue[1].path.slice(-doc.getElementById("storageName").value.length)===doc.getElementById("storageName").value&&closeTo(editorValues()[0],70*unitFactor)&&closeTo(firstAfter.width,67*unitFactor),"a measurement heard after opening another storage goes back to the storage being measured",doc.getElementById("storageName").value);
         for(var skipped=1;skipped<queue.length;skipped++)hear("skip");
       }
       result(!api.voiceMeasuringActive()&&/1 saved/.test(voicePanel.textContent)&&recognisers[0].aborted>0,"once every storage is saved or skipped, voice measuring stops listening and reports what was saved",voicePanel.textContent.replace(/\s+/g," ").trim());
       result(queue.slice(1).every(function(row){return api.measurementProgressData().pending.some(function(left){return left.storageId===row.storageId;});}),"skipped storages stay in the measurement queue");
       doc.getElementById("voiceMeasureStop").click();
       result(voicePanel.hidden===true,"closing the voice panel hides it");
+      if(queue.length>1){
+        voiceButton.click();
+        recognisers[recognisers.length-1].onerror({error:"network"});
+        result(!api.voiceMeasuringActive()&&/connection|network/i.test(voicePanel.textContent),"a network failure in speech recognition stops voice measuring and says why",voicePanel.textContent.replace(/\s+/g," ").trim());
+        doc.getElementById("voiceMeasureStop").click();
+        voiceButton.click();
+        var looping=recognisers[recognisers.length-1];
+        for(var restart=0;restart<8;restart++)looping.onend();
+        result(!api.voiceMeasuringActive()&&looping.started<8,"recognition that keeps ending without hearing anything stops instead of restarting forever",looping.started+" starts");
+        doc.getElementById("voiceMeasureStop").click();
+        voiceButton.click();
+        hear("seventy by fifty by twenty centimetres");
+        doc.getElementById("deleteStorage").click();
+        hear("save");
+        var survivor=api.measurementProgressData().rows.filter(function(row){return row.storageId===queue[0].storageId;})[0];
+        result(!api.voiceMeasuringActive()&&closeTo(survivor.width,67*unitFactor)&&closeTo(survivor.depth,27*unitFactor),"saying save after the measured storage was deleted saves nothing to another storage",JSON.stringify([survivor.width,survivor.depth,survivor.height]));
+        doc.getElementById("voiceMeasureStop").click();
+      }
       w.SpeechRecognition=realRecognition;w.webkitSpeechRecognition=realWebkitRecognition;
 
       // Constraint editors at desktop width: every number must stay readable.

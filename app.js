@@ -2619,12 +2619,15 @@ function openMeasurementStorage(storageId){
 }
 /* Voice measuring: speak a storage's inside size while holding the tape measure. */
 const SPOKEN_NUMBERS={zero:0,oh:0,one:1,two:2,three:3,four:4,five:5,six:6,seven:7,eight:8,nine:9,ten:10,eleven:11,twelve:12,thirteen:13,fourteen:14,fifteen:15,sixteen:16,seventeen:17,eighteen:18,nineteen:19,twenty:20,thirty:30,forty:40,fifty:50,sixty:60,seventy:70,eighty:80,ninety:90};
-const SPOKEN_UNITS=[[/\b(?:centi(?:met(?:er|re)s?|mètres?)|cms?)\b/g,"cm"],[/\b(?:milli(?:met(?:er|re)s?|mètres?)|mms?)\b/g,"mm"],[/\b(?:inch(?:es)?|pouces?)\b/g,"in"],[/\b(?:met(?:er|re)s?|mètres?)\b/g,"m"]];
+const SPOKEN_UNITS=[[/\b(?:centi(?:met(?:er|re)s?|mètres?)|cms?)\b/g,"cm"],[/\b(?:milli(?:met(?:er|re)s?|mètres?)|mms?)\b/g,"mm"],[/\b(?:inch(?:es)?|pouces?)\b/g,"inches"],[/\b(?:met(?:er|re)s?|mètres?)\b/g,"m"]];
+// Checked in order: a negative answer wins over "right" in "that's not right", and
+// saving wins over "next" in "save and next" (saving moves on anyway).
 const SPOKEN_COMMANDS=[
+  ["reject",/\b(?:no|nope|not|don'?t|do not|wrong|incorrect|non|pas|faux)\b/],
+  ["save",/\b(?:save|yes|yeah|yep|correct|confirm(?:ed)?|ok(?:ay)?|right|oui|enregistre[rz]?|valide[rz]?)\b/],
   ["stop",/\b(?:stop|done|finish(?:ed)?|cancel|quit|exit|arr[eê]te[rz]?|termin[eé]|fini)\b/],
   ["skip",/\b(?:skip|next|pass|suivant|passe[rz]?)\b/],
-  ["repeat",/\b(?:repeat|again|pardon|r[eé]p[eè]te[rz]?)\b/],
-  ["save",/\b(?:save|yes|yeah|yep|correct|confirm(?:ed)?|ok(?:ay)?|right|oui|enregistre[rz]?|valide[rz]?)\b/]
+  ["repeat",/\b(?:repeat|again|pardon|r[eé]p[eè]te[rz]?)\b/]
 ];
 // Reads one spoken number starting at token i ("forty five", "eight hundred and ten",
 // "sixty point five", "forty and a half"). A word that cannot extend the number, such
@@ -2632,8 +2635,9 @@ const SPOKEN_COMMANDS=[
 function readSpokenNumber(tokens,i){
   const word=w=>Object.prototype.hasOwnProperty.call(SPOKEN_NUMBERS,w);
   let j=i,value;
-  if(/^\d+(?:[.,]\d+)?$/.test(tokens[j]||"")){value=Number(tokens[j].replace(",","."));j++}
-  else if(word(tokens[j])||(tokens[j]==="a"&&tokens[j+1]==="hundred")){
+  if(/^\d{1,3}(?:,\d{3})+$/.test(tokens[j]||"")){value=Number(tokens[j].replace(/,/g,""));j++}
+  else if(/^\d+(?:[.,]\d+)?$/.test(tokens[j]||"")){value=Number(tokens[j].replace(",","."));j++}
+  else if((word(tokens[j])&&tokens[j]!=="oh")||(tokens[j]==="a"&&tokens[j+1]==="hundred")){
     let total=0,current=0,any=false;
     while(j<tokens.length){
       const w=tokens[j];
@@ -2672,22 +2676,36 @@ function spokenText(text){
 }
 // Width × depth × height in the project unit from a spoken phrase, or null.
 function parseSpokenDimensions(text,unit=state.unit){
-  const spoken=spokenText(text),number=String.raw`(\d+(?:\.\d+)?)(?:\s*(mm|cm|in|m)\b)?`;
-  // Nouns come before their value ("width 60"), adjectives after it ("60 wide").
+  const spoken=spokenText(text),units="(mm|cm|inches|m)";
+  const values=[...spoken.matchAll(new RegExp(String.raw`(\d+(?:\.\d+)?)(?:\s*${units}\b)?`,"g"))]
+    .map(m=>({start:m.index,end:m.index+m[0].length,value:m[1],unit:m[2]||""}));
+  if(values.length!==3)return null;
+  // A unit said once ("16 in centimetres", "60 centimetres by 45 by 16") applies to every value.
+  const said=new Set(values.map(v=>v.unit).filter(Boolean));
+  if(said.size>1&&values.some(v=>!v.unit))return null;
+  if(!said.size){
+    const loose=new Set([...spoken.matchAll(new RegExp(String.raw`\b${units}\b`,"g"))].map(m=>m[1]));
+    if(loose.size===1)values.forEach(v=>{v.unit=[...loose][0]});
+  }else if(said.size===1)values.forEach(v=>{v.unit=v.unit||[...said][0]});
+  // Nouns come before their value ("width 60"), adjectives after it ("60 wide"); unlabelled values fill the rest in order.
   const axes=[[["width","largeur"],["wide","large"]],[["depth","profondeur"],["deep","profond"]],[["height","hauteur"],["high","tall","haut"]]];
-  const labelled=axes.map(([nouns,adjectives])=>{
-    const m=new RegExp(String.raw`\b(?:${nouns.join("|")})\b(?:\s+(?:is|of))?\s*${number}`).exec(spoken)
-      ||new RegExp(String.raw`${number}\s*(?:${adjectives.join("|")})\b`).exec(spoken);
-    return m?`${m[1]}${m[2]?" "+m[2]:""}`:null;
+  const slots=[null,null,null];
+  values.forEach((v,i)=>{
+    const before=spoken.slice(i?values[i-1].end:0,v.start),after=spoken.slice(v.end,i<2?values[i+1].start:spoken.length);
+    const axis=axes.findIndex(([nouns,adjectives])=>
+      new RegExp(String.raw`\b(?:${nouns.join("|")})\b(?:\s+(?:is|of))?\s*$`).test(before)||new RegExp(String.raw`^\s*(?:${adjectives.join("|")})\b`).test(after));
+    if(axis>=0){if(slots[axis])return slots.fill(undefined);slots[axis]=v}
   });
-  if(labelled.every(Boolean))return parseQuickDimensions(labelled.join(" x "),unit);
-  const values=[...spoken.matchAll(new RegExp(number,"g"))].map(m=>`${m[1]}${m[2]?" "+m[2]:""}`);
-  return values.length===3?parseQuickDimensions(values.join(" x "),unit):null;
+  if(slots.includes(undefined))return null;
+  values.filter(v=>!slots.includes(v)).forEach(v=>{slots[slots.indexOf(null)]=v});
+  return parseQuickDimensions(slots.map(v=>`${v.value}${v.unit?" "+(v.unit==="inches"?"in":v.unit):""}`).join(" x "),unit);
 }
 function spokenCommand(text){
-  if(parseSpokenDimensions(text))return null;
-  const spoken=String(text||"").toLowerCase();
-  return SPOKEN_COMMANDS.find(([,pattern])=>pattern.test(spoken))?.[0]||null;
+  const raw=String(text||"").toLowerCase();
+  // Speech with a number in it is a (perhaps partial) measurement, never a command.
+  // "one" in "this one" or "the next one" is a pronoun, not a number.
+  if(/\d/.test(spokenText(raw.replace(/\b(this|that|the|next|last|other)\s+one\b/g,"$1"))))return null;
+  return SPOKEN_COMMANDS.find(([,pattern])=>pattern.test(raw))?.[0]||null;
 }
 const UNIT_WORDS={cm:"centimetres",mm:"millimetres",in:"inches"};
 let voiceSession=null;
@@ -2735,10 +2753,28 @@ function advanceVoiceMeasuring(){
   openMeasurementStorage(next.storageId);
   promptVoiceTarget();
 }
+function fillVoiceFields(dims){
+  [["sw",0],["sd",1],["sh",2]].forEach(([id,i])=>{const el=$(id);el.value=String(round6(dims[i]));el.classList.add("autofill");setTimeout(()=>el.classList.remove("autofill"),750)});
+}
+// The editor must show the storage being measured; returns false when it no longer exists.
+function showVoiceTarget(){
+  const s=voiceSession;
+  if(!state.storages.some(x=>x.id===s.storageId))return false;
+  if(editingStorage!==s.storageId)openMeasurementStorage(s.storageId);
+  return editingStorage===s.storageId;
+}
 function saveVoiceCandidate(){
   const s=voiceSession;if(!s?.candidate)return;
-  if(editingStorage!==s.storageId)openMeasurementStorage(s.storageId);
-  [["sw",0],["sd",1],["sh",2]].forEach(([id,i])=>{$(id).value=String(round6(s.candidate[i]))});
+  if(!state.storages.some(x=>x.id===s.storageId)){
+    s.candidate=null;voiceSay("That storage was deleted, so nothing was saved.");
+    return advanceVoiceMeasuring();
+  }
+  // The editor already shows the heard size, plus any correction typed since; only
+  // refill it when another storage was opened in the meantime.
+  if(editingStorage!==s.storageId){
+    if(!showVoiceTarget())return;
+    fillVoiceFields(s.candidate);
+  }
   if(!saveStorageEditor({verify:true,advance:false}))return;
   s.saved++;
   advanceVoiceMeasuring();
@@ -2748,6 +2784,11 @@ function handleVoiceTranscript(text){
   s.heard=String(text||"").trim();
   const command=spokenCommand(text);
   if(command==="stop")return endVoiceMeasuring(`Stopped: ${s.saved} saved.`);
+  if(command==="reject"){
+    s.candidate=null;
+    if(showVoiceTarget())loadStorageEditor();
+    renderVoicePanel();return voiceSay("Okay, nothing saved. Measure it again.");
+  }
   if(command==="repeat")return promptVoiceTarget();
   if(command==="skip"){s.skipped.add(s.storageId);return advanceVoiceMeasuring()}
   if(command==="save"){
@@ -2758,8 +2799,9 @@ function handleVoiceTranscript(text){
   if(!dims||!dims.every(v=>v>0)){
     renderVoicePanel();return voiceSay("I didn't catch three measurements. Say width by depth by height.");
   }
+  if(!showVoiceTarget()){s.candidate=null;return advanceVoiceMeasuring()}
   s.candidate=dims;
-  [["sw",0],["sd",1],["sh",2]].forEach(([id,i])=>{const el=$(id);el.value=String(round6(dims[i]));el.classList.add("autofill");setTimeout(()=>el.classList.remove("autofill"),750)});
+  fillVoiceFields(dims);
   renderVoicePanel();
   voiceSay(`${dims.map(fmt).join(" by ")} ${UNIT_WORDS[state.unit]||state.unit}. Say save, or measure again.`);
 }
@@ -2770,22 +2812,34 @@ function startVoiceMeasuring(){
   if(!measurementProgressData().pending.length){renderVoicePanel("Every storage measurement is already current.");return}
   const recognition=new Recognition();
   recognition.lang=navigator.language||"en-US";recognition.continuous=true;recognition.interimResults=false;recognition.maxAlternatives=3;
-  voiceSession={recognition,storageId:"",candidate:null,heard:"",saved:0,skipped:new Set(),speaking:false,speechToken:0};
+  voiceSession={recognition,storageId:"",candidate:null,heard:"",saved:0,skipped:new Set(),speaking:false,speechToken:0,recentEnds:[]};
   recognition.onresult=e=>{
     // Never act on speech heard while a prompt is still being read aloud: it may be the read-back itself.
     if(window.speechSynthesis?.speaking)return;
+    if(voiceSession)voiceSession.recentEnds=[];
     for(let i=e.resultIndex;i<e.results.length;i++){
       const result=e.results[i];if(!result.isFinal)continue;
       const alternatives=Array.from(result,a=>a.transcript);
-      // Prefer the first alternative that is a command or a full measurement.
-      handleVoiceTranscript(alternatives.find(t=>spokenCommand(t)||parseSpokenDimensions(t,state.unit))||alternatives[0]);
+      // Commands come only from the best guess, so a lower-ranked "yes" cannot save;
+      // for a measurement, the first guess that holds three values is used.
+      handleVoiceTranscript(spokenCommand(alternatives[0])?alternatives[0]:alternatives.find(t=>parseSpokenDimensions(t,state.unit))||alternatives[0]);
     }
   };
   recognition.onerror=e=>{
     if(e.error==="not-allowed"||e.error==="service-not-allowed"||e.error==="audio-capture")endVoiceMeasuring("Microphone access is blocked. Allow it for this page to measure by voice.");
+    else if(e.error==="network")endVoiceMeasuring("Speech recognition could not reach its service. Check the connection and try again.");
+    else if(e.error==="language-not-supported")endVoiceMeasuring(`Speech recognition does not support this browser's language (${recognition.lang}).`);
   };
-  // Continuous recognition still ends after silence; keep listening until the session stops.
-  recognition.onend=()=>{if(voiceSession?.recognition===recognition&&!voiceSession.speaking){try{recognition.start()}catch(e){}}};
+  // Continuous recognition still ends after silence, so keep listening until the session
+  // stops, but give up when it keeps ending immediately without hearing anything.
+  recognition.onend=()=>{
+    const s=voiceSession;
+    if(s?.recognition!==recognition||s.speaking)return;
+    const now=Date.now();
+    s.recentEnds=s.recentEnds.filter(t=>now-t<10000).concat(now);
+    if(s.recentEnds.length>5)return endVoiceMeasuring("Voice input keeps stopping. Check the microphone and try again.");
+    try{recognition.start()}catch(e){}
+  };
   advanceVoiceMeasuring();
   if(voiceSession)try{recognition.start()}catch(e){}
 }
